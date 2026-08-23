@@ -21,6 +21,8 @@
     "seed": "tsx prisma/seed.ts",
     "smoke:scanner": "tsx scripts/smoke-scanner.ts",
     "smoke:birthdays": "tsx scripts/smoke-birthdays.ts",
+    "birthdays:e2e:seed": "tsx scripts/birthday-e2e-seed.ts",
+    "birthdays:e2e:cleanup": "tsx scripts/birthday-e2e-cleanup.ts",
     "smoke:scanner:code": "tsx scripts/smoke-scanner-code.ts",
     "smoke:attendance": "tsx scripts/smoke-attendance.ts",
     "posters:global": "tsx scripts/generate-global-posters.ts",
