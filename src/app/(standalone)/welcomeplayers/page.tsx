@@ -9,17 +9,7 @@ export const metadata: Metadata = {
 
 export default function WelcomePlayersPage() {
   return (
-    <main
-      className={styles.scene}
-    >
-      <div className="pointer-events-none absolute inset-0 z-[1]">
-        <div className={`${styles.orb} ${styles.orb1}`} />
-        <div className={`${styles.orb} ${styles.orb2}`} />
-        <div className={`${styles.orb} ${styles.orb3}`} />
-        <div className={styles.grid} />
-        <div className={styles.vignette} />
-      </div>
-
+    <main className={styles.scene}>
       <div className="relative z-[2] flex h-full w-full">
         <WelcomePlayersClient />
       </div>

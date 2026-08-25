@@ -18,9 +18,6 @@ export type WelcomePlayersLayoutProfile = {
   modalTitleClassName: string;
   modalCopyClassName: string;
   modalButtonClassName: string;
-  backgroundGlowClassName: string;
-  backgroundBeamClassName: string;
-  backgroundGridClassName: string;
 };
 
 export const WELCOME_PLAYERS_LAYOUT_PROFILES: Record<Exclude<WelcomePlayersDisplayMode, "auto">, WelcomePlayersLayoutProfile> = {
@@ -34,17 +31,14 @@ export const WELCOME_PLAYERS_LAYOUT_PROFILES: Record<Exclude<WelcomePlayersDispl
     introClassName: "max-w-[56rem]",
     wheelStageClassName: "relative mx-auto flex w-full flex-1 min-h-0 items-center justify-center max-w-none py-1",
     wheelClassName: "relative flex aspect-square touch-manipulation items-center justify-center overflow-visible rounded-full border border-white/10 bg-[#0A0D16] outline-none select-none ring-1 ring-white/5 w-[var(--wp-wheel-size)] max-w-full",
-    arrowClassName: "h-0 w-0 border-l-transparent border-r-transparent border-t-amber-300 drop-shadow-[0_6px_16px_rgba(0,0,0,0.28)] border-l-[22px] border-r-[22px] border-t-[36px]",
+    arrowClassName: "h-0 w-0 border-l-transparent border-r-transparent border-t-amber-300 border-l-[22px] border-r-[22px] border-t-[36px]",
     actionButtonClassName: "w-full rounded-[1.65rem] border border-slate-200 bg-gradient-to-r from-sky-500 via-cyan-500 to-amber-300 text-center font-black uppercase tracking-[0.24em] text-white shadow-[0_16px_32px_rgba(14,165,233,0.18)] transition-transform active:scale-[0.99] disabled:opacity-70 px-6 py-4 text-[1rem]",
-    statsCardClassName: "rounded-[1.5rem] border border-slate-200/80 bg-white/78 px-4 py-4 text-center backdrop-blur-sm shadow-sm",
+    statsCardClassName: "rounded-[1.5rem] border border-slate-200/80 bg-white px-4 py-4 text-center shadow-sm",
     footerClassName: "text-center text-slate-500 pb-1 pt-1 text-[0.95rem]",
-    modalClassName: "relative z-[1] w-full rounded-[2rem] border border-slate-200/80 bg-white/92 text-center shadow-[0_28px_80px_rgba(15,23,42,0.18)] max-w-2xl p-8",
+    modalClassName: "relative z-[1] w-full rounded-[2rem] border border-slate-200/80 bg-white text-center shadow-[0_28px_80px_rgba(15,23,42,0.18)] max-w-2xl p-8",
     modalTitleClassName: "mt-3 font-black leading-none tracking-[-0.05em] text-slate-950 text-[clamp(2.8rem,4.2vw,4.4rem)]",
     modalCopyClassName: "mx-auto mt-4 leading-relaxed text-slate-600 max-w-xl text-[1.05rem]",
     modalButtonClassName: "mt-6 w-full rounded-[1.15rem] border border-slate-200 bg-gradient-to-r from-sky-500 via-cyan-500 to-amber-300 font-black uppercase tracking-[0.24em] text-white shadow-[0_14px_28px_rgba(14,165,233,0.16)] transition-transform active:scale-[0.99] px-6 py-4 text-[1rem]",
-    backgroundGlowClassName: "orb orb1",
-    backgroundBeamClassName: "beam",
-    backgroundGridClassName: "grid",
   },
   compact: {
     shellClassName: "relative w-full overflow-x-hidden overflow-y-visible rounded-[2rem] px-4 py-5 min-h-[100vh] text-slate-900 bg-[radial-gradient(circle_at_top,_rgba(253,224,71,0.18),_transparent_26%),radial-gradient(circle_at_18%_18%,_rgba(244,114,182,0.14),_transparent_22%),radial-gradient(circle_at_85%_15%,_rgba(56,189,248,0.16),_transparent_24%),linear-gradient(180deg,#fff9ef_0%,#fff4fb_32%,#f7fbff_70%,#eef6ff_100%)]",
@@ -56,17 +50,14 @@ export const WELCOME_PLAYERS_LAYOUT_PROFILES: Record<Exclude<WelcomePlayersDispl
     introClassName: "max-w-[30rem]",
     wheelStageClassName: "relative mx-auto flex w-full items-center justify-center max-w-[34rem] py-5 sm:py-6",
     wheelClassName: "relative flex aspect-square touch-manipulation items-center justify-center overflow-visible rounded-full border border-white/10 bg-[#0A0D16] outline-none select-none ring-1 ring-white/5 w-[var(--wp-wheel-size)] max-w-full",
-    arrowClassName: "h-0 w-0 border-l-transparent border-r-transparent border-t-amber-300 drop-shadow-[0_6px_16px_rgba(0,0,0,0.28)] border-l-[18px] border-r-[18px] border-t-[30px]",
+    arrowClassName: "h-0 w-0 border-l-transparent border-r-transparent border-t-amber-300 border-l-[18px] border-r-[18px] border-t-[30px]",
     actionButtonClassName: "w-full rounded-[1.65rem] border border-slate-200 bg-gradient-to-r from-sky-500 via-cyan-500 to-amber-300 text-center font-black uppercase tracking-[0.24em] text-white shadow-[0_16px_32px_rgba(14,165,233,0.18)] transition-transform active:scale-[0.99] disabled:opacity-70 px-5 py-4 text-[0.95rem]",
-    statsCardClassName: "rounded-[1.5rem] border border-slate-200/80 bg-white/78 px-4 py-5 text-center backdrop-blur-sm shadow-sm",
+    statsCardClassName: "rounded-[1.5rem] border border-slate-200/80 bg-white px-4 py-5 text-center shadow-sm",
     footerClassName: "text-center text-slate-500 pb-1 pt-2 text-[0.8rem]",
-    modalClassName: "relative z-[1] w-full rounded-[2rem] border border-slate-200/80 bg-white/92 text-center shadow-[0_28px_80px_rgba(15,23,42,0.18)] max-w-md p-6",
+    modalClassName: "relative z-[1] w-full rounded-[2rem] border border-slate-200/80 bg-white text-center shadow-[0_28px_80px_rgba(15,23,42,0.18)] max-w-md p-6",
     modalTitleClassName: "mt-3 font-black leading-none tracking-[-0.05em] text-slate-950 text-[clamp(2.2rem,6.4vw,3.5rem)]",
     modalCopyClassName: "mx-auto mt-4 leading-relaxed text-slate-600 max-w-sm text-[1rem]",
     modalButtonClassName: "mt-6 w-full rounded-[1.15rem] border border-slate-200 bg-gradient-to-r from-sky-500 via-cyan-500 to-amber-300 font-black uppercase tracking-[0.24em] text-white shadow-[0_14px_28px_rgba(14,165,233,0.16)] transition-transform active:scale-[0.99] px-5 py-4 text-[0.92rem]",
-    backgroundGlowClassName: "orb orb1",
-    backgroundBeamClassName: "beam",
-    backgroundGridClassName: "grid",
   },
   standard: {
     shellClassName: "relative w-full overflow-x-hidden overflow-y-visible rounded-[2rem] px-4 py-4 min-h-[100vh] text-slate-900 bg-[radial-gradient(circle_at_top,_rgba(253,224,71,0.18),_transparent_26%),radial-gradient(circle_at_18%_18%,_rgba(244,114,182,0.14),_transparent_22%),radial-gradient(circle_at_85%_15%,_rgba(56,189,248,0.16),_transparent_24%),linear-gradient(180deg,#fff9ef_0%,#fff4fb_32%,#f7fbff_70%,#eef6ff_100%)]",
@@ -78,17 +69,14 @@ export const WELCOME_PLAYERS_LAYOUT_PROFILES: Record<Exclude<WelcomePlayersDispl
     introClassName: "max-w-[30rem]",
     wheelStageClassName: "relative mx-auto flex w-full flex-1 min-h-0 items-center justify-center max-w-[34rem] py-2",
     wheelClassName: "relative flex aspect-square touch-manipulation items-center justify-center overflow-visible rounded-full border border-white/10 bg-[#0A0D16] outline-none select-none ring-1 ring-white/5 w-[var(--wp-wheel-size)] max-w-full",
-    arrowClassName: "h-0 w-0 border-l-transparent border-r-transparent border-t-amber-300 drop-shadow-[0_6px_16px_rgba(0,0,0,0.28)] border-l-[18px] border-r-[18px] border-t-[30px]",
+    arrowClassName: "h-0 w-0 border-l-transparent border-r-transparent border-t-amber-300 border-l-[18px] border-r-[18px] border-t-[30px]",
     actionButtonClassName: "w-full rounded-[1.65rem] border border-slate-200 bg-gradient-to-r from-sky-500 via-cyan-500 to-amber-300 text-center font-black uppercase tracking-[0.24em] text-white shadow-[0_16px_32px_rgba(14,165,233,0.18)] transition-transform active:scale-[0.99] disabled:opacity-70 px-5 py-5 text-[1.05rem]",
-    statsCardClassName: "rounded-[1.5rem] border border-slate-200/80 bg-white/78 px-4 py-5 text-center backdrop-blur-sm shadow-sm",
+    statsCardClassName: "rounded-[1.5rem] border border-slate-200/80 bg-white px-4 py-5 text-center shadow-sm",
     footerClassName: "text-center text-slate-500 pb-1 pt-1 text-[0.9rem]",
-    modalClassName: "relative z-[1] w-full rounded-[2rem] border border-slate-200/80 bg-white/92 text-center shadow-[0_28px_80px_rgba(15,23,42,0.18)] max-w-md p-6",
+    modalClassName: "relative z-[1] w-full rounded-[2rem] border border-slate-200/80 bg-white text-center shadow-[0_28px_80px_rgba(15,23,42,0.18)] max-w-md p-6",
     modalTitleClassName: "mt-3 font-black leading-none tracking-[-0.05em] text-slate-950 text-[clamp(2.2rem,6.4vw,3.5rem)]",
     modalCopyClassName: "mx-auto mt-4 leading-relaxed text-slate-600 max-w-sm text-[1rem]",
     modalButtonClassName: "mt-6 w-full rounded-[1.15rem] border border-slate-200 bg-gradient-to-r from-sky-500 via-cyan-500 to-amber-300 font-black uppercase tracking-[0.24em] text-white shadow-[0_14px_28px_rgba(14,165,233,0.16)] transition-transform active:scale-[0.99] px-5 py-4 text-[0.92rem]",
-    backgroundGlowClassName: "orb orb1",
-    backgroundBeamClassName: "beam",
-    backgroundGridClassName: "grid",
   },
 };
 

@@ -9,7 +9,6 @@ import {
   type WelcomePlayersDisplayMode,
 } from "@/lib/welcomeplayers/layout";
 import type { WelcomePlayerPrize, WelcomePlayersRouletteConfig } from "@/lib/welcomeplayers/types";
-import styles from "./welcomeplayers.module.css";
 
 type SpinResponse = {
   spinId: string;
@@ -242,21 +241,17 @@ function fitSegmentLabel(lines: string[], slice: number) {
 
 function SegmentLabel({
   prize,
-  index,
-  total,
+  lines,
+  layout,
+  position,
+  rotation,
 }: {
   prize: WelcomePlayerPrize;
-  index: number;
-  total: number;
+  lines: string[];
+  layout: ReturnType<typeof fitSegmentLabel>;
+  position: { x: number; y: number };
+  rotation: number;
 }) {
-  const segmentAngle = 360 / Math.max(total, 1);
-  const startAngle = -90;
-  const angle = startAngle + index * segmentAngle + segmentAngle / 2;
-  const rotation = getRadialTextRotation(angle);
-  const lines = splitLabel(prize.label);
-  const layout = fitSegmentLabel(lines, segmentAngle);
-  const position = polarToCartesian(CENTER, CENTER, layout.radius, angle);
-
   return (
     <g transform={`translate(${position.x}, ${position.y}) rotate(${rotation})`} style={{ pointerEvents: "none" }}>
       <text
@@ -305,6 +300,28 @@ export default function WelcomePlayersClient() {
     displayMode: "standard" as WelcomePlayersResolvedDisplayMode,
   });
   const wheelRef = useRef<HTMLButtonElement | null>(null);
+
+  const wheelSegments = useMemo(
+    () =>
+      activePrizes.map((prize, index) => {
+        const segmentAngle = 360 / Math.max(activePrizes.length, 1);
+        const angle = -90 + index * segmentAngle + segmentAngle / 2;
+        const lines = splitLabel(prize.label);
+        const layout = fitSegmentLabel(lines, segmentAngle);
+
+        return {
+          prize,
+          path: makeSegmentPath(index, activePrizes.length),
+          label: {
+            lines,
+            layout,
+            position: polarToCartesian(CENTER, CENTER, layout.radius, angle),
+            rotation: getRadialTextRotation(angle),
+          },
+        };
+      }),
+    [activePrizes],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -389,14 +406,8 @@ export default function WelcomePlayersClient() {
 
     void loadConfig();
     void loadStats();
-    const intervalId = window.setInterval(() => {
-      void loadConfig();
-      void loadStats();
-    }, 10000);
-
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
     };
   }, []);
 
@@ -447,18 +458,8 @@ export default function WelcomePlayersClient() {
 
   return (
     <div className={layout.shellClassName} style={wheelStyle}>
-      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-        <div className={`${styles.orb} ${styles.orb1}`} />
-        <div className={`${styles.orb} ${styles.orb2}`} />
-        <div className={`${styles.orb} ${styles.orb3}`} />
-        <div className={styles.beam} />
-        <div className={styles.grid} />
-      </div>
-      <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.90),_transparent_34%),radial-gradient(circle_at_50%_0%,_rgba(59,130,246,0.08),_transparent_20%),linear-gradient(180deg,_rgba(255,255,255,0.78),_rgba(248,250,252,0.96)_30%,_rgba(241,245,249,1))]" />
-      <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_20%_15%,_rgba(251,191,36,0.14),_transparent_18%),radial-gradient(circle_at_80%_18%,_rgba(236,72,153,0.10),_transparent_16%),radial-gradient(circle_at_50%_85%,_rgba(34,211,238,0.10),_transparent_18%)]" />
-
       {debugEnabled ? (
-        <div className="absolute left-3 top-3 z-[9998] max-w-[min(92vw,28rem)] rounded-2xl border border-slate-300/70 bg-white/75 px-4 py-3 font-mono text-[11px] leading-5 text-slate-700 backdrop-blur-md shadow-lg">
+        <div className="absolute left-3 top-3 z-[9998] max-w-[min(92vw,28rem)] rounded-2xl border border-slate-300/70 bg-white px-4 py-3 font-mono text-[11px] leading-5 text-slate-700 shadow-lg">
           <div>window.innerWidth: {viewport.width}</div>
           <div>window.innerHeight: {viewport.height}</div>
           <div>window.devicePixelRatio: {viewport.dpr}</div>
@@ -510,22 +511,18 @@ export default function WelcomePlayersClient() {
                   <stop offset="0%" stopColor="#ffffff" />
                   <stop offset="100%" stopColor="#d6d8df" />
                 </radialGradient>
-                <filter id="wp-shadow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="10" stdDeviation="18" floodColor="#000" floodOpacity="0.35" />
-                </filter>
               </defs>
 
               <circle cx={CENTER} cy={CENTER} r={RADIUS + 16} fill="rgba(255,255,255,0.03)" />
-              <g filter="url(#wp-shadow)">
-                {activePrizes.map((prize, index) => (
-                  <g key={prize.id}>
-                    <path
-                      d={makeSegmentPath(index, activePrizeCount)}
-                      fill={prize.color}
-                      stroke="rgba(255,255,255,0.22)"
-                      strokeWidth={4}
-                    />
-                  </g>
+              <g>
+                {wheelSegments.map(({ prize, path }) => (
+                  <path
+                    key={prize.id}
+                    d={path}
+                    fill={prize.color}
+                    stroke="rgba(255,255,255,0.22)"
+                    strokeWidth={4}
+                  />
                 ))}
               </g>
 
@@ -538,8 +535,8 @@ export default function WelcomePlayersClient() {
               </text>
             </svg>
             <svg className="pointer-events-none absolute inset-0 z-[2] h-full w-full overflow-visible" viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`}>
-              {activePrizes.map((prize, index) => (
-                <SegmentLabel key={`label-${prize.id}`} prize={prize} index={index} total={activePrizeCount} />
+              {wheelSegments.map(({ prize, label }) => (
+                <SegmentLabel key={`label-${prize.id}`} prize={prize} {...label} />
               ))}
             </svg>
           </button>
@@ -569,7 +566,7 @@ export default function WelcomePlayersClient() {
         {error && <div className="rounded-2xl border border-red-300/70 bg-red-50/80 px-4 py-3 text-sm text-red-700 shadow-sm">{error}</div>}
 
         {stats?.lastPrize && (
-          <section className="rounded-[1.25rem] border border-slate-200/80 bg-white/68 px-4 py-4 text-sm text-slate-700 backdrop-blur-sm shadow-sm">
+          <section className="rounded-[1.25rem] border border-slate-200/80 bg-white px-4 py-4 text-sm text-slate-700 shadow-sm">
             Último premio entregado: <span className="font-semibold text-amber-600">{stats.lastPrize.label}</span>
           </section>
         )}
@@ -587,7 +584,7 @@ export default function WelcomePlayersClient() {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           <button
             type="button"
-            className="absolute inset-0 bg-slate-950/45 backdrop-blur-md"
+            className="absolute inset-0 bg-slate-950/45"
             aria-label="Cerrar modal"
             onClick={() => setShowModal(false)}
           />
@@ -616,7 +613,7 @@ export default function WelcomePlayersClient() {
 
 function StatCard({ label, value, className }: { label: string; value: number; className?: string }) {
   return (
-    <div className={className || "rounded-[1.5rem] border border-slate-200/80 bg-white/75 px-4 py-5 text-center backdrop-blur-sm shadow-sm"}>
+    <div className={className || "rounded-[1.5rem] border border-slate-200/80 bg-white px-4 py-5 text-center shadow-sm"}>
       <div className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-slate-500">{label}</div>
       <div className="mt-2 text-[clamp(2.6rem,5vw,3.4rem)] font-black leading-none text-slate-900">{value}</div>
     </div>
