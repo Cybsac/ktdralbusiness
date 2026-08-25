@@ -1,7 +1,6 @@
 ﻿"use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import HeroVideo from "@/app/marketing/components/HeroVideo";
 import { WELCOME_PLAYERS_DEFAULT_CONFIG, WELCOME_PLAYERS_FALLBACK_CONFIG } from "@/lib/welcomeplayers/config";
 import {
   getWelcomePlayersLayoutProfile,
@@ -10,6 +9,7 @@ import {
   type WelcomePlayersDisplayMode,
 } from "@/lib/welcomeplayers/layout";
 import type { WelcomePlayerPrize, WelcomePlayersRouletteConfig } from "@/lib/welcomeplayers/types";
+import styles from "./welcomeplayers.module.css";
 
 type SpinResponse = {
   spinId: string;
@@ -448,18 +448,16 @@ export default function WelcomePlayersClient() {
   return (
     <div className={layout.shellClassName} style={wheelStyle}>
       <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-        <HeroVideo
-          showOverlay
-          overlayBlur={10}
-          overlayColor="rgba(3,6,12,0.46)"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+        <div className={`${styles.orb} ${styles.orb1}`} />
+        <div className={`${styles.orb} ${styles.orb2}`} />
+        <div className={`${styles.orb} ${styles.orb3}`} />
+        <div className={styles.beam} />
+        <div className={styles.grid} />
       </div>
-      <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.10),_transparent_40%),radial-gradient(circle_at_50%_0%,_rgba(236,72,153,0.10),_transparent_22%),linear-gradient(180deg,_rgba(2,6,23,0.08),_transparent_18%)]" />
-      <div className="pointer-events-none absolute inset-0 z-[1] opacity-[0.12] [background-image:radial-gradient(rgba(255,255,255,0.45)_1px,transparent_1px)] [background-size:18px_18px] [mask-image:linear-gradient(180deg,black,transparent_85%)]" />
+      <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.90),_transparent_34%),radial-gradient(circle_at_50%_0%,_rgba(59,130,246,0.08),_transparent_20%),linear-gradient(180deg,_rgba(255,255,255,0.78),_rgba(248,250,252,0.96)_30%,_rgba(241,245,249,1))]" />
 
       {debugEnabled ? (
-        <div className="absolute left-3 top-3 z-[9998] max-w-[min(92vw,28rem)] rounded-2xl border border-lime-400/35 bg-black/70 px-4 py-3 font-mono text-[11px] leading-5 text-lime-100 backdrop-blur-md">
+        <div className="absolute left-3 top-3 z-[9998] max-w-[min(92vw,28rem)] rounded-2xl border border-slate-300/70 bg-white/85 px-4 py-3 font-mono text-[11px] leading-5 text-slate-700 backdrop-blur-md shadow-lg">
           <div>window.innerWidth: {viewport.width}</div>
           <div>window.innerHeight: {viewport.height}</div>
           <div>window.devicePixelRatio: {viewport.dpr}</div>
@@ -547,7 +545,7 @@ export default function WelcomePlayersClient() {
         </div>
 
         {!canSpin && (
-          <section className="rounded-[1.25rem] border border-amber-400/25 bg-amber-400/10 px-4 py-4 text-center text-sm leading-relaxed text-amber-100">
+          <section className="rounded-[1.25rem] border border-amber-300/30 bg-amber-50/85 px-4 py-4 text-center text-sm leading-relaxed text-amber-900 shadow-sm">
             Necesitamos al menos <span className="font-semibold">3 premios activos</span> para activar la ruleta.
             Agrega más premios desde coordinación y vuelve a intentarlo.
           </section>
@@ -567,11 +565,11 @@ export default function WelcomePlayersClient() {
           <StatCard label="PREMIOS" value={stats?.activePrizes ?? activePrizeCount} className={layout.statsCardClassName} />
         </div>
 
-        {error && <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</div>}
+        {error && <div className="rounded-2xl border border-red-300/70 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">{error}</div>}
 
         {stats?.lastPrize && (
-          <section className="rounded-[1.25rem] border border-white/10 bg-white/5 px-4 py-4 text-sm text-white/74 backdrop-blur-sm">
-            Último premio entregado: <span className="font-semibold text-amber-300">{stats.lastPrize.label}</span>
+          <section className="rounded-[1.25rem] border border-slate-200/80 bg-white/80 px-4 py-4 text-sm text-slate-700 backdrop-blur-sm shadow-sm">
+            Último premio entregado: <span className="font-semibold text-amber-600">{stats.lastPrize.label}</span>
           </section>
         )}
 
@@ -588,7 +586,7 @@ export default function WelcomePlayersClient() {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           <button
             type="button"
-            className="absolute inset-0 bg-black/78 backdrop-blur-md"
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-md"
             aria-label="Cerrar modal"
             onClick={() => setShowModal(false)}
           />
@@ -617,9 +615,9 @@ export default function WelcomePlayersClient() {
 
 function StatCard({ label, value, className }: { label: string; value: number; className?: string }) {
   return (
-    <div className={className || "rounded-[1.5rem] border border-white/10 bg-white/4 px-4 py-5 text-center backdrop-blur-sm"}>
-      <div className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-white/45">{label}</div>
-      <div className="mt-2 text-[clamp(2.6rem,5vw,3.4rem)] font-black leading-none text-white">{value}</div>
+    <div className={className || "rounded-[1.5rem] border border-slate-200/80 bg-white/75 px-4 py-5 text-center backdrop-blur-sm shadow-sm"}>
+      <div className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-slate-500">{label}</div>
+      <div className="mt-2 text-[clamp(2.6rem,5vw,3.4rem)] font-black leading-none text-slate-900">{value}</div>
     </div>
   );
 }
