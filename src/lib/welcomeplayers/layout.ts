@@ -25,7 +25,7 @@ export type WelcomePlayersLayoutProfile = {
 
 export const WELCOME_PLAYERS_LAYOUT_PROFILES: Record<Exclude<WelcomePlayersDisplayMode, "auto">, WelcomePlayersLayoutProfile> = {
   kiosk: {
-    shellClassName: "relative h-[100vh] w-full overflow-hidden rounded-none px-6 py-6 min-h-[100vh] text-slate-900 bg-[linear-gradient(180deg,#ffffff_0%,#f7f9fc_44%,#eef3f9_100%)]",
+    shellClassName: "relative h-[100vh] w-full overflow-hidden rounded-none px-6 py-6 min-h-[100vh] text-slate-900 bg-[radial-gradient(circle_at_top,_rgba(253,224,71,0.18),_transparent_26%),radial-gradient(circle_at_18%_18%,_rgba(244,114,182,0.14),_transparent_22%),radial-gradient(circle_at_85%_15%,_rgba(56,189,248,0.16),_transparent_24%),linear-gradient(180deg,#fff9ef_0%,#fff4fb_32%,#f7fbff_70%,#eef6ff_100%)]",
     stageClassName: "relative mx-auto flex h-full w-full max-w-[72rem] flex-col gap-3",
     headerClassName: "flex flex-col items-center text-center gap-3 pt-1",
     logoClassName: "h-14 w-auto object-contain opacity-95",
@@ -47,7 +47,7 @@ export const WELCOME_PLAYERS_LAYOUT_PROFILES: Record<Exclude<WelcomePlayersDispl
     backgroundGridClassName: "grid",
   },
   compact: {
-    shellClassName: "relative w-full overflow-x-hidden overflow-y-visible rounded-[2rem] px-4 py-5 min-h-[100vh] text-slate-900 bg-[linear-gradient(180deg,#ffffff_0%,#f7f9fc_44%,#eef3f9_100%)]",
+    shellClassName: "relative w-full overflow-x-hidden overflow-y-visible rounded-[2rem] px-4 py-5 min-h-[100vh] text-slate-900 bg-[radial-gradient(circle_at_top,_rgba(253,224,71,0.18),_transparent_26%),radial-gradient(circle_at_18%_18%,_rgba(244,114,182,0.14),_transparent_22%),radial-gradient(circle_at_85%_15%,_rgba(56,189,248,0.16),_transparent_24%),linear-gradient(180deg,#fff9ef_0%,#fff4fb_32%,#f7fbff_70%,#eef6ff_100%)]",
     stageClassName: "relative mx-auto flex flex-col min-h-[calc(100vh-2.5rem)] max-w-[35rem] gap-5 pb-8",
     headerClassName: "flex flex-col items-center text-center gap-4 pt-1",
     logoClassName: "h-9 w-auto object-contain opacity-95",
@@ -69,7 +69,7 @@ export const WELCOME_PLAYERS_LAYOUT_PROFILES: Record<Exclude<WelcomePlayersDispl
     backgroundGridClassName: "grid",
   },
   standard: {
-    shellClassName: "relative w-full overflow-x-hidden overflow-y-visible rounded-[2rem] px-4 py-4 min-h-[100vh] text-slate-900 bg-[linear-gradient(180deg,#ffffff_0%,#f7f9fc_44%,#eef3f9_100%)]",
+    shellClassName: "relative w-full overflow-x-hidden overflow-y-visible rounded-[2rem] px-4 py-4 min-h-[100vh] text-slate-900 bg-[radial-gradient(circle_at_top,_rgba(253,224,71,0.18),_transparent_26%),radial-gradient(circle_at_18%_18%,_rgba(244,114,182,0.14),_transparent_22%),radial-gradient(circle_at_85%_15%,_rgba(56,189,248,0.16),_transparent_24%),linear-gradient(180deg,#fff9ef_0%,#fff4fb_32%,#f7fbff_70%,#eef6ff_100%)]",
     stageClassName: "relative mx-auto flex flex-col min-h-[calc(100vh-2rem)] max-w-[34rem] gap-4 pb-6",
     headerClassName: "flex flex-col items-center text-center gap-4 pt-1",
     logoClassName: "h-12 w-auto object-contain opacity-95 sm:h-14",

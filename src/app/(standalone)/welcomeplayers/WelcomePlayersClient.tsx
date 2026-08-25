@@ -455,9 +455,10 @@ export default function WelcomePlayersClient() {
         <div className={styles.grid} />
       </div>
       <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.90),_transparent_34%),radial-gradient(circle_at_50%_0%,_rgba(59,130,246,0.08),_transparent_20%),linear-gradient(180deg,_rgba(255,255,255,0.78),_rgba(248,250,252,0.96)_30%,_rgba(241,245,249,1))]" />
+      <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_20%_15%,_rgba(251,191,36,0.14),_transparent_18%),radial-gradient(circle_at_80%_18%,_rgba(236,72,153,0.10),_transparent_16%),radial-gradient(circle_at_50%_85%,_rgba(34,211,238,0.10),_transparent_18%)]" />
 
       {debugEnabled ? (
-        <div className="absolute left-3 top-3 z-[9998] max-w-[min(92vw,28rem)] rounded-2xl border border-slate-300/70 bg-white/85 px-4 py-3 font-mono text-[11px] leading-5 text-slate-700 backdrop-blur-md shadow-lg">
+        <div className="absolute left-3 top-3 z-[9998] max-w-[min(92vw,28rem)] rounded-2xl border border-slate-300/70 bg-white/75 px-4 py-3 font-mono text-[11px] leading-5 text-slate-700 backdrop-blur-md shadow-lg">
           <div>window.innerWidth: {viewport.width}</div>
           <div>window.innerHeight: {viewport.height}</div>
           <div>window.devicePixelRatio: {viewport.dpr}</div>
@@ -545,7 +546,7 @@ export default function WelcomePlayersClient() {
         </div>
 
         {!canSpin && (
-          <section className="rounded-[1.25rem] border border-amber-300/30 bg-amber-50/85 px-4 py-4 text-center text-sm leading-relaxed text-amber-900 shadow-sm">
+          <section className="rounded-[1.25rem] border border-amber-300/30 bg-amber-50/70 px-4 py-4 text-center text-sm leading-relaxed text-amber-900 shadow-sm">
             Necesitamos al menos <span className="font-semibold">3 premios activos</span> para activar la ruleta.
             Agrega más premios desde coordinación y vuelve a intentarlo.
           </section>
@@ -565,10 +566,10 @@ export default function WelcomePlayersClient() {
           <StatCard label="PREMIOS" value={stats?.activePrizes ?? activePrizeCount} className={layout.statsCardClassName} />
         </div>
 
-        {error && <div className="rounded-2xl border border-red-300/70 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">{error}</div>}
+        {error && <div className="rounded-2xl border border-red-300/70 bg-red-50/80 px-4 py-3 text-sm text-red-700 shadow-sm">{error}</div>}
 
         {stats?.lastPrize && (
-          <section className="rounded-[1.25rem] border border-slate-200/80 bg-white/80 px-4 py-4 text-sm text-slate-700 backdrop-blur-sm shadow-sm">
+          <section className="rounded-[1.25rem] border border-slate-200/80 bg-white/68 px-4 py-4 text-sm text-slate-700 backdrop-blur-sm shadow-sm">
             Último premio entregado: <span className="font-semibold text-amber-600">{stats.lastPrize.label}</span>
           </section>
         )}
@@ -586,7 +587,7 @@ export default function WelcomePlayersClient() {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           <button
             type="button"
-            className="absolute inset-0 bg-slate-950/60 backdrop-blur-md"
+            className="absolute inset-0 bg-slate-950/45 backdrop-blur-md"
             aria-label="Cerrar modal"
             onClick={() => setShowModal(false)}
           />
