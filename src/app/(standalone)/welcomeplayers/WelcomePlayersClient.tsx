@@ -459,7 +459,7 @@ export default function WelcomePlayersClient() {
   return (
     <div className={layout.shellClassName} style={wheelStyle}>
       {debugEnabled ? (
-        <div className="absolute left-3 top-3 z-[9998] max-w-[min(92vw,28rem)] rounded-2xl border border-slate-300/70 bg-white px-4 py-3 font-mono text-[11px] leading-5 text-slate-700 shadow-lg">
+        <div className="absolute left-3 top-3 z-[9998] max-w-[min(92vw,28rem)] rounded-2xl border border-[#41396B] bg-[#111A33] px-4 py-3 font-mono text-[11px] leading-5 text-[#AEB8D4] shadow-lg">
           <div>window.innerWidth: {viewport.width}</div>
           <div>window.innerHeight: {viewport.height}</div>
           <div>window.devicePixelRatio: {viewport.dpr}</div>
@@ -475,7 +475,7 @@ export default function WelcomePlayersClient() {
 
           <div className={layout.introClassName}>
             <h1 className={layout.titleClassName}>
-              Toca <span className="bg-gradient-to-r from-fuchsia-500 via-rose-500 to-amber-300 bg-clip-text text-transparent">y gana</span>
+              Toca <span className="bg-gradient-to-r from-[#FF3CAC] via-[#FF8A3D] to-[#FFD447] bg-clip-text text-transparent">y gana</span>
             </h1>
             <p className={layout.subtitleClassName}>
               Pulsa la pantalla y deja que la ruleta elija tu premio.
@@ -543,7 +543,7 @@ export default function WelcomePlayersClient() {
         </div>
 
         {!canSpin && (
-          <section className="rounded-[1.25rem] border border-amber-300/30 bg-amber-50/70 px-4 py-4 text-center text-sm leading-relaxed text-amber-900 shadow-sm">
+          <section className="rounded-[1.25rem] border border-amber-300/40 bg-[#111A33] px-4 py-4 text-center text-sm leading-relaxed text-[#FFD447] shadow-sm">
             Necesitamos al menos <span className="font-semibold">3 premios activos</span> para activar la ruleta.
             Agrega más premios desde coordinación y vuelve a intentarlo.
           </section>
@@ -563,11 +563,11 @@ export default function WelcomePlayersClient() {
           <StatCard label="PREMIOS" value={stats?.activePrizes ?? activePrizeCount} className={layout.statsCardClassName} />
         </div>
 
-        {error && <div className="rounded-2xl border border-red-300/70 bg-red-50/80 px-4 py-3 text-sm text-red-700 shadow-sm">{error}</div>}
+        {error && <div className="rounded-2xl border border-red-400/50 bg-red-950/50 px-4 py-3 text-sm text-red-200 shadow-sm">{error}</div>}
 
         {stats?.lastPrize && (
-          <section className="rounded-[1.25rem] border border-slate-200/80 bg-white px-4 py-4 text-sm text-slate-700 shadow-sm">
-            Último premio entregado: <span className="font-semibold text-amber-600">{stats.lastPrize.label}</span>
+          <section className="rounded-[1.25rem] border border-[#41396B] bg-[#111A33] px-4 py-4 text-sm text-[#AEB8D4] shadow-sm">
+            Último premio entregado: <span className="font-semibold text-[#FFD447]">{stats.lastPrize.label}</span>
           </section>
         )}
 
@@ -589,8 +589,8 @@ export default function WelcomePlayersClient() {
             onClick={() => setShowModal(false)}
           />
           <div className={layout.modalClassName}>
-            <div className="mx-auto h-1 w-24 rounded-full bg-gradient-to-r from-fuchsia-500 via-rose-400 to-amber-300" />
-            <p className="mt-5 text-[0.72rem] font-semibold uppercase tracking-[0.38em] text-amber-300">¡GANASTE!</p>
+            <div className="mx-auto h-1 w-24 rounded-full bg-gradient-to-r from-[#FF3CAC] to-[#18D7FF]" />
+            <p className="mt-5 text-[0.72rem] font-semibold uppercase tracking-[0.38em] text-[#FFD447]">¡GANASTE!</p>
             <h3 className={layout.modalTitleClassName}>
               {result.prize.label}
             </h3>
@@ -613,9 +613,9 @@ export default function WelcomePlayersClient() {
 
 function StatCard({ label, value, className }: { label: string; value: number; className?: string }) {
   return (
-    <div className={className || "rounded-[1.5rem] border border-slate-200/80 bg-white px-4 py-5 text-center shadow-sm"}>
-      <div className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-slate-500">{label}</div>
-      <div className="mt-2 text-[clamp(2.6rem,5vw,3.4rem)] font-black leading-none text-slate-900">{value}</div>
+    <div className={className || "rounded-[1.5rem] border border-[#41396B] bg-[#111A33] px-4 py-5 text-center shadow-sm"}>
+      <div className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-[#AEB8D4]">{label}</div>
+      <div className="mt-2 text-[clamp(2.6rem,5vw,3.4rem)] font-black leading-none text-[#F5F7FF]">{value}</div>
     </div>
   );
 }
