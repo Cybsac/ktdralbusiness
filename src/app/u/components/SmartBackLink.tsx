@@ -1,10 +1,12 @@
 "use client";
 
 import { useNavigationHistory } from '@/hooks/useNavigationHistory';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
 export default function SmartBackLink() {
   const { getPreviousPage, navigateBack, currentPath } = useNavigationHistory();
+  const router = useRouter();
 
   // Don't show back link on main /u page
   if (currentPath === "/u") return null;
@@ -14,6 +16,10 @@ export default function SmartBackLink() {
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (currentPath === '/u/birthdays') {
+      router.push('/u?tab=work');
+      return;
+    }
     navigateBack();
   };
 
