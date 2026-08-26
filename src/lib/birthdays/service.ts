@@ -7,6 +7,7 @@ import { randomBytes } from 'crypto';
 import { DateTime } from 'luxon';
 import { deleteFromSupabase, safeDeleteFile } from '@/lib/supabase-server';
 import { Prisma, type BirthdayReservation, type BirthdayPack, type InviteToken, type TokenRedemption, type CourtesyItem, type PhotoDeliverable } from '@prisma/client';
+import type { BirthdayReservationSource } from '@/lib/birthdays/attribution';
 
 // Ejecutar prueba de zona horaria al cargar el módulo
 // testLimaTimezone(); // REMOVED: Código de desarrollo/testing
@@ -121,6 +122,8 @@ export type CreateReservationInput = {
   wantsPhotoSession?: boolean;
   referrerId?: string;
   createdBy?: string;
+  reservationSource?: BirthdayReservationSource;
+  createdByUserId?: string;
   isAdmin?: boolean;
 };
 
@@ -139,6 +142,7 @@ export type ReservationWithRelations = BirthdayReservation & {
   inviteTokens: InviteToken[];
   courtesyItems: CourtesyItem[];
   photoDeliveries: PhotoDeliverable[];
+  createdByUser?: { id: string; username: string; person: { name: string | null } | null } | null;
 };
 
 export type RedeemContext = { by?: string; device?: string; location?: string };
@@ -306,6 +310,8 @@ export async function createReservation(input: CreateReservationInput): Promise<
         guestsPlanned: input.guestsPlanned,
   status: 'approved',
         createdBy: input.createdBy || null,
+        reservationSource: input.reservationSource || null,
+        createdByUserId: input.createdByUserId || null,
         referrerId: input.referrerId || null,
       },
       include: { pack: true, inviteTokens: true, courtesyItems: true, photoDeliveries: true },
@@ -377,7 +383,7 @@ export async function listReservations(
   // Se usa createdAt (fecha de creación) en lugar de date (fecha de celebración) para el orden principal solicitado.
   const rawItems = await prisma.birthdayReservation.findMany({
     where,
-    include: { pack: true, inviteTokens: true, courtesyItems: true, photoDeliveries: true },
+    include: { pack: true, inviteTokens: true, courtesyItems: true, photoDeliveries: true, createdByUser: { select: { id: true, username: true, person: { select: { name: true } } } } },
   });
   rawItems.sort((a, b) => {
     const weight = (s: string) => (s === 'approved' || s === 'completed' ? 0 : 1);
@@ -464,6 +470,7 @@ export async function getReservation(id: string): Promise<any | null> {
       pack: true,
       courtesyItems: true,
       photoDeliveries: true,
+      createdByUser: { select: { id: true, username: true, person: { select: { name: true } } } },
     },
   });
   if (!reservation) return null;
@@ -485,6 +492,8 @@ export async function getReservation(id: string): Promise<any | null> {
     },
     guestsPlanned: reservation.guestsPlanned,
     wantsPhotoSession: reservation.wantsPhotoSession,
+    reservationSource: reservation.reservationSource,
+    createdByUser: reservation.createdByUser,
     status: reservation.status,
     tokensGeneratedAt: reservation.tokensGeneratedAt?.toISOString() || null,
     hostArrivedAt: reservation.hostArrivedAt?.toISOString() || null,

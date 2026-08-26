@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useRef, memo } from 'react';
+import { birthdayReservationSourceLabel } from '@/lib/birthdays/attribution';
 
 type Pack = {
 	id: string; name: string; qrCount: number; bottle: string | null; perks: string[];
@@ -10,6 +11,8 @@ type Reservation = {
 	id: string; celebrantName: string; phone: string; documento: string; date: string; timeSlot: string;
 	pack: { id: string; name: string; qrCount: number; bottle: string | null } | null;
 	guestsPlanned: number; wantsPhotoSession: boolean; status: string; tokensGeneratedAt: string | null; createdAt: string;
+	reservationSource?: string | null;
+	createdByUser?: { id: string; username: string; person?: { name: string | null } | null } | null;
 	// Llegadas
 	hostArrivedAt?: string | null;
 	guestArrivals?: number;
@@ -190,6 +193,10 @@ const ReservationCard = memo(function ReservationCard({ r, busyApprove, busyGene
 						<div className="flex items-center gap-2">
 							<span className="text-slate-400">📷</span>
 							<span>Set fotográfico: {r.wantsPhotoSession ? 'Sí' : 'No'}</span>
+						</div>
+						<div className="flex items-center gap-2">
+							<span className="text-slate-400">📍</span>
+							<span>Origen: {birthdayReservationSourceLabel(r.reservationSource)}{r.createdByUser ? ` · ${r.createdByUser.person?.name || r.createdByUser.username}` : ''}</span>
 						</div>
 						<div className="flex items-center gap-2 col-span-1 sm:col-span-2">
 							<span className="text-slate-400">🚪</span>
@@ -565,7 +572,7 @@ export default function StaffBirthdaysPage() {
 				guestsPlanned: packs.find(p => p.id === cPack)?.qrCount || 5
 			};
 
-			const r = await fetch('/api/admin/birthdays', {
+			const r = await fetch('/api/pedidos/birthdays', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(payload)

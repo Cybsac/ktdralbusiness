@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
       guestsPlanned,
       wantsPhotoSession,
       referrerId,
+      reservationSource: 'PUBLIC',
     });
 
     // Build a safe DTO (omit heavy relations and internal fields not needed client-side)

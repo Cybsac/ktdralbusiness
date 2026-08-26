@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     const { celebrantName, phone, documento, email, date, timeSlot, packId, guestsPlanned, wantsPhotoSession } = parsed.data;
     const dt = limaDateTimeToJSDate(parseDateStringToLima(date));
     if (!isFinite(dt.getTime())) return apiError('INVALID_DATE', 'invalid date', undefined, 400);
-    const created = await createReservation({ celebrantName, phone, documento, email: email || undefined, date: dt, timeSlot, packId, guestsPlanned, wantsPhotoSession, createdBy: 'STAFF' });
+    const created = await createReservation({ celebrantName, phone, documento, email: email || undefined, date: dt, timeSlot, packId, guestsPlanned, wantsPhotoSession, createdBy: session.role, createdByUserId: session.userId, reservationSource: 'USER_PORTAL', isAdmin: true });
     const dto = {
       id: created.id,
       celebrantName: created.celebrantName,
@@ -87,6 +87,8 @@ export async function POST(req: NextRequest) {
       pack: { id: created.pack.id, name: created.pack.name, qrCount: created.pack.qrCount, bottle: created.pack.bottle },
       guestsPlanned: created.guestsPlanned,
       wantsPhotoSession: created.wantsPhotoSession,
+      reservationSource: created.reservationSource,
+      createdByUser: created.createdByUser || null,
       status: created.status,
       tokensGeneratedAt: created.tokensGeneratedAt ? created.tokensGeneratedAt.toISOString() : null,
       createdAt: created.createdAt.toISOString(),

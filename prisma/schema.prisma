@@ -328,6 +328,7 @@ model User {
   recurringTaskInstances    RecurringTaskInstance[] @relation("TaskInstanceCompleter")
   mundial2026Redemptions    Mundial2026Prediction[] @relation("Mundial2026RedeemedBy")
   mundial2026RedemptionLogs Mundial2026RedemptionLog[] @relation("Mundial2026LogActor")
+  birthdayReservationsCreated BirthdayReservation[] @relation("BirthdayReservationCreatedBy")
 
   @@index([commitmentVersionAccepted], map: "idx_user_commitment_version")
 }
@@ -483,6 +484,8 @@ model BirthdayReservation {
   status            String             @default("draft")
   tokensGeneratedAt DateTime?
   createdBy         String?
+  reservationSource String?
+  createdByUserId   String?
   updatedBy         String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -491,6 +494,7 @@ model BirthdayReservation {
   referrerId        String?
   pack              BirthdayPack       @relation(fields: [packId], references: [id])
   referrer          BirthdayReferrer?  @relation(fields: [referrerId], references: [id])
+  createdByUser     User?              @relation("BirthdayReservationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   courtesyItems     CourtesyItem[]
   inviteTokens      InviteToken[]
   photoDeliveries   PhotoDeliverable[]
@@ -501,6 +505,8 @@ model BirthdayReservation {
   @@index([status])
   @@index([hostArrivedAt])
   @@index([referrerId])
+  @@index([reservationSource])
+  @@index([createdByUserId])
 }
 
 model BirthdayReferrer {

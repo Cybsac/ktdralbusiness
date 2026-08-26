@@ -120,10 +120,9 @@ export async function POST(req: NextRequest) {
   const userSession = await verifyUserSessionCookie(userCookie);
   const session = adminSession || userSession;
   if (!session) return apiError('UNAUTHORIZED', 'No session', undefined, 401);
-  // Allow ADMIN/STAFF from admin session, or COLLAB/STAFF from user session
+  // The /u portal uses a separate endpoint so this channel stays unambiguous.
   const isAdmin = adminSession?.role && ['ADMIN', 'COORDINATOR', 'STAFF'].includes(adminSession.role);
-  const isUser = userSession?.role && ['COLLAB', 'STAFF'].includes(userSession.role);
-  if (!isAdmin && !isUser) return apiError('FORBIDDEN', 'Insufficient permissions', undefined, 403);
+  if (!isAdmin) return apiError('FORBIDDEN', 'Insufficient permissions', undefined, 403);
 
   const ip = req.headers.get('x-forwarded-for') || (req as any).ip || 'unknown';
   const rl = checkRateLimit(`admin:birthdays:create:${ip}`);
@@ -148,7 +147,9 @@ export async function POST(req: NextRequest) {
       guestsPlanned,
       wantsPhotoSession,
       createdBy: session?.role,
-      isAdmin: isAdmin || isUser,
+      reservationSource: 'ADMIN',
+      createdByUserId: session?.userId,
+      isAdmin: true,
     });
 
     const dto = {
@@ -162,6 +163,8 @@ export async function POST(req: NextRequest) {
       pack: { id: created.pack.id, name: created.pack.name, qrCount: created.pack.qrCount, bottle: created.pack.bottle, featured: created.pack.featured },
       guestsPlanned: created.guestsPlanned,
       wantsPhotoSession: created.wantsPhotoSession,
+      reservationSource: created.reservationSource,
+      createdByUser: created.createdByUser || null,
       status: created.status,
       tokensGeneratedAt: created.tokensGeneratedAt ? created.tokensGeneratedAt.toISOString() : null,
       createdAt: created.createdAt.toISOString(),

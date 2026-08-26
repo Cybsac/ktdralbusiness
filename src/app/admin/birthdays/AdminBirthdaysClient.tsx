@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, memo } from "react";
+import { birthdayReservationSourceLabel } from '@/lib/birthdays/attribution';
 
 // Formateo manual a hora Lima (UTC-5 sin DST efectivo). Restamos 5 horas y usamos componentes UTC.
 function fmtLima(iso?: string | null) {
@@ -49,6 +50,8 @@ type Reservation = {
   hostArrivedAt: string | null;
   guestArrivals: number;
   createdAt: string; // fecha creación reserva
+  reservationSource?: string | null;
+  createdByUser?: { id: string; username: string; person?: { name: string | null } | null } | null;
 };
 
 type AdminReservationCardProps = {
@@ -89,6 +92,8 @@ const AdminReservationCard = memo(function AdminReservationCard({ r, busyApprove
         <div className="text-slate-600 dark:text-slate-300"><span className="font-semibold text-slate-700 dark:text-slate-200">Invitados (QR):</span> {r.guestsPlanned || r.pack?.qrCount || '-'}</div>
         <div className="text-slate-600 dark:text-slate-300"><span className="font-semibold text-slate-700 dark:text-slate-200">Pack:</span> {r.pack?.name || '-'}</div>
         <div className="text-slate-600 dark:text-slate-300"><span className="font-semibold text-slate-700 dark:text-slate-200">Set fotográfico:</span> {r.wantsPhotoSession ? 'Sí' : 'No'}</div>
+        <div className="text-slate-600 dark:text-slate-300"><span className="font-semibold text-slate-700 dark:text-slate-200">Origen:</span> {birthdayReservationSourceLabel(r.reservationSource)}</div>
+        {r.createdByUser && <div className="text-slate-600 dark:text-slate-300"><span className="font-semibold text-slate-700 dark:text-slate-200">Usuario:</span> {r.createdByUser.person?.name || r.createdByUser.username}</div>}
         <div className="text-slate-600 dark:text-slate-300"><span className="font-semibold text-slate-700 dark:text-slate-200">Creada:</span> {fmtLima(r.createdAt)}</div>
         <div className="text-slate-600 dark:text-slate-300 col-span-2">
           <span className="font-semibold text-slate-700 dark:text-slate-200">Llegadas:</span>

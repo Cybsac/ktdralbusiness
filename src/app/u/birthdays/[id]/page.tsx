@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from 'react';
 import { DateTime } from 'luxon';
+import { birthdayReservationSourceLabel } from '@/lib/birthdays/attribution';
 
-type Reservation = { id:string; celebrantName:string; phone:string; documento:string; email:string|null; date:string; timeSlot:string; pack?: any; guestsPlanned:number; wantsPhotoSession:boolean; status:string; tokensGeneratedAt:string|null; courtesyItems:any[]; photoDeliveries:any[] };
+type Reservation = { id:string; celebrantName:string; phone:string; documento:string; email:string|null; date:string; timeSlot:string; pack?: any; guestsPlanned:number; wantsPhotoSession:boolean; status:string; tokensGeneratedAt:string|null; reservationSource?: string | null; createdByUser?: { username: string; person?: { name: string | null } | null } | null; courtesyItems:any[]; photoDeliveries:any[] };
 type Token = { id:string; code:string; kind:string; status:string; expiresAt:string; usedCount?:number; maxUses?:number };
 
 export default function StaffBirthdayDetail({ params }: { params: { id: string } }) {
@@ -93,6 +94,12 @@ export default function StaffBirthdayDetail({ params }: { params: { id: string }
                 <span className="font-medium">Email:</span>
                 <div className="mt-1 text-slate-800 dark:text-slate-200 font-medium break-all">
                   {resv.email || '-'}
+                </div>
+              </div>
+              <div className="text-slate-600 dark:text-slate-300">
+                <span className="font-medium">Origen:</span>
+                <div className="mt-1 text-slate-800 dark:text-slate-200 font-medium">
+                  {birthdayReservationSourceLabel(resv.reservationSource)}{resv.createdByUser ? ` · ${resv.createdByUser.person?.name || resv.createdByUser.username}` : ''}
                 </div>
               </div>
             </div>

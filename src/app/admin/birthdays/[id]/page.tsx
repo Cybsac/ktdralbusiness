@@ -17,6 +17,7 @@ function fmtLima(iso?: string | null) {
   } catch { return ''; }
 }
 import { generateQrPngDataUrl } from "@/lib/qr";
+import { birthdayReservationSourceLabel } from '@/lib/birthdays/attribution';
 
 type Reservation = {
   id: string;
@@ -34,6 +35,8 @@ type Reservation = {
   hostArrivedAt: string | null;
   guestArrivals: number;
   createdAt: string;
+  reservationSource?: string | null;
+  createdByUser?: { username: string; person?: { name: string | null } | null } | null;
   courtesyItems: Array<{ id: string; type: string; status: string; notes?: string | null }>;
   photoDeliveries: Array<{ id: string; kind: string; url?: string | null; status: string }>;
 };
@@ -114,6 +117,8 @@ export default function AdminBirthdayDetailPage({ params }: Props) {
       hostArrivedAt: r.hostArrivedAt || null,
       guestArrivals: r.guestArrivals || 0,
       createdAt: r.createdAt,
+      reservationSource: r.reservationSource,
+      createdByUser: r.createdByUser || null,
       courtesyItems: Array.isArray(r.courtesyItems) ? r.courtesyItems : [],
       photoDeliveries: Array.isArray(r.photoDeliveries) ? r.photoDeliveries : [],
     };
@@ -191,6 +196,7 @@ export default function AdminBirthdayDetailPage({ params }: Props) {
           <div className="text-sm text-slate-300">Documento: {resv.documento}</div>
           <div className="text-sm text-slate-300">WhatsApp: {resv.phone}</div>
           <div className="text-sm text-slate-300">Email: {resv.email || '-'}</div>
+          <div className="text-sm text-slate-300">Origen: {birthdayReservationSourceLabel(resv.reservationSource)}{resv.createdByUser ? ` · ${resv.createdByUser.person?.name || resv.createdByUser.username}` : ''}</div>
           <div className="text-sm text-slate-300">Estado: {resv.status}</div>
           <div className="text-sm text-slate-300">
             <span className="font-semibold">Llegada Host:</span>
