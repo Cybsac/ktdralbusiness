@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { IconUser, IconId, IconMapPin, IconShield, IconKey, IconCheck, IconX } from '@tabler/icons-react';
+import { IconUser, IconId, IconMapPin, IconShield, IconKey, IconCheck, IconX, IconChartBar } from '@tabler/icons-react';
 
 interface UserProfile {
   id: string;
@@ -13,6 +13,28 @@ interface UserProfile {
   dni: string | null;
 }
 
+interface PerformanceSummary {
+  averageScore: number | null;
+  level: 'MALO' | 'REGULAR' | 'BUENO' | 'MUY_BUENO' | null;
+  evaluatedDays: number;
+  start: string;
+  end: string;
+  distribution: Record<string, number>;
+}
+
+interface PerformanceData {
+  week: PerformanceSummary;
+  last30Days: PerformanceSummary;
+  trend: 'IMPROVING' | 'STABLE' | 'DECLINING' | null;
+}
+
+const PERFORMANCE_LABELS: Record<string, { label: string; emoji: string; color: string }> = {
+  MALO: { label: 'Malo', emoji: '😞', color: 'text-red-600 dark:text-red-400' },
+  REGULAR: { label: 'Regular', emoji: '😐', color: 'text-amber-600 dark:text-amber-400' },
+  BUENO: { label: 'Bueno', emoji: '😊', color: 'text-blue-600 dark:text-blue-400' },
+  MUY_BUENO: { label: 'Muy Bueno', emoji: '🤩', color: 'text-emerald-600 dark:text-emerald-400' },
+};
+
 export default function ProfileClient() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -22,6 +44,8 @@ export default function ProfileClient() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [performance, setPerformance] = useState<PerformanceData | null>(null);
+  const [performanceLoading, setPerformanceLoading] = useState(true);
 
   useEffect(() => {
     loadProfile();
@@ -29,18 +53,24 @@ export default function ProfileClient() {
 
   async function loadProfile() {
     try {
-      const response = await fetch('/api/user/me');
+      const [response, performanceResponse] = await Promise.all([
+        fetch('/api/user/me'),
+        fetch('/api/user/me/performance'),
+      ]);
       const data = await response.json();
+      const performanceData = await performanceResponse.json().catch(() => ({}));
 
       if (response.ok && data.ok) {
         setProfile(data.user);
       } else {
         setError('Error al cargar el perfil');
       }
+      if (performanceResponse.ok && performanceData.ok) setPerformance(performanceData.performance);
     } catch (err) {
       setError('Error de conexión');
     } finally {
       setLoading(false);
+      setPerformanceLoading(false);
     }
   }
 
@@ -186,6 +216,39 @@ export default function ProfileClient() {
             </div>
           </div>
 
+          {/* Rendimiento personal */}
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-indigo-200 dark:border-indigo-800 overflow-hidden">
+            <div className="px-3 sm:px-6 py-2 sm:py-4 border-b border-indigo-100 dark:border-slate-700 bg-gradient-to-r from-indigo-50 to-cyan-50 dark:from-slate-800 dark:to-slate-700">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1 sm:p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
+                  <IconChartBar className="w-4 sm:w-6 h-4 sm:h-6 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-xl font-semibold text-gray-900 dark:text-slate-100">Mi Rendimiento</h2>
+                  <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">Basado en las jornadas en las que fuiste evaluado</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-3 sm:p-6">
+              {performanceLoading ? (
+                <div className="h-20 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-700" />
+              ) : !performance ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400">Todavía no hay evaluaciones registradas.</p>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <PerformanceMetric title="Esta semana" summary={performance.week} />
+                  <PerformanceMetric title="Últimos 30 días" summary={performance.last30Days} />
+                </div>
+              )}
+              {performance?.trend && (
+                <div className="mt-4 text-xs text-slate-600 dark:text-slate-300">
+                  Tendencia: <span className="font-semibold">{performance.trend === 'IMPROVING' ? 'Mejorando' : performance.trend === 'DECLINING' ? 'Bajando' : 'Estable'}</span>
+                </div>
+              )}
+              <p className="mt-3 text-[11px] text-slate-400 dark:text-slate-500">La escala va de 1 (Malo) a 4 (Muy Bueno). Con pocas evaluaciones, interpreta el promedio con cautela.</p>
+            </div>
+          </div>
+
           {/* Cambio de Contraseña */}
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
             <div className="px-3 sm:px-6 py-2 sm:py-4 border-b border-gray-200 dark:border-slate-700 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-slate-800 dark:to-slate-700">
@@ -290,6 +353,25 @@ export default function ProfileClient() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PerformanceMetric({ title, summary }: { title: string; summary: PerformanceSummary }) {
+  const level = summary.level ? PERFORMANCE_LABELS[summary.level] : null;
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 sm:p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{title}</div>
+      {summary.averageScore === null || summary.evaluatedDays < 2 ? (
+        <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">Sin datos suficientes</div>
+      ) : (
+        <>
+          <div className={`mt-2 text-lg font-semibold ${level?.color || 'text-slate-700 dark:text-slate-200'}`}>
+            {level?.emoji} {level?.label} · {summary.averageScore.toFixed(2)} / 4
+          </div>
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{summary.evaluatedDays} {summary.evaluatedDays === 1 ? 'jornada evaluada' : 'jornadas evaluadas'}</div>
+        </>
+      )}
     </div>
   );
 }

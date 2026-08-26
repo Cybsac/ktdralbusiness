@@ -30,6 +30,13 @@ interface DaySummary {
   specialGuests: SpecialGuestsSummary;
   evaluation: { rating: string | null; comment: string | null; closedAt: string | null } | null;
 }
+interface IndividualPerformance {
+  person: { id: string; name: string; code: string; area: string | null; active: boolean };
+  averageScore: number;
+  daysEvaluated: number;
+  distribution: Record<string, number>;
+  details: { day: string; rating: string; note: string | null }[];
+}
 
 /* ─── helpers ───────────────────────────────────────────────── */
 const DAY_NAMES = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
@@ -68,6 +75,13 @@ function formatTime(iso: string | null) {
   return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
 }
 
+function performanceLevel(score: number) {
+  if (score >= 3.5) return RATING_MAP.MUY_BUENO;
+  if (score >= 2.5) return RATING_MAP.BUENO;
+  if (score >= 1.5) return RATING_MAP.REGULAR;
+  return RATING_MAP.MALO;
+}
+
 const RATING_MAP: Record<string, { label: string; emoji: string; color: string }> = {
   MALO:      { label: 'Malo',      emoji: '😞', color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' },
   REGULAR:   { label: 'Regular',   emoji: '😐', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300' },
@@ -80,6 +94,7 @@ export default function AdminWeeklyEvaluationPage() {
   const [monday, setMonday] = useState('');
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState<DaySummary[]>([]);
+  const [individualPerformance, setIndividualPerformance] = useState<IndividualPerformance[]>([]);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -109,11 +124,13 @@ export default function AdminWeeklyEvaluationPage() {
     if (!monday) return;
     setLoading(true);
     setDays([]);
+    setIndividualPerformance([]);
     try {
       const res = await fetch(`/api/admin/weekly-evaluation/summary?week=${monday}`);
       if (res.ok) {
         const data = await res.json();
         setDays(data.days ?? []);
+        setIndividualPerformance(data.individualPerformance ?? []);
       }
     } catch (err) {
       console.error('Error loading weekly data:', err);
@@ -220,6 +237,50 @@ export default function AdminWeeklyEvaluationPage() {
             <StatCard emoji="🎂" label="Cumpleaños" value={`${weekTotals.birthdaysArrived} de ${weekTotals.birthdays}`} />
             <StatCard emoji="🎟️" label="Inv. especiales" value={weekTotals.specialGuests} sub={`${weekTotals.specialGuestsArrived} llegaron`} />
           </div>
+
+          {/* ===== INDIVIDUAL PERFORMANCE ===== */}
+          {individualPerformance.length > 0 && (
+            <section className="rounded-xl border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-slate-800 p-4">
+              <div className="flex flex-col gap-1 mb-3">
+                <h2 className="text-base font-semibold text-indigo-700 dark:text-indigo-300">Desempeño individual semanal</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Promedio de las jornadas en las que cada colaborador fue evaluado. La escala va de 1 (Malo) a 4 (Muy Bueno).</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs min-w-[680px]">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">
+                      <th className="text-left py-2 px-2">Colaborador</th>
+                      <th className="text-left py-2 px-2">Área</th>
+                      <th className="text-center py-2 px-2">Promedio</th>
+                      <th className="text-center py-2 px-2">Jornadas</th>
+                      <th className="text-left py-2 px-2">Distribución</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {individualPerformance.map((item) => {
+                      const level = performanceLevel(item.averageScore);
+                      return (
+                        <tr key={item.person.id} className="border-b border-slate-100 dark:border-slate-700/60">
+                          <td className="py-2 px-2 font-medium">{item.person.name}</td>
+                          <td className="py-2 px-2 text-slate-500">{item.person.area || '-'}</td>
+                          <td className="py-2 px-2 text-center">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium ${level.color}`}>
+                              {level.emoji} {item.averageScore.toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2 text-center">{item.daysEvaluated}</td>
+                          <td className="py-2 px-2 text-slate-500">
+                            M {item.distribution.MALO || 0} · R {item.distribution.REGULAR || 0} · B {item.distribution.BUENO || 0} · MB {item.distribution.MUY_BUENO || 0}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-3">Usa la cantidad de jornadas como referencia: un promedio con pocas evaluaciones debe interpretarse con cautela.</p>
+            </section>
+          )}
 
           {/* ===== WEEKLY DELIVERED PRIZES ===== */}
           {weekDeliveredPrizes.length > 0 && (

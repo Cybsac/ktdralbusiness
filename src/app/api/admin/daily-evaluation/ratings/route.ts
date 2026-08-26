@@ -34,7 +34,11 @@ export async function POST(req: NextRequest) {
   try {
     const raw = getUserSessionCookieFromRequest(req);
     const session = await verifyUserSessionCookie(raw);
-    if (!session || !['ADMIN', 'COORDINATOR'].includes(session.role)) {
+    if (!session) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+    const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { role: true } });
+    if (!['ADMIN', 'COORDINATOR'].includes(user?.role ?? session.role)) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
@@ -43,13 +47,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'businessDay and ratings[] required' }, { status: 400 });
     }
 
-    // Block if individual ratings already saved
-    const existingCount = await prisma.personDailyRating.count({ where: { businessDay } });
-    if (existingCount > 0) {
-      return NextResponse.json({ error: 'Calificaciones ya guardadas. Reabra la jornada para volver a evaluar.' }, { status: 403 });
+    const evaluation = await prisma.dailyEvaluation.findUnique({ where: { businessDay }, select: { closedAt: true } });
+    if (!evaluation?.closedAt) {
+      return NextResponse.json({ error: 'La jornada debe estar cerrada para calificar colaboradores' }, { status: 400 });
     }
 
     const validRatings = ['MALO', 'REGULAR', 'BUENO', 'MUY_BUENO'];
+    const invalidRating = ratings.find((r: { rating?: string }) => !r.rating || !validRatings.includes(r.rating));
+    if (invalidRating) {
+      return NextResponse.json({ error: 'Calificación inválida' }, { status: 400 });
+    }
 
     const results = await prisma.$transaction(
       ratings.map((r: { personId: string; rating: string; note?: string }) =>
@@ -58,12 +65,12 @@ export async function POST(req: NextRequest) {
           create: {
             businessDay,
             personId: r.personId,
-            rating: validRatings.includes(r.rating) ? r.rating : 'REGULAR',
+            rating: r.rating,
             note: r.note?.trim() || null,
             ratedByUserId: session.userId,
           },
           update: {
-            rating: validRatings.includes(r.rating) ? r.rating : 'REGULAR',
+            rating: r.rating,
             note: r.note?.trim() || null,
             ratedByUserId: session.userId,
           },

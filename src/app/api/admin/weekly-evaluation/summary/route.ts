@@ -33,7 +33,49 @@ export async function GET(req: NextRequest) {
 
     const results = await Promise.all(days.map(day => getDaySummary(day)));
 
-    return NextResponse.json({ week: weekParam, days: results });
+    const ratings = await prisma.personDailyRating.findMany({
+      where: { businessDay: { gte: days[0], lte: days[days.length - 1] } },
+      select: {
+        personId: true,
+        businessDay: true,
+        rating: true,
+        note: true,
+        person: { select: { id: true, name: true, code: true, area: true, active: true } },
+      },
+      orderBy: [{ person: { name: 'asc' } }, { businessDay: 'asc' }],
+    });
+
+    const scoreByRating: Record<string, number> = { MALO: 1, REGULAR: 2, BUENO: 3, MUY_BUENO: 4 };
+    const performanceMap = new Map<string, {
+      person: typeof ratings[number]['person'];
+      totalScore: number;
+      daysEvaluated: number;
+      distribution: Record<string, number>;
+      details: { day: string; rating: string; note: string | null }[];
+    }>();
+    for (const item of ratings) {
+      const current = performanceMap.get(item.personId) || {
+        person: item.person,
+        totalScore: 0,
+        daysEvaluated: 0,
+        distribution: { MALO: 0, REGULAR: 0, BUENO: 0, MUY_BUENO: 0 },
+        details: [],
+      };
+      current.totalScore += scoreByRating[item.rating] ?? 2;
+      current.daysEvaluated++;
+      current.distribution[item.rating] = (current.distribution[item.rating] || 0) + 1;
+      current.details.push({ day: item.businessDay, rating: item.rating, note: item.note });
+      performanceMap.set(item.personId, current);
+    }
+    const individualPerformance = Array.from(performanceMap.values()).map(item => ({
+      person: item.person,
+      averageScore: Number((item.totalScore / item.daysEvaluated).toFixed(2)),
+      daysEvaluated: item.daysEvaluated,
+      distribution: item.distribution,
+      details: item.details,
+    }));
+
+    return NextResponse.json({ week: weekParam, days: results, individualPerformance });
   } catch (error) {
     console.error('Error fetching weekly summary:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

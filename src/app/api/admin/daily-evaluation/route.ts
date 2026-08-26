@@ -137,9 +137,6 @@ export async function PATCH(req: NextRequest) {
       if (currentRole !== 'ADMIN') {
         return NextResponse.json({ error: 'Solo ADMIN puede reabrir una jornada' }, { status: 403 });
       }
-      // Delete individual ratings for this day
-      await prisma.personDailyRating.deleteMany({ where: { businessDay } });
-
       const evaluation = await prisma.dailyEvaluation.update({
         where: { businessDay },
         data: {
