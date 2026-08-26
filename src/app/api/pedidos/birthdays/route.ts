@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
     const requestedDateFrom = f.dateFrom ? new Date(f.dateFrom + 'T00:00:00.000Z') : undefined;
     const requestedDateTo = f.dateTo ? new Date(f.dateTo + 'T23:59:59.999Z') : undefined;
     const dateFrom = requestedDateFrom && requestedDateFrom > todayLima ? requestedDateFrom : todayLima;
-    const res = await listReservations({ status: f.status, packId: f.packId, dateFrom, dateTo: requestedDateTo, search: f.search }, { page: f.page, pageSize: f.pageSize || 30, sortBy: 'createdAt' });
+    const res = await listReservations({ status: f.status, packId: f.packId, dateFrom, dateTo: requestedDateTo, search: f.search }, { page: f.page, pageSize: f.pageSize || 30, sortBy: 'date' });
     return apiOk(res);
   } catch (e:any) {
     const msg = String(e?.message || e);

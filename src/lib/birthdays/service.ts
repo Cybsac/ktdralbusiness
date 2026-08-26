@@ -135,7 +135,7 @@ export type ListReservationFilters = {
   packId?: string;
 };
 
-export type Pagination = { page?: number; pageSize?: number; sortBy?: 'status' | 'createdAt' };
+export type Pagination = { page?: number; pageSize?: number; sortBy?: 'status' | 'createdAt' | 'date' };
 
 export type ReservationWithRelations = BirthdayReservation & {
   pack: BirthdayPack;
@@ -360,6 +360,7 @@ export async function listReservations(
   const page = Math.max(1, Math.floor(pagination.page ?? 1));
   const pageSize = Math.min(100, Math.max(1, Math.floor(pagination.pageSize ?? 20)));
   const sortByCreatedAt = pagination.sortBy === 'createdAt';
+  const sortByDate = pagination.sortBy === 'date';
 
   const where: Prisma.BirthdayReservationWhereInput = {};
   if (filters.status) where.status = filters.status;
@@ -388,6 +389,10 @@ export async function listReservations(
   });
   rawItems.sort((a, b) => {
     if (sortByCreatedAt) return b.createdAt.getTime() - a.createdAt.getTime();
+    if (sortByDate) {
+      const dateOrder = a.date.getTime() - b.date.getTime();
+      return dateOrder || b.createdAt.getTime() - a.createdAt.getTime();
+    }
     const weight = (s: string) => (s === 'approved' || s === 'completed' ? 0 : 1);
     const wa = weight(a.status);
     const wb = weight(b.status);
@@ -454,6 +459,10 @@ export async function listReservations(
   }
   decorated.sort((a,b)=>{
     if (sortByCreatedAt) return b.createdAt.getTime() - a.createdAt.getTime();
+    if (sortByDate) {
+      const dateOrder = a.date.getTime() - b.date.getTime();
+      return dateOrder || b.createdAt.getTime() - a.createdAt.getTime();
+    }
     const aPri = (a.status === 'approved' || a.status === 'completed') ? 0 : 1;
     const bPri = (b.status === 'approved' || b.status === 'completed') ? 0 : 1;
     if (aPri !== bPri) return aPri - bPri;
