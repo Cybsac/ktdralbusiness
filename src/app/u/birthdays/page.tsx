@@ -498,7 +498,7 @@ export default function StaffBirthdaysPage() {
 		}
 	}
 	// UI
-	const [activeTab, setActiveTab] = useState<'packs' | 'list' | 'create'>('packs');
+	const [activeTab, setActiveTab] = useState<'packs' | 'list' | 'create'>('create');
 
 	async function load() {
 		setLoading(true); setErr(null);
@@ -507,7 +507,7 @@ export default function StaffBirthdaysPage() {
 			if (status) q.set('status', status);
 			if (search) q.set('search', search);
 			q.set('page', String(page)); q.set('pageSize','30');
-	const res = await fetch(`/api/admin/birthdays?${q.toString()}`);
+			const res = await fetch(`/api/pedidos/birthdays?${q.toString()}`);
 			const j = await res.json();
 			if (!res.ok) throw new Error(j?.code || j?.message || res.status);
 			setItems(j.items || []);
@@ -644,16 +644,6 @@ export default function StaffBirthdaysPage() {
 				<div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
 					<div className="flex border-b border-slate-200 dark:border-slate-700">
 						<button
-							onClick={() => setActiveTab('packs')}
-							className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-								activeTab === 'packs'
-									? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
-									: 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-							}`}
-						>
-							Packs Disponibles
-						</button>
-						<button
 							onClick={() => setActiveTab('create')}
 							className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
 								activeTab === 'create'
@@ -672,6 +662,16 @@ export default function StaffBirthdaysPage() {
 							}`}
 						>
 							Ver Reservas
+						</button>
+						<button
+							onClick={() => setActiveTab('packs')}
+							className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+								activeTab === 'packs'
+									? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+									: 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+							}`}
+						>
+							Packs Disponibles
 						</button>
 					</div>
 
@@ -770,9 +770,9 @@ export default function StaffBirthdaysPage() {
 								)}
 								{/* Pagination */}
 								<div className="flex items-center justify-center gap-3 pt-4">
-									{(page>1) && <button className="btn h-9 px-4" onClick={()=>setPage(p=>Math.max(1,p-1))}>← Anterior</button>}
+									{(page > 1) && <button className="btn h-9 px-4" onClick={() => setPage(p => Math.max(1, p - 1))}>← Anterior</button>}
 									<span className="text-sm text-slate-600 dark:text-slate-400">Página {page}</span>
-									{(!empty && items.length===30) && <button className="btn h-9 px-4" onClick={()=>setPage(p=>p+1)}>Siguiente →</button>}
+									{(!empty && items.length === 30) && <button className="btn h-9 px-4" onClick={() => setPage(p => p + 1)}>Siguiente →</button>}
 								</div>
 							</div>
 						)}

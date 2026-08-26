@@ -4,6 +4,7 @@ import { apiError, apiOk } from '@/lib/apiError';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
 import { listReservations, createReservation, parseDateStringToLima, limaDateTimeToJSDate } from '@/lib/birthdays/service';
+import { DateTime } from 'luxon';
 
 // List reservations (STAFF via user_session)
 const ListSchema = z.object({
@@ -36,9 +37,12 @@ export async function GET(req: NextRequest) {
     });
     if (!parsed.success) return apiError('INVALID_QUERY', 'Validation failed', parsed.error.flatten(), 400);
     const f = parsed.data;
-    const dateFrom = f.dateFrom ? new Date(f.dateFrom + 'T00:00:00.000Z') : undefined;
-    const dateTo = f.dateTo ? new Date(f.dateTo + 'T23:59:59.999Z') : undefined;
-    const res = await listReservations({ status: f.status, packId: f.packId, dateFrom, dateTo, search: f.search }, { page: f.page, pageSize: f.pageSize });
+    // El portal solo consulta celebraciones de hoy en adelante.
+    const todayLima = DateTime.now().setZone('America/Lima').startOf('day').toJSDate();
+    const requestedDateFrom = f.dateFrom ? new Date(f.dateFrom + 'T00:00:00.000Z') : undefined;
+    const requestedDateTo = f.dateTo ? new Date(f.dateTo + 'T23:59:59.999Z') : undefined;
+    const dateFrom = requestedDateFrom && requestedDateFrom > todayLima ? requestedDateFrom : todayLima;
+    const res = await listReservations({ status: f.status, packId: f.packId, dateFrom, dateTo: requestedDateTo, search: f.search }, { page: f.page, pageSize: f.pageSize || 30, sortBy: 'createdAt' });
     return apiOk(res);
   } catch (e:any) {
     const msg = String(e?.message || e);
