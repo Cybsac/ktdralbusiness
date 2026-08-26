@@ -413,7 +413,7 @@ export default function UHomeContent({ session, isStaff, hasCartaAccess, lastTyp
                 <Link href="/u/tokens" className="block rounded-lg border border-emerald-200 bg-white p-3 sm:p-5 shadow-sm hover:shadow-md transition dark:border-emerald-800/60 dark:bg-slate-800">
                   <div className="flex items-center gap-3 mb-2">
                     <IconDice6 className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-                    <div className="text-base sm:text-lg font-medium text-gray-900 dark:text-slate-100">Control Ruleta</div>
+                    <div className="text-base sm:text-lg font-medium text-gray-900 dark:text-slate-100">Control TokenShow</div>
                   </div>
                   <p className="text-sm text-gray-600 dark:text-slate-300 ml-8 sm:ml-9">Gestiona los tokens y premios de la ruleta.</p>
                   <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm ml-8 sm:ml-9">Administrar ruleta →</div>

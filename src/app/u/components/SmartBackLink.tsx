@@ -19,7 +19,7 @@ export default function SmartBackLink() {
 
   // Get display text based on destination
   const getDisplayText = () => {
-    if (fallbackToHome) return "← Volver";
+    if (fallbackToHome) return "Volver";
 
     // Extract meaningful name from path
     const pathSegments = previousPage!.split('/').filter(Boolean);
@@ -44,18 +44,17 @@ export default function SmartBackLink() {
       'history': 'Historial'
     };
 
-    return `← ${pathNames[lastSegment] || 'Atrás'}`;
+    return pathNames[lastSegment] || 'Atrás';
   };
 
   return (
     <button
       onClick={handleClick}
       className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 dark:hover:bg-slate-700 transition-colors"
-      title={fallbackToHome ? "Volver al inicio" : `Volver a ${getDisplayText().substring(2)}`}
+      title={fallbackToHome ? "Volver al inicio" : `Volver a ${getDisplayText()}`}
     >
       <ArrowLeft className="h-4 w-4" />
       <span className="hidden sm:inline">{getDisplayText()}</span>
-      <span className="sm:hidden">←</span>
     </button>
   );
 }

@@ -13,6 +13,8 @@ export const metadata = {
   title: "Colaborador | QR App",
 };
 
+export const dynamic = 'force-dynamic';
+
 export default async function ULayout({ children }: { children: React.ReactNode }) {
   // Cargar datos del colaborador (si hay sesión activa)
   let me: { personName?: string | null; dni?: string | null; jobTitle?: string | null; area?: string | null; role?: string | null } | null = null;

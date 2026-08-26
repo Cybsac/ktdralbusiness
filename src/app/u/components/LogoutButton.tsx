@@ -1,10 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function UserLogoutButton() {
-  const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   async function handleLogout() {
@@ -13,13 +11,13 @@ export default function UserLogoutButton() {
     try {
       const res = await fetch("/api/user/auth/logout", { method: "POST" });
       if (res.ok) {
-        router.push("/u/login");
+        window.location.href = "/u/login";
       } else {
         // If something goes wrong, still try to push to login after clearing state
-        router.push("/u/login");
+        window.location.href = "/u/login";
       }
     } catch {
-      router.push("/u/login");
+      window.location.href = "/u/login";
     } finally {
       // Keep disabled state to avoid double-clicks during navigation
     }
