@@ -66,6 +66,7 @@ export default function ProfileClient() {
         setError('Error al cargar el perfil');
       }
       if (performanceResponse.ok && performanceData.ok) setPerformance(performanceData.performance);
+
     } catch (err) {
       setError('Error de conexión');
     } finally {

@@ -1689,12 +1689,12 @@ export default function DailyEvaluationPage() {
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
                     <button
                       onClick={handleSaveRatings}
-                      disabled={savingRatings || !isClosed}
+                    disabled={savingRatings || isClosed}
                       className="w-full sm:w-auto px-5 py-2 rounded-lg bg-indigo-600 text-white font-medium text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       {savingRatings ? 'Guardando...' : 'Guardar Calificaciones'}
                     </button>
-                    {!isClosed && <span className="text-xs text-amber-600 dark:text-amber-400">Cierra la jornada para guardar las calificaciones.</span>}
+                    {!isClosed && <span className="text-xs text-amber-600 dark:text-amber-400">Guarda las calificaciones antes de cerrar la jornada.</span>}
                     {ratingsMsg && (
                       <span className={`text-xs sm:text-sm font-medium text-center sm:text-left ${ratingsMsg.includes('Error') || ratingsMsg.includes('guardadas') ? 'text-red-600' : 'text-green-600'}`}>
                         {ratingsMsg}

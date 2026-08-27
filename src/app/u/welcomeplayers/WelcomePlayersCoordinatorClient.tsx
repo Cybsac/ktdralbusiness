@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { IconEdit, IconEye, IconPlus, IconRefresh, IconTrash, IconX } from "@tabler/icons-react";
+import { IconEdit, IconEye, IconGift, IconPlus, IconRefresh, IconTrash, IconX } from "@tabler/icons-react";
 
 type Prize = {
   id: string;
@@ -111,6 +111,30 @@ export default function WelcomePlayersCoordinatorClient() {
         await loadAll();
       } catch (err: any) {
         setError(err?.message || "No se pudo reiniciar la ruleta");
+      }
+    });
+  };
+
+  const resetDeliveredPrizes = () => {
+    if (!window.confirm("¿Reiniciar todos los premios registrados en la ruleta? Se borrará todo el historial de premios, pero se conservará la configuración de la ruleta.")) {
+      return;
+    }
+
+    setError(null);
+    setMessage(null);
+
+    startTransition(async () => {
+      try {
+        const res = await fetch("/api/admin/welcomeplayers/spins/reset", { method: "POST" });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data?.ok) {
+          throw new Error(data?.message || "No se pudieron reiniciar los premios");
+        }
+
+        setMessage("Todos los premios registrados fueron reiniciados");
+        await loadAll();
+      } catch (err: any) {
+        setError(err?.message || "No se pudieron reiniciar los premios");
       }
     });
   };
@@ -283,6 +307,15 @@ export default function WelcomePlayersCoordinatorClient() {
         >
           <IconRefresh className="h-4 w-4" />
           Reiniciar ruleta
+        </button>
+        <button
+          type="button"
+          onClick={resetDeliveredPrizes}
+          disabled={pending}
+          className="inline-flex min-w-0 items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <IconGift className="h-4 w-4" />
+          Reiniciar premios
         </button>
       </div>
 

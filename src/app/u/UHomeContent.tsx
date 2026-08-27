@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import SharedAutoAttendanceCard from '@/components/attendance/SharedAutoAttendanceCard';
-import { IconUser, IconListCheck, IconQrcode, IconDice6, IconCake, IconGlass, IconPackage, IconShieldLock, IconClipboardCheck, IconRefresh, IconBell, IconVideo, IconConfetti, IconAlertTriangle, IconMail } from '@tabler/icons-react';
+import { IconUser, IconListCheck, IconQrcode, IconDice6, IconCake, IconGlass, IconPackage, IconShieldLock, IconClipboardCheck, IconRefresh, IconBell, IconVideo, IconConfetti, IconAlertTriangle, IconMail, IconChartBar } from '@tabler/icons-react';
 
 type SessionData = {
   userId: string;
@@ -312,6 +312,19 @@ export default function UHomeContent({ session, isStaff, hasCartaAccess, lastTyp
                   </div>
                   <p className="text-sm text-cyan-700 dark:text-cyan-300 ml-12 sm:ml-[52px]">Sigue la evolución operativa por semanas y compara tendencias reales del equipo.</p>
                   <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-cyan-700 dark:text-cyan-300 font-medium text-sm ml-12 sm:ml-[52px]">Ver evolución →</div>
+                </Link>
+              )}
+
+              {isCoordinator && (
+                <Link href="/u/team-performance" className="block rounded-xl border-2 border-emerald-300 bg-gradient-to-br from-emerald-50 to-cyan-50 p-4 sm:p-5 shadow-md hover:shadow-lg transition-all ring-1 ring-emerald-200/60 dark:border-emerald-700 dark:from-emerald-900/20 dark:to-cyan-900/20 dark:ring-emerald-700/30">
+                  <div className="flex items-center gap-3 mb-1">
+                    <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-emerald-100 dark:bg-emerald-800/40">
+                      <IconChartBar className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <div className="text-lg sm:text-xl font-semibold text-emerald-900 dark:text-emerald-100">Rendimiento del equipo</div>
+                  </div>
+                  <p className="text-sm text-emerald-700 dark:text-emerald-300 ml-12 sm:ml-[52px]">Consulta los promedios individuales de los colaboradores por semana o por los últimos 30 días.</p>
+                  <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-medium text-sm ml-12 sm:ml-[52px]">Ver rendimiento →</div>
                 </Link>
               )}
 

@@ -119,6 +119,37 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: 'No se puede cerrar una jornada futura' }, { status: 400 });
       }
 
+      const presentScans = await prisma.scan.findMany({
+        where: { businessDay, type: 'IN' },
+        select: { personId: true },
+        distinct: ['personId'],
+      });
+      const presentWorkers = await prisma.person.findMany({
+        where: {
+          id: { in: presentScans.map((scan) => scan.personId) },
+          active: true,
+          user: { role: { in: ['COLLAB', 'STAFF'] } },
+        },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
+      const ratedWorkers = await prisma.personDailyRating.findMany({
+        where: {
+          businessDay,
+          personId: { in: presentWorkers.map((person) => person.id) },
+          rating: { in: ['MALO', 'REGULAR', 'BUENO', 'MUY_BUENO'] },
+        },
+        select: { personId: true },
+      });
+      const ratedIds = new Set(ratedWorkers.map((rating) => rating.personId));
+      const missingWorkers = presentWorkers.filter((person) => !ratedIds.has(person.id));
+      if (missingWorkers.length > 0) {
+        return NextResponse.json({
+          error: 'Debes asignar una calificación individual a cada colaborador presente antes de cerrar la jornada.',
+          missingWorkers,
+        }, { status: 400 });
+      }
+
       const evaluation = await prisma.dailyEvaluation.upsert({
         where: { businessDay },
         create: {

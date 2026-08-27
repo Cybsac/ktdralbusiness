@@ -48,11 +48,33 @@ export async function POST(req: NextRequest) {
     }
 
     const evaluation = await prisma.dailyEvaluation.findUnique({ where: { businessDay }, select: { closedAt: true } });
-    if (!evaluation?.closedAt) {
-      return NextResponse.json({ error: 'La jornada debe estar cerrada para calificar colaboradores' }, { status: 400 });
+    if (evaluation?.closedAt) {
+      return NextResponse.json({ error: 'La jornada ya está cerrada. Reábrala para modificar las calificaciones.' }, { status: 400 });
     }
 
     const validRatings = ['MALO', 'REGULAR', 'BUENO', 'MUY_BUENO'];
+    const presentScans = await prisma.scan.findMany({
+      where: { businessDay, type: 'IN' },
+      select: { personId: true },
+      distinct: ['personId'],
+    });
+    const presentWorkers = await prisma.person.findMany({
+      where: {
+        id: { in: presentScans.map((scan) => scan.personId) },
+        active: true,
+        user: { role: { in: ['COLLAB', 'STAFF'] } },
+      },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    const submittedIds = new Set(ratings.map((rating: { personId?: string }) => rating.personId));
+    const missingWorkers = presentWorkers.filter((person) => !submittedIds.has(person.id));
+    if (missingWorkers.length > 0) {
+      return NextResponse.json({
+        error: 'Debes calificar a cada colaborador presente antes de guardar.',
+        missingWorkers,
+      }, { status: 400 });
+    }
     const invalidRating = ratings.find((r: { rating?: string }) => !r.rating || !validRatings.includes(r.rating));
     if (invalidRating) {
       return NextResponse.json({ error: 'Calificación inválida' }, { status: 400 });
