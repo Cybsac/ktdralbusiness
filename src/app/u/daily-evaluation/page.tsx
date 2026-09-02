@@ -430,7 +430,16 @@ export default function DailyEvaluationPage() {
       if (res.ok) {
         const data = await res.json();
         setEvaluation(data.evaluation);
-        setCloseMsg(action === 'close' ? 'Jornada cerrada' : 'Jornada reabierta');
+        if (action === 'close') {
+          const adjustedCount = Array.isArray(data.adjustedWorkers) ? data.adjustedWorkers.length : 0;
+          setCloseMsg(
+            adjustedCount > 0
+              ? `Jornada cerrada. ${adjustedCount} calificación(es) ajustada(s) por falta de salida.`
+              : 'Jornada cerrada'
+          );
+        } else {
+          setCloseMsg('Jornada reabierta');
+        }
       } else {
         const err = await res.json();
         setCloseMsg(err.error || 'Error');

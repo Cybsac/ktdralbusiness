@@ -4,6 +4,15 @@ import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/
 
 export const dynamic = 'force-dynamic';
 
+const RATING_LEVELS = ['MALO', 'REGULAR', 'BUENO', 'MUY_BUENO'] as const;
+const MISSING_EXIT_NOTE = 'Ajuste automático: no registró salida al cerrar la jornada.';
+
+function downgradeRating(rating: string) {
+  const index = RATING_LEVELS.indexOf(rating as (typeof RATING_LEVELS)[number]);
+  if (index <= 0) return 'MALO';
+  return RATING_LEVELS[index - 1];
+}
+
 // GET /api/admin/daily-evaluation?day=YYYY-MM-DD
 export async function GET(req: NextRequest) {
   try {
@@ -124,9 +133,10 @@ export async function PATCH(req: NextRequest) {
         select: { personId: true },
         distinct: ['personId'],
       });
+      const presentPersonIds = presentScans.map((scan) => scan.personId);
       const presentWorkers = await prisma.person.findMany({
         where: {
-          id: { in: presentScans.map((scan) => scan.personId) },
+          id: { in: presentPersonIds },
           active: true,
           user: { role: { in: ['COLLAB', 'STAFF'] } },
         },
@@ -139,7 +149,7 @@ export async function PATCH(req: NextRequest) {
           personId: { in: presentWorkers.map((person) => person.id) },
           rating: { in: ['MALO', 'REGULAR', 'BUENO', 'MUY_BUENO'] },
         },
-        select: { personId: true },
+        select: { personId: true, rating: true, note: true },
       });
       const ratedIds = new Set(ratedWorkers.map((rating) => rating.personId));
       const missingWorkers = presentWorkers.filter((person) => !ratedIds.has(person.id));
@@ -150,19 +160,58 @@ export async function PATCH(req: NextRequest) {
         }, { status: 400 });
       }
 
-      const evaluation = await prisma.dailyEvaluation.upsert({
-        where: { businessDay },
-        create: {
-          businessDay,
-          closedAt: new Date(),
-          closedByUserId: session.userId,
-        },
-        update: {
-          closedAt: new Date(),
-          closedByUserId: session.userId,
-        },
+      const exitScans = await prisma.scan.findMany({
+        where: { businessDay, type: 'OUT', personId: { in: presentPersonIds } },
+        select: { personId: true },
+        distinct: ['personId'],
       });
-      return NextResponse.json({ evaluation });
+      const peopleWithExit = new Set(exitScans.map((scan) => scan.personId));
+      const missingExitIds = new Set(
+        presentWorkers
+          .filter((person) => !peopleWithExit.has(person.id))
+          .map((person) => person.id)
+      );
+      const shouldApplyMissingExitAdjustment = !(await prisma.dailyEvaluation.findUnique({
+        where: { businessDay },
+        select: { closedAt: true },
+      }))?.closedAt;
+
+      const adjustedWorkers = ratedWorkers
+        .filter((rating) => shouldApplyMissingExitAdjustment && missingExitIds.has(rating.personId))
+        .map((rating) => {
+          const note = rating.note?.includes(MISSING_EXIT_NOTE)
+            ? rating.note
+            : [rating.note, MISSING_EXIT_NOTE].filter(Boolean).join(' | ');
+          return {
+            personId: rating.personId,
+            previousRating: rating.rating,
+            rating: downgradeRating(rating.rating),
+            note,
+          };
+        });
+
+      const evaluation = await prisma.$transaction(async (tx) => {
+        for (const adjustment of adjustedWorkers) {
+          await tx.personDailyRating.update({
+            where: { businessDay_personId: { businessDay, personId: adjustment.personId } },
+            data: { rating: adjustment.rating, note: adjustment.note, ratedByUserId: session.userId },
+          });
+        }
+
+        return tx.dailyEvaluation.upsert({
+          where: { businessDay },
+          create: {
+            businessDay,
+            closedAt: new Date(),
+            closedByUserId: session.userId,
+          },
+          update: {
+            closedAt: new Date(),
+            closedByUserId: session.userId,
+          },
+        });
+      });
+      return NextResponse.json({ evaluation, adjustedWorkers });
     } else {
       // reopen — only ADMIN can reopen
       if (currentRole !== 'ADMIN') {

@@ -252,7 +252,11 @@ export async function getDailyTokenMetrics(day: string): Promise<DailyTokenMetri
 
   const batches: any[] = await withRetry(() =>
     anyPrisma.batch.findMany({
-      where: { functionalDate: { gte: functionalStart, lt: functionalEnd } },
+      // Daily roulette metrics must not include static-token batches.
+      where: {
+        functionalDate: { gte: functionalStart, lt: functionalEnd },
+        staticTargetUrl: null,
+      },
       orderBy: { createdAt: 'asc' },
       include: { tokens: { include: { prize: true } } },
     })
@@ -266,7 +270,7 @@ export async function getDailyTokenMetrics(day: string): Promise<DailyTokenMetri
       anyPrisma.token.findMany({
         where: {
           createdAt: { gte: functionalStart, lt: functionalEnd },
-          batch: { functionalDate: null },
+          batch: { functionalDate: null, staticTargetUrl: null },
         },
         include: { prize: true, batch: true },
       })
