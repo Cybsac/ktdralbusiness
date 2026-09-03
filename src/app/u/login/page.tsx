@@ -15,7 +15,7 @@ function LoginClient() {
   const [pending, setPending] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
-  const loginPaused = process.env.NEXT_PUBLIC_USER_LOGIN_PAUSED === '1';
+  // AVISO TEMPORAL: Modal de mantenimiento post incidente de datos
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,7 +31,7 @@ function LoginClient() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || data.error || data.code || "LOGIN_FAIL");
+        throw new Error(data.error || "LOGIN_FAIL");
       }
 
   const data = await res.json().catch(() => ({}));
@@ -54,13 +54,7 @@ function LoginClient() {
       }, 100);
       return;
     } catch (er: any) {
-      setError(
-        er.message === 'USER_LOGIN_PAUSED'
-          ? 'Servidor en pausa. Renueva tu suscripción para continuar usando el sistema.'
-          : er.message === "INVALID_CREDENTIALS"
-            ? "Credenciales inválidas"
-            : er.message
-      );
+      setError(er.message === "INVALID_CREDENTIALS" ? "Credenciales inválidas" : er.message);
     } finally {
       setPending(false);
     }
@@ -74,20 +68,7 @@ function LoginClient() {
       </div>
     </div>
   ) : (
-    <main className="relative mx-auto max-w-sm space-y-8 py-16">
-      {loginPaused && (
-        <div className="absolute inset-0 z-10 flex items-start justify-center rounded-2xl bg-slate-950/75 px-4 pt-20 backdrop-blur-[2px]">
-          <div className="w-full rounded-xl border border-amber-400/30 bg-slate-900/95 p-6 text-center shadow-2xl shadow-black/30">
-            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full border border-amber-300/40 bg-amber-300/10 text-2xl" aria-hidden="true">
-              ⏸
-            </div>
-            <h2 className="text-lg font-semibold text-white">SERVIDOR EN PAUSA</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              Renueva tu suscripción para continuar usando el sistema.
-            </p>
-          </div>
-        </div>
-      )}
+    <main className="mx-auto max-w-sm space-y-8 py-16">
       <div className="space-y-2 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Acceso Colaborador</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">Inicia sesión para usar el scanner.</p>
@@ -162,7 +143,7 @@ function LoginClient() {
             </div>
           </div>
           {error && <p className="text-xs text-rose-600">{error}</p>}
-          <button disabled={pending || loginPaused} className="btn w-full" type="submit">
+          <button disabled={pending} className="btn w-full" type="submit">
             {pending ? "Ingresando…" : "Ingresar"}
           </button>
         </div>

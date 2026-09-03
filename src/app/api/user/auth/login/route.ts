@@ -7,24 +7,8 @@ import { apiError, apiOk } from '@/lib/apiError';
 
 export const dynamic = 'force-dynamic';
 
-const USER_LOGIN_PAUSED = '1';
-
-function isUserLoginPaused() {
-  return String(process.env.USER_LOGIN_PAUSED || '').trim() === USER_LOGIN_PAUSED;
-}
-
 export async function POST(req: Request) {
   try {
-    // Keep the pause enforceable server-side; the login screen is only the visual cue.
-    if (isUserLoginPaused()) {
-      return apiError(
-        'USER_LOGIN_PAUSED',
-        'Servidor en pausa. Renueva tu suscripción para continuar usando el sistema.',
-        undefined,
-        503
-      );
-    }
-
     const body = await req.json().catch(() => ({} as any));
     const { username, password, dni: dniRaw } = body || {};
 
