@@ -51,7 +51,9 @@ const LEGACY_PUBLIC_HOST = "tokensapp-production.up.railway.app";
 const CANONICAL_PUBLIC_URL = "https://www.ktdrallounge.com";
 
 function shouldRedirectLegacyPublicRequest(req: NextRequest): boolean {
-  const hostname = req.nextUrl.hostname.toLowerCase();
+  const forwardedHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const requestHost = forwardedHost || req.headers.get("host") || req.nextUrl.hostname;
+  const hostname = requestHost.split(":")[0].toLowerCase();
   const pathname = req.nextUrl.pathname;
 
   if (hostname !== LEGACY_PUBLIC_HOST) return false;
