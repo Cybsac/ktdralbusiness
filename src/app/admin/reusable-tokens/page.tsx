@@ -26,6 +26,7 @@ interface TokenGroup {
 
 interface GroupToken {
   id: string;
+  qrUrl: string;
   maxUses: number;
   usedCount: number;
   expiresAt: string;
@@ -970,7 +971,7 @@ export default function ReusableTokensAdmin() {
                                           })()}
                                         </div>
                                         <a
-                                          href={`/reusable/${token.id}`}
+                                          href={token.qrUrl}
                                           target="_blank"
                                           className="btn-sm bg-slate-600 hover:bg-slate-700 text-white"
                                           title="Ver token"

@@ -47,6 +47,25 @@ function matchesAny(pathname: string, prefixes: string[]): boolean {
   return prefixes.some((p) => pathname.startsWith(p));
 }
 
+const LEGACY_PUBLIC_HOST = "tokensapp-production.up.railway.app";
+const CANONICAL_PUBLIC_URL = "https://www.ktdrallounge.com";
+
+function shouldRedirectLegacyPublicRequest(req: NextRequest): boolean {
+  const hostname = req.nextUrl.hostname.toLowerCase();
+  const pathname = req.nextUrl.pathname;
+
+  if (hostname !== LEGACY_PUBLIC_HOST) return false;
+
+  // Keep internal traffic on its original host: APIs, assets, websockets and
+  // health checks must not be redirected by the browser-facing canonical URL.
+  return !(
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/_next/") ||
+    pathname.startsWith("/socket.io/") ||
+    pathname === "/favicon.ico"
+  );
+}
+
 function areaAllowsAdminRoute(area: string | undefined, pathname: string): boolean {
   if (!area) return false;
   const allowed = AREA_ADMIN_ROUTES[area];
@@ -61,6 +80,12 @@ function areaAllowsAdminAPI(area: string | undefined, pathname: string): boolean
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  if (shouldRedirectLegacyPublicRequest(req)) {
+    const canonicalUrl = new URL(`${CANONICAL_PUBLIC_URL}${pathname}`);
+    canonicalUrl.search = req.nextUrl.search;
+    return NextResponse.redirect(canonicalUrl, 307);
+  }
 
   if (pathname === "/") {
     return NextResponse.rewrite(new URL("/marketing", req.url));

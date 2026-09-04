@@ -25,8 +25,16 @@ export async function GET(req: NextRequest) {
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }]
     });
 
+    const qrBaseUrl = process.env.NEXT_PUBLIC_QR_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    const groupsWithQrUrls = groups.map((group) => ({
+      ...group,
+      tokens: group.tokens.map((token) => ({
+        ...token,
+        qrUrl: `${qrBaseUrl.replace(/\/$/, '')}/reusable/${token.id}`
+      }))
+    }));
 
-    return NextResponse.json(groups);
+    return NextResponse.json(groupsWithQrUrls);
   } catch (error) {
     console.error('[token-groups] Error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
