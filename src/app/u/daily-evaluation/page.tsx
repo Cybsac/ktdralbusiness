@@ -286,7 +286,7 @@ export default function DailyEvaluationPage() {
   const [evalMsg, setEvalMsg] = useState('');
   const [ratingsMsg, setRatingsMsg] = useState('');
   const [closeMsg, setCloseMsg] = useState('');
-  const [ratingsLocked, setRatingsLocked] = useState(false);
+  const [ratingsModalOpen, setRatingsModalOpen] = useState(false);
 
   // Initialize to today's business day
   useEffect(() => {
@@ -303,7 +303,6 @@ export default function DailyEvaluationPage() {
     setEvalRating('REGULAR');
     setEvalComment('');
     setPersonRatingsMap(new Map());
-    setRatingsLocked(false);
     try {
       const [summaryRes, evalRes, ratingsRes, briefRes, spinsRes] = await Promise.all([
         fetch(`/api/admin/daily-evaluation/summary?day=${selectedDay}`),
@@ -335,7 +334,6 @@ export default function DailyEvaluationPage() {
           map.set(r.personId, { rating: r.rating as Rating, note: r.note || '' });
         }
         setPersonRatingsMap(map);
-        setRatingsLocked(map.size > 0 && !!loadedEvaluation?.closedAt);
       }
       if (briefRes.ok) {
         const bData = await briefRes.json();
@@ -419,6 +417,12 @@ export default function DailyEvaluationPage() {
   }, [summary]);
 
   const handleCloseDay = async (action: 'close' | 'reopen') => {
+    if (action === 'close' && summary && summary.attendance.length > 0) {
+      setRatingsMsg('');
+      setRatingsModalOpen(true);
+      return;
+    }
+
     setClosingDay(true);
     setCloseMsg('');
     try {
@@ -452,6 +456,56 @@ export default function DailyEvaluationPage() {
     }
   };
 
+  const handleConfirmClose = async () => {
+    setClosingDay(true);
+    setSavingRatings(true);
+    setRatingsMsg('');
+
+    const ratings = Array.from(personRatingsMap.entries()).map(([personId, data]) => ({
+      personId,
+      rating: data.rating,
+      note: data.note || undefined,
+    }));
+
+    try {
+      const ratingsRes = await fetch('/api/admin/daily-evaluation/ratings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessDay: selectedDay, ratings }),
+      });
+      if (!ratingsRes.ok) {
+        const err = await ratingsRes.json();
+        setRatingsMsg(err.error || 'No se pudieron guardar las calificaciones.');
+        return;
+      }
+
+      const closeRes = await fetch('/api/admin/daily-evaluation', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessDay: selectedDay, action: 'close' }),
+      });
+      const data = await closeRes.json();
+      if (!closeRes.ok) {
+        setRatingsMsg(data.error || 'Las calificaciones se guardaron, pero no se pudo cerrar la jornada.');
+        return;
+      }
+
+      setEvaluation(data.evaluation);
+      setRatingsModalOpen(false);
+      const adjustedCount = Array.isArray(data.adjustedWorkers) ? data.adjustedWorkers.length : 0;
+      setCloseMsg(
+        adjustedCount > 0
+          ? `Jornada cerrada. ${adjustedCount} calificación(es) ajustada(s) por falta de salida.`
+          : 'Jornada cerrada'
+      );
+    } catch {
+      setRatingsMsg('Error de conexión. La jornada permanece abierta.');
+    } finally {
+      setSavingRatings(false);
+      setClosingDay(false);
+    }
+  };
+
   const handleSaveEvaluation = async () => {
     setSavingEval(true);
     setEvalMsg('');
@@ -474,35 +528,6 @@ export default function DailyEvaluationPage() {
     } finally {
       setSavingEval(false);
       setTimeout(() => setEvalMsg(''), 3000);
-    }
-  };
-
-  const handleSaveRatings = async () => {
-    setSavingRatings(true);
-    setRatingsMsg('');
-    try {
-      const ratings = Array.from(personRatingsMap.entries()).map(([personId, data]) => ({
-        personId,
-        rating: data.rating,
-        note: data.note || undefined,
-      }));
-      const res = await fetch('/api/admin/daily-evaluation/ratings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessDay: selectedDay, ratings }),
-      });
-      if (res.ok) {
-        setRatingsLocked(true);
-        setRatingsMsg('Calificaciones guardadas');
-      } else {
-        const err = await res.json();
-        setRatingsMsg(err.error || 'Error al guardar');
-      }
-    } catch {
-      setRatingsMsg('Error de conexión');
-    } finally {
-      setSavingRatings(false);
-      setTimeout(() => setRatingsMsg(''), 3000);
     }
   };
 
@@ -1489,100 +1514,6 @@ export default function DailyEvaluationPage() {
             </div>
           )}
 
-          {/* ===== INDIVIDUAL RATINGS ===== */}
-          {canManage && summary && summary.attendance.length > 0 && (
-            ratingsLocked ? (
-              <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 p-3 sm:p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Evaluación Individual — {summary.attendance.length} colaboradores
-                </h3>
-                <div className="space-y-1.5">
-                  {summary.attendance.map(a => {
-                    const pr = personRatingsMap.get(a.person.id) || { rating: 'REGULAR' as Rating, note: '' };
-                    return (
-                      <div key={a.person.id} className="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-slate-800/50">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm truncate">{a.person.name}</div>
-                          <div className="text-xs text-slate-500">{a.person.area || '-'}</div>
-                          {pr.note && <div className="text-xs text-slate-500 italic mt-0.5">{pr.note}</div>}
-                        </div>
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getRatingOption(pr.rating).color}`}>
-                          {getRatingOption(pr.rating).emoji} {getRatingOption(pr.rating).label}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-green-600 dark:text-green-400">Calificaciones guardadas. Para editar, reabra la jornada desde el panel admin.</p>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 sm:p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Evaluación Individual — {summary.attendance.length} colaboradores
-                </h3>
-
-                <div className="space-y-2">
-                  {summary.attendance.map(a => {
-                    const pr = personRatingsMap.get(a.person.id) || { rating: 'REGULAR' as Rating, note: '' };
-                    return (
-                      <div key={a.person.id} className="flex flex-col gap-2 p-2.5 sm:p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-                        <div className="flex items-start sm:items-center gap-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-sm truncate">{a.person.name}</div>
-                            <div className="text-xs text-slate-500">{a.person.area || '-'} · {formatTime(a.firstIn)} - {formatTime(a.lastOut)}</div>
-                            {a.missingExit && (
-                              <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Sin salida registrada</span>
-                            )}
-                          </div>
-                          <div className="flex gap-1 flex-shrink-0">
-                            {RATING_OPTIONS.map(opt => (
-                              <button
-                                key={opt.value}
-                                type="button"
-                                onClick={() => updatePersonRating(a.person.id, 'rating', opt.value)}
-                                className={`w-8 h-8 sm:w-auto sm:h-auto sm:px-2 sm:py-1 flex items-center justify-center rounded text-xs font-medium border transition-all ${
-                                  pr.rating === opt.value
-                                    ? opt.color + ' ring-1 ring-blue-400'
-                                    : 'bg-white dark:bg-slate-600 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-500 hover:bg-slate-100'
-                                }`}
-                                title={opt.label}
-                              >
-                                {opt.emoji}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        <input
-                          type="text"
-                          value={pr.note}
-                          onChange={(e) => updatePersonRating(a.person.id, 'note', e.target.value)}
-                          placeholder="Nota..."
-                          className="w-full rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
-                  <button
-                    onClick={handleSaveRatings}
-                    disabled={savingRatings || isClosed}
-                    className="w-full sm:w-auto px-5 py-2 rounded-lg bg-indigo-600 text-white font-medium text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {savingRatings ? 'Guardando...' : 'Guardar Calificaciones'}
-                  </button>
-                  {!isClosed && <span className="text-xs text-amber-600 dark:text-amber-400">Guarda las calificaciones antes de cerrar la jornada.</span>}
-                  {ratingsMsg && (
-                    <span className={`text-xs sm:text-sm font-medium text-center sm:text-left ${ratingsMsg.includes('Error') || ratingsMsg.includes('guardadas') ? 'text-red-600' : 'text-green-600'}`}>
-                      {ratingsMsg}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )
-          )}
-
           {/* ===== CLOSE DAY SECTION ===== */}
           {canClose && !isFutureDay && (
           <>
@@ -1717,6 +1648,104 @@ export default function DailyEvaluationPage() {
             </>
           )}
           </>
+          )}
+
+          {ratingsModalOpen && summary && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+              onClick={() => !closingDay && setRatingsModalOpen(false)}
+            >
+              <div
+                className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-start justify-between border-b border-slate-200 p-4 dark:border-slate-700">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">Calificar y cerrar jornada</h2>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Califica a cada colaborador presente antes de cerrar.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setRatingsModalOpen(false)}
+                    disabled={closingDay}
+                    className="rounded-lg p-1 text-xl leading-none text-slate-400 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-700"
+                    aria-label="Cerrar modal"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <div className="space-y-3 overflow-y-auto p-4">
+                  <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                    La jornada permanecerá abierta si falta una calificación o ocurre un error.
+                  </div>
+                  <div className="space-y-2">
+                    {summary.attendance.map((a) => {
+                      const pr = personRatingsMap.get(a.person.id) || { rating: 'REGULAR' as Rating, note: '' };
+                      return (
+                        <div key={a.person.id} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-700/50">
+                          <div className="flex items-start gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{a.person.name}</div>
+                              <div className="text-xs text-slate-500 dark:text-slate-400">
+                                {a.person.area || '-'} · {formatTime(a.firstIn)} - {formatTime(a.lastOut)}
+                              </div>
+                              {a.missingExit && <div className="text-xs font-medium text-amber-600 dark:text-amber-400">Sin salida registrada</div>}
+                            </div>
+                            <div className="flex shrink-0 gap-1">
+                              {RATING_OPTIONS.map((opt) => (
+                                <button
+                                  key={opt.value}
+                                  type="button"
+                                  onClick={() => updatePersonRating(a.person.id, 'rating', opt.value)}
+                                  className={`flex h-8 w-8 items-center justify-center rounded border text-xs font-medium transition-all ${
+                                    pr.rating === opt.value
+                                      ? opt.color + ' ring-1 ring-blue-400'
+                                      : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-100 dark:border-slate-500 dark:bg-slate-600 dark:text-slate-400'
+                                  }`}
+                                  title={opt.label}
+                                >
+                                  {opt.emoji}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <input
+                            type="text"
+                            value={pr.note}
+                            onChange={(event) => updatePersonRating(a.person.id, 'note', event.target.value)}
+                            placeholder="Nota opcional..."
+                            className="mt-2 w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {ratingsMsg && <p className="text-sm font-medium text-red-600 dark:text-red-400">{ratingsMsg}</p>}
+                </div>
+
+                <div className="flex flex-col-reverse gap-2 border-t border-slate-200 p-4 sm:flex-row sm:justify-end dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setRatingsModalOpen(false)}
+                    disabled={closingDay}
+                    className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmClose}
+                    disabled={closingDay || savingRatings}
+                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {closingDay ? 'Guardando y cerrando...' : 'Guardar y cerrar jornada'}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </>
       )}
