@@ -16,34 +16,11 @@ type OperatorJourneyStats = {
   reusableDeliveries: number;
   reusableRedemptions: number;
   birthdayRedemptions: number;
-  reusableSourceBreakdown: Array<{ key: string; label: string; count: number }>;
+  reusableGroups: Array<{ id: string | null; name: string; color: string | null; deliveries: number; redemptions: number; total: number }>;
+  rouletteDeliveries: number;
   customQrRedemptions: number;
   totalActions: number;
 };
-
-type SourceKey = 'printed-card' | 'roll-banner' | 'domingo' | 'bar' | 'other';
-
-function classifyReusableSource(groupName: string | null | undefined, label: string) {
-  const normalizedGroup = (groupName || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-  const normalizedLabel = (label || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-  if (normalizedGroup.includes('barra')) {
-    return { key: 'bar' as const, label: 'Barra' };
-  }
-  if (normalizedGroup.includes('roll') || normalizedGroup.includes('banner') || normalizedLabel.includes('ktboom') || normalizedLabel.includes('tampico')) {
-    return { key: 'roll-banner' as const, label: 'Roll Banner' };
-  }
-  if (normalizedGroup.includes('domingo')) {
-    return { key: 'domingo' as const, label: 'Tokens Domingo' };
-  }
-  return { key: 'printed-card' as const, label: 'Carta impresa' };
-}
 
 function parseDayParam(input: string | null): string {
   if (!input) return currentBusinessDay();
@@ -74,7 +51,7 @@ function sumByString<T extends { key: string | null; count: number }>(rows: T[])
 async function buildJourneyStats(userIds: string[], startUtc: Date, endUtc: Date) {
   if (userIds.length === 0) return [] as OperatorJourneyStats[];
 
-  const [users, scanGroups, reusableByTypeGroups, reusableDeliveries, birthdayGroups, customQrGroups] = await Promise.all([
+  const [users, scanGroups, reusableByTypeGroups, reusableDeliveries, rouletteTokens, birthdayGroups, customQrGroups] = await Promise.all([
     prisma.user.findMany({
       where: { id: { in: userIds } },
       select: {
@@ -104,18 +81,26 @@ async function buildJourneyStats(userIds: string[], startUtc: Date, endUtc: Date
     prisma.reusableTokenRedemption.findMany({
       where: {
         userId: { in: userIds },
-        type: 'deliver',
+        type: { in: ['deliver', 'redeem'] },
         createdAt: { gte: startUtc, lt: endUtc },
       },
       select: {
         userId: true,
+        type: true,
         token: {
           select: {
-            prize: { select: { label: true } },
-            group: { select: { name: true } },
+            group: { select: { id: true, name: true, color: true } },
           },
         },
       },
+    }),
+    prisma.token.findMany({
+      where: {
+        deliveredByUserId: { in: userIds },
+        deliveredAt: { gte: startUtc, lt: endUtc },
+        batch: { isReusable: false, staticTargetUrl: null },
+      },
+      select: { deliveredByUserId: true },
     }),
     prisma.tokenRedemption.groupBy({
       by: ['by'],
@@ -139,9 +124,13 @@ async function buildJourneyStats(userIds: string[], startUtc: Date, endUtc: Date
   const scanCounts = sumByUserId(scanGroups.map((row) => ({ userId: row.byUser, count: row._count._all })));
   const birthdayCounts = sumByString(birthdayGroups.map((row) => ({ key: row.by, count: row._count._all })));
   const customCounts = sumByString(customQrGroups.map((row) => ({ key: row.redeemedBy, count: row._count._all })));
+  const rouletteCounts = new Map<string, number>();
+  for (const token of rouletteTokens) {
+    if (token.deliveredByUserId) rouletteCounts.set(token.deliveredByUserId, (rouletteCounts.get(token.deliveredByUserId) || 0) + 1);
+  }
 
   const reusableCounts = new Map<string, { deliver: number; redeem: number }>();
-  const reusableSourceCounts = new Map<string, Map<SourceKey, number>>();
+  const reusableGroupCounts = new Map<string, Map<string, { id: string | null; name: string; color: string | null; deliveries: number; redemptions: number }>>();
   for (const row of reusableByTypeGroups) {
     if (!row.userId) continue;
     const current = reusableCounts.get(row.userId) || { deliver: 0, redeem: 0 };
@@ -151,10 +140,19 @@ async function buildJourneyStats(userIds: string[], startUtc: Date, endUtc: Date
   }
   for (const redemption of reusableDeliveries) {
     if (!redemption.userId) continue;
-    const src = classifyReusableSource(redemption.token.group?.name ?? null, redemption.token.prize.label);
-    const userMap = reusableSourceCounts.get(redemption.userId) || new Map<SourceKey, number>();
-    userMap.set(src.key, (userMap.get(src.key) || 0) + 1);
-    reusableSourceCounts.set(redemption.userId, userMap);
+    const groupId = redemption.token.group?.id || 'ungrouped';
+    const userMap = reusableGroupCounts.get(redemption.userId) || new Map();
+    const group = userMap.get(groupId) || {
+      id: redemption.token.group?.id ?? null,
+      name: redemption.token.group?.name || 'Sin grupo',
+      color: redemption.token.group?.color ?? null,
+      deliveries: 0,
+      redemptions: 0,
+    };
+    if ((redemption as any).type === 'deliver') group.deliveries += 1;
+    else if ((redemption as any).type === 'redeem') group.redemptions += 1;
+    userMap.set(groupId, group);
+    reusableGroupCounts.set(redemption.userId, userMap);
   }
 
   return users.map((user) => {
@@ -162,15 +160,12 @@ async function buildJourneyStats(userIds: string[], startUtc: Date, endUtc: Date
     const reusableDeliveries = reusableCounts.get(user.id)?.deliver || 0;
     const reusableRedemptions = reusableCounts.get(user.id)?.redeem || 0;
     const birthdayRedemptions = birthdayCounts.get(user.id) || 0;
-    const sourceMap = reusableSourceCounts.get(user.id) || new Map<SourceKey, number>();
-    const reusableSourceBreakdown = [
-      { key: 'printed-card', label: 'Carta impresa', count: sourceMap.get('printed-card') || 0 },
-      { key: 'roll-banner', label: 'Roll Banner', count: sourceMap.get('roll-banner') || 0 },
-      { key: 'domingo', label: 'Tokens Domingo', count: sourceMap.get('domingo') || 0 },
-      { key: 'bar', label: 'Barra', count: sourceMap.get('bar') || 0 },
-    ].filter((item) => item.count > 0);
+    const reusableGroups = Array.from(reusableGroupCounts.get(user.id)?.values() || [])
+      .map((group) => ({ ...group, total: group.deliveries + group.redemptions }))
+      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+    const rouletteDeliveries = rouletteCounts.get(user.id) || 0;
     const customQrRedemptions = customCounts.get(user.id) || 0;
-    const totalActions = reusableDeliveries + reusableRedemptions + birthdayRedemptions;
+    const totalActions = reusableDeliveries + reusableRedemptions + birthdayRedemptions + rouletteDeliveries;
     return {
       userId: user.id,
       displayName: user.person?.name || user.username,
@@ -181,7 +176,8 @@ async function buildJourneyStats(userIds: string[], startUtc: Date, endUtc: Date
       reusableDeliveries,
       reusableRedemptions,
       birthdayRedemptions,
-      reusableSourceBreakdown,
+      reusableGroups,
+      rouletteDeliveries,
       customQrRedemptions,
       totalActions,
     };
@@ -229,7 +225,8 @@ export async function GET(req: NextRequest) {
       reusableDeliveries: 0,
       reusableRedemptions: 0,
       birthdayRedemptions: 0,
-      reusableSourceBreakdown: [],
+      reusableGroups: [],
+      rouletteDeliveries: 0,
       customQrRedemptions: 0,
       totalActions: 0,
     };
@@ -277,7 +274,7 @@ export async function GET(req: NextRequest) {
       : viewerStats;
 
     const reusableOperatorRows = canSeeRanking
-      ? operatorRows.filter((row) => row.reusableDeliveries + row.reusableRedemptions + row.birthdayRedemptions > 0)
+      ? operatorRows.filter((row) => row.reusableDeliveries + row.reusableRedemptions + row.birthdayRedemptions + row.rouletteDeliveries > 0)
       : operatorRows;
 
     const totals = reusableOperatorRows.reduce(
@@ -286,10 +283,11 @@ export async function GET(req: NextRequest) {
         reusableDeliveries: acc.reusableDeliveries + row.reusableDeliveries,
         reusableRedemptions: acc.reusableRedemptions + row.reusableRedemptions,
         birthdayRedemptions: (acc as any).birthdayRedemptions + row.birthdayRedemptions,
+        rouletteDeliveries: acc.rouletteDeliveries + row.rouletteDeliveries,
         customQrRedemptions: acc.customQrRedemptions + row.customQrRedemptions,
         totalActions: acc.totalActions + row.totalActions,
       }),
-      { attendanceScans: 0, reusableDeliveries: 0, reusableRedemptions: 0, birthdayRedemptions: 0, customQrRedemptions: 0, totalActions: 0 }
+      { attendanceScans: 0, reusableDeliveries: 0, reusableRedemptions: 0, birthdayRedemptions: 0, rouletteDeliveries: 0, customQrRedemptions: 0, totalActions: 0 }
     );
 
     const operators = reusableOperatorRows.sort((a, b) => {

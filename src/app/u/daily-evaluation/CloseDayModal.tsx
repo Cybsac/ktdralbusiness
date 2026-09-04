@@ -61,7 +61,10 @@ export default function CloseDayModal({
   if (!open) return null;
 
   const commentIsValid = generalComment.trim().length > 0;
-  const ratingsAreComplete = attendance.every((entry) => personRatings.has(entry.person.id));
+  const ratingsAreComplete = attendance.every((entry) => {
+    const rating = personRatings.get(entry.person.id)?.rating || 'REGULAR';
+    return ratingOptions.some((option) => option.value === rating);
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !saving && onClose()}>

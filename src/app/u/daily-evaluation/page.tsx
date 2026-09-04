@@ -139,7 +139,8 @@ interface JourneyOperatorStats {
   reusableDeliveries: number;
   reusableRedemptions: number;
   birthdayRedemptions: number;
-  reusableSourceBreakdown: Array<{ key: string; label: string; count: number }>;
+  reusableGroups: Array<{ id: string | null; name: string; color: string | null; deliveries: number; redemptions: number; total: number }>;
+  rouletteDeliveries: number;
   customQrRedemptions: number;
   totalActions: number;
 }
@@ -155,7 +156,7 @@ interface JourneyHistoryEvent {
 interface JourneyHistoryResponse {
   ok: boolean;
   day: string;
-  category?: 'reusable' | 'birthday';
+  category?: 'reusable' | 'birthday' | 'roulette';
   operator: {
     userId: string;
     displayName: string;
@@ -186,6 +187,7 @@ interface JourneyStatsResponse {
     reusableDeliveries: number;
     reusableRedemptions: number;
     birthdayRedemptions: number;
+    rouletteDeliveries: number;
     customQrRedemptions: number;
     totalActions: number;
   };
@@ -380,7 +382,7 @@ export default function DailyEvaluationPage() {
     fetchJourneyStats();
   }, [fetchJourneyStats]);
 
-  const openJourneyHistory = useCallback(async (userId: string, category: 'reusable' | 'birthday') => {
+  const openJourneyHistory = useCallback(async (userId: string, category: 'reusable' | 'birthday' | 'roulette') => {
     setModalSection('journey-history');
     setJourneyHistory(null);
     setJourneyHistoryError(null);
@@ -418,6 +420,14 @@ export default function DailyEvaluationPage() {
   const handleCloseDay = async (action: 'close' | 'reopen') => {
     if (action === 'close') {
       setRatingsMsg('');
+      // REGULAR es la calificacion inicial real, no solo un valor visual del modal.
+      setPersonRatingsMap(prev => {
+        const next = new Map<string, { rating: Rating; note: string }>();
+        for (const entry of summary?.attendance || []) {
+          next.set(entry.person.id, prev.get(entry.person.id) || { rating: 'REGULAR', note: '' });
+        }
+        return next;
+      });
       setRatingsModalOpen(true);
       return;
     }
@@ -451,11 +461,14 @@ export default function DailyEvaluationPage() {
     setSavingRatings(true);
     setRatingsMsg('');
 
-    const ratings = Array.from(personRatingsMap.entries()).map(([personId, data]) => ({
-      personId,
-      rating: data.rating,
-      note: data.note || undefined,
-    }));
+    const ratings = (summary?.attendance || []).map((entry) => {
+      const data = personRatingsMap.get(entry.person.id) || { rating: 'REGULAR' as Rating, note: '' };
+      return {
+        personId: entry.person.id,
+        rating: data.rating,
+        note: data.note || undefined,
+      };
+    });
 
     try {
       const closeRes = await fetch('/api/admin/daily-evaluation', {
@@ -754,12 +767,8 @@ export default function DailyEvaluationPage() {
       ) : journeyStats.scope === 'self' ? (
         <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {summary?.reusableGroups?.length ? (
-              summary.reusableGroups.map((group) => {
-                const source = classifyReusableSourceForJourney(group.name);
-                const item = journeyStats.me.reusableSourceBreakdown.find((entry) => entry.key === source.key);
-                const count = item?.count ?? 0;
-
+            {journeyStats.me.reusableGroups.length ? (
+              journeyStats.me.reusableGroups.map((group) => {
                 return (
                   <button
                     key={group.id}
@@ -774,14 +783,23 @@ export default function DailyEvaluationPage() {
                         {group.name}
                       </span>
                     </div>
-                    <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">{count}</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">{group.total}</div>
                     <div className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                      {source.label}
+                      {group.deliveries} entregas · {group.redemptions} usos
                     </div>
                   </button>
                 );
               })
             ) : null}
+            <button
+              type="button"
+              onClick={() => openJourneyHistory(journeyStats.viewer.userId, 'roulette')}
+              className="relative rounded-xl border p-3 text-left transition-all hover:shadow-md border-fuchsia-200 dark:border-fuchsia-800 bg-gradient-to-br from-fuchsia-50 to-pink-50 dark:from-fuchsia-900/10 dark:to-pink-900/10 hover:border-fuchsia-300 dark:hover:border-fuchsia-600"
+            >
+              <div className="text-[10px] sm:text-xs font-semibold text-fuchsia-700 dark:text-fuchsia-300 mb-1">Ruleta /r</div>
+              <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">{journeyStats.me.rouletteDeliveries}</div>
+              <div className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">entregas</div>
+            </button>
           </div>
 
           {modalSection === 'journey-sources' && (
@@ -794,12 +812,16 @@ export default function DailyEvaluationPage() {
                   </button>
                 </div>
                 <div className="space-y-2">
-                  {journeyStats.me.reusableSourceBreakdown.map((item) => (
-                    <div key={item.key} className="flex items-center justify-between rounded-lg bg-teal-50 dark:bg-teal-900/10 px-3 py-2">
-                      <span className="text-sm text-slate-800 dark:text-slate-200">{item.label}</span>
-                      <span className="text-sm font-semibold text-teal-700 dark:text-teal-300">{item.count}</span>
+                  {journeyStats.me.reusableGroups.map((group) => (
+                    <div key={group.id || group.name} className="flex items-center justify-between rounded-lg bg-teal-50 dark:bg-teal-900/10 px-3 py-2">
+                      <span className="text-sm text-slate-800 dark:text-slate-200">{group.name}</span>
+                      <span className="text-sm font-semibold text-teal-700 dark:text-teal-300">{group.total}</span>
                     </div>
                   ))}
+                  <div className="flex items-center justify-between rounded-lg bg-fuchsia-50 dark:bg-fuchsia-900/10 px-3 py-2">
+                    <span className="text-sm text-slate-800 dark:text-slate-200">Ruleta /r</span>
+                    <span className="text-sm font-semibold text-fuchsia-700 dark:text-fuchsia-300">{journeyStats.me.rouletteDeliveries}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -810,7 +832,7 @@ export default function DailyEvaluationPage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-teal-900 dark:text-teal-200">Colaboradores con escaneo de tokens del local</h3>
-              <p className="text-xs text-teal-700 dark:text-teal-300">Se muestran solo colaboradores con canjes/entregas de reusables o validaciones de tokens de cumpleanos en {journeyStats.day}.</p>
+              <p className="text-xs text-teal-700 dark:text-teal-300">Se muestran colaboradores con actividad de reusables, ruleta /r o tokens de cumpleanos en {journeyStats.day}.</p>
             </div>
 
             {userRole === 'ADMIN' && (
@@ -850,6 +872,7 @@ export default function DailyEvaluationPage() {
                     <th className="px-3 py-2">Colaborador</th>
                     <th className="px-3 py-2">Area</th>
                     <th className="px-3 py-2 text-center">Reusables</th>
+                    <th className="px-3 py-2 text-center">Ruleta /r</th>
                     <th className="px-3 py-2 text-center">Cumpleanos</th>
                   </tr>
                 </thead>
@@ -873,6 +896,30 @@ export default function DailyEvaluationPage() {
                             >
                               {row.reusableDeliveries + row.reusableRedemptions}
                             </button>
+                            {row.reusableGroups.length > 0 && (
+                              <div className="mt-1 flex max-w-[13rem] flex-wrap justify-center gap-1">
+                                {row.reusableGroups.map((group) => (
+                                  <span
+                                    key={group.id || group.name}
+                                    className="inline-flex max-w-[8rem] items-center gap-1 truncate rounded-full bg-teal-50 px-1.5 py-0.5 text-[9px] font-medium text-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
+                                    title={`${group.name}: ${group.total}`}
+                                  >
+                                    {group.color && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: group.color }} />}
+                                    <span className="truncate">{group.name}: {group.total}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => openJourneyHistory(row.userId, 'roulette')}
+                              className="inline-flex min-w-[2.5rem] items-center justify-center rounded-md px-2 py-1 font-semibold text-fuchsia-700 transition-colors hover:bg-fuchsia-100 hover:text-fuchsia-900 dark:text-fuchsia-300 dark:hover:bg-fuchsia-900/30 dark:hover:text-fuchsia-100"
+                              title="Ver entregas de tokens de ruleta"
+                            >
+                              {row.rouletteDeliveries}
+                            </button>
                           </td>
                           <td className="px-3 py-2 text-center">
                             <button
@@ -889,8 +936,8 @@ export default function DailyEvaluationPage() {
                     })
                   ) : (
                     <tr>
-                      <td className="px-3 py-4 text-sm text-slate-500 dark:text-slate-400" colSpan={4}>
-                        Ningun colaborador escaneo tokens reutilizables o de cumpleanos en este dia con los filtros actuales.
+                      <td className="px-3 py-4 text-sm text-slate-500 dark:text-slate-400" colSpan={5}>
+                        Ningun colaborador registro actividad de tokens en este dia con los filtros actuales.
                       </td>
                     </tr>
                   )}
@@ -904,7 +951,9 @@ export default function DailyEvaluationPage() {
               <div className="w-full max-w-lg rounded-2xl border border-teal-200 dark:border-teal-700 bg-white dark:bg-slate-800 p-4 shadow-xl" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">{journeyHistory?.category === 'birthday' ? 'Historial de tokens de cumpleanos' : 'Historial de tokens reutilizables'}</h3>
+                    <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                      {journeyHistory?.category === 'birthday' ? 'Historial de tokens de cumpleanos' : journeyHistory?.category === 'roulette' ? 'Historial de ruleta /r' : 'Historial de tokens reutilizables'}
+                    </h3>
                     {journeyHistory?.operator && (
                       <p className="text-xs text-slate-500 dark:text-slate-400">{journeyHistory.operator.displayName} · {journeyHistory.day}</p>
                     )}
@@ -928,7 +977,7 @@ export default function DailyEvaluationPage() {
                             {event.groupName && <div className="text-[11px] text-slate-500 dark:text-slate-400">{event.groupName}</div>}
                           </div>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
-                            {journeyHistory?.category === 'birthday' ? (event.type === 'host' ? 'Cumpleanero' : 'Invitado') : (event.type === 'deliver' ? 'Entrega' : 'Canje')}
+                            {journeyHistory?.category === 'birthday' ? (event.type === 'host' ? 'Cumpleanero' : 'Invitado') : journeyHistory?.category === 'roulette' ? 'Entrega /r' : (event.type === 'deliver' ? 'Entrega' : 'Canje')}
                           </span>
                         </div>
                         <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -938,7 +987,7 @@ export default function DailyEvaluationPage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="py-6 text-sm text-slate-500 dark:text-slate-400">No hay eventos de {journeyHistory?.category === 'birthday' ? 'cumpleanos' : 'tokens reutilizables'} para este colaborador en el dia seleccionado.</div>
+                  <div className="py-6 text-sm text-slate-500 dark:text-slate-400">No hay eventos de {journeyHistory?.category === 'birthday' ? 'cumpleanos' : journeyHistory?.category === 'roulette' ? 'ruleta /r' : 'tokens reutilizables'} para este colaborador en el dia seleccionado.</div>
                 )}
               </div>
             </div>

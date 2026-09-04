@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isTwoPhaseRedemptionEnabled, isClientDeliverAllowed } from "@/lib/featureFlags";
 import { logEvent } from "@/lib/log";
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from "@/lib/auth";
+import { getSessionCookieFromRequest, verifySessionCookie, requireRole, getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
 import { apiError, apiOk } from '@/lib/apiError';
 
 // POST /api/token/[tokenId]/deliver
@@ -40,6 +40,12 @@ export async function POST(_req: NextRequest, { params }: { params: { tokenId: s
       const code = auth.error || 'UNAUTHORIZED';
       return apiError(code, code, undefined, code === 'UNAUTHORIZED' ? 401 : 403);
     }
+  } else {
+    // El modo publico sigue permitido, pero aprovechamos una sesion de colaborador
+    // cuando existe para conservar quien realizo la entrega.
+    const userRaw = getUserSessionCookieFromRequest(_req as any);
+    const userSession = await verifyUserSessionCookie(userRaw);
+    if (userSession?.userId) session = userSession;
   }
 
   try {
@@ -78,7 +84,8 @@ export async function POST(_req: NextRequest, { params }: { params: { tokenId: s
       // 3. Intento de actualización atómica condicionada deliveredAt IS NULL para evitar race
       const deliveredAt = new Date();
       const revealToDeliverMs = deliveredAt.getTime() - token.revealedAt.getTime();
-  const deliveredByUserId = allowClient ? DELIVERED_BY.client : (session?.role === 'STAFF' ? DELIVERED_BY.staff : DELIVERED_BY.admin);
+      const deliveredByUserId = session?.userId
+        || (allowClient ? DELIVERED_BY.client : (session?.role === 'STAFF' ? DELIVERED_BY.staff : DELIVERED_BY.admin));
 
       // Para cualquier token entregado: marcar como canjeado automáticamente
       const updateData = {

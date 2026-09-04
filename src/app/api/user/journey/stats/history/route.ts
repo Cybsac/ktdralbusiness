@@ -36,7 +36,8 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url);
     const userId = url.searchParams.get('userId');
-    const category = url.searchParams.get('category') === 'birthday' ? 'birthday' : 'reusable';
+    const requestedCategory = url.searchParams.get('category');
+    const category = requestedCategory === 'birthday' || requestedCategory === 'roulette' ? requestedCategory : 'reusable';
     if (!userId) {
       return NextResponse.json({ ok: false, code: 'USER_ID_REQUIRED' }, { status: 400 });
     }
@@ -83,6 +84,20 @@ export async function GET(req: NextRequest) {
           },
           orderBy: { redeemedAt: 'desc' },
         })
+      : category === 'roulette'
+      ? await prisma.token.findMany({
+          where: {
+            deliveredByUserId: userId,
+            deliveredAt: { gte: startUtc, lt: endUtc },
+            batch: { isReusable: false, staticTargetUrl: null },
+          },
+          select: {
+            id: true,
+            deliveredAt: true,
+            prize: { select: { label: true } },
+          },
+          orderBy: { deliveredAt: 'desc' },
+        })
       : await prisma.reusableTokenRedemption.findMany({
           where: {
             userId,
@@ -120,6 +135,14 @@ export async function GET(req: NextRequest) {
             label: event.reservation?.celebrantName || 'Cumpleanos',
             groupName: (typeof event.location === 'string' && event.location.startsWith('host:')) ? 'Cumpleanero' : `Invitado${event.reservation?.timeSlot ? ` · ${event.reservation.timeSlot}` : ''}`,
             createdAt: event.redeemedAt.toISOString(),
+          }))
+        : category === 'roulette'
+        ? events.map((event: any) => ({
+            id: event.id,
+            type: 'roulette',
+            label: event.prize.label,
+            groupName: 'Ruleta /r',
+            createdAt: event.deliveredAt.toISOString(),
           }))
         : events.map((event: any) => ({
             id: event.id,
