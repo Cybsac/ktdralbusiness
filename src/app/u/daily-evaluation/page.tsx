@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ALLOWED_AREAS } from '@/lib/areas';
+import CloseDayModal from './CloseDayModal';
 
 type Rating = 'MALO' | 'REGULAR' | 'BUENO' | 'MUY_BUENO';
 
@@ -280,10 +281,8 @@ export default function DailyEvaluationPage() {
   const [evalRating, setEvalRating] = useState<Rating>('REGULAR');
   const [evalComment, setEvalComment] = useState('');
   const [personRatingsMap, setPersonRatingsMap] = useState<Map<string, { rating: Rating; note: string }>>(new Map());
-  const [savingEval, setSavingEval] = useState(false);
   const [savingRatings, setSavingRatings] = useState(false);
   const [closingDay, setClosingDay] = useState(false);
-  const [evalMsg, setEvalMsg] = useState('');
   const [ratingsMsg, setRatingsMsg] = useState('');
   const [closeMsg, setCloseMsg] = useState('');
   const [ratingsModalOpen, setRatingsModalOpen] = useState(false);
@@ -323,7 +322,7 @@ export default function DailyEvaluationPage() {
         loadedEvaluation = evalData.evaluation || null;
         if (evalData.evaluation) {
           setEvaluation(evalData.evaluation);
-          setEvalRating(evalData.evaluation.rating);
+          setEvalRating(evalData.evaluation.rating || 'REGULAR');
           setEvalComment(evalData.evaluation.comment || '');
         }
       }
@@ -417,7 +416,7 @@ export default function DailyEvaluationPage() {
   }, [summary]);
 
   const handleCloseDay = async (action: 'close' | 'reopen') => {
-    if (action === 'close' && summary && summary.attendance.length > 0) {
+    if (action === 'close') {
       setRatingsMsg('');
       setRatingsModalOpen(true);
       return;
@@ -434,16 +433,7 @@ export default function DailyEvaluationPage() {
       if (res.ok) {
         const data = await res.json();
         setEvaluation(data.evaluation);
-        if (action === 'close') {
-          const adjustedCount = Array.isArray(data.adjustedWorkers) ? data.adjustedWorkers.length : 0;
-          setCloseMsg(
-            adjustedCount > 0
-              ? `Jornada cerrada. ${adjustedCount} calificación(es) ajustada(s) por falta de salida.`
-              : 'Jornada cerrada'
-          );
-        } else {
-          setCloseMsg('Jornada reabierta');
-        }
+        setCloseMsg('Jornada reabierta');
       } else {
         const err = await res.json();
         setCloseMsg(err.error || 'Error');
@@ -468,25 +458,15 @@ export default function DailyEvaluationPage() {
     }));
 
     try {
-      const ratingsRes = await fetch('/api/admin/daily-evaluation/ratings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessDay: selectedDay, ratings }),
-      });
-      if (!ratingsRes.ok) {
-        const err = await ratingsRes.json();
-        setRatingsMsg(err.error || 'No se pudieron guardar las calificaciones.');
-        return;
-      }
-
       const closeRes = await fetch('/api/admin/daily-evaluation', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessDay: selectedDay, action: 'close' }),
+        body: JSON.stringify({ businessDay: selectedDay, action: 'close', rating: evalRating, comment: evalComment, ratings }),
       });
       const data = await closeRes.json();
       if (!closeRes.ok) {
-        setRatingsMsg(data.error || 'Las calificaciones se guardaron, pero no se pudo cerrar la jornada.');
+        const err = data;
+        setRatingsMsg(err.error || 'No se pudieron guardar las calificaciones.');
         return;
       }
 
@@ -503,31 +483,6 @@ export default function DailyEvaluationPage() {
     } finally {
       setSavingRatings(false);
       setClosingDay(false);
-    }
-  };
-
-  const handleSaveEvaluation = async () => {
-    setSavingEval(true);
-    setEvalMsg('');
-    try {
-      const res = await fetch('/api/admin/daily-evaluation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessDay: selectedDay, rating: evalRating, comment: evalComment }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setEvaluation(data.evaluation);
-        setEvalMsg('Evaluación guardada');
-      } else {
-        const err = await res.json();
-        setEvalMsg(err.error || 'Error al guardar');
-      }
-    } catch {
-      setEvalMsg('Error de conexión');
-    } finally {
-      setSavingEval(false);
-      setTimeout(() => setEvalMsg(''), 3000);
     }
   };
 
@@ -549,7 +504,6 @@ export default function DailyEvaluationPage() {
   const isClosed = !!evaluation?.closedAt;
   const canManage = ['ADMIN', 'COORDINATOR'].includes(userRole);
   const canClose = ['ADMIN', 'COORDINATOR'].includes(userRole);
-  const isEvalFinalized = !!evaluation?.rating;
   const isMultimedia = userArea.toUpperCase() === 'MULTIMEDIA';
   const isSecurity = userArea.toUpperCase() === 'SEGURIDAD';
 
@@ -1570,183 +1524,26 @@ export default function DailyEvaluationPage() {
                 <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2">Solo un administrador puede reabrir la jornada.</p>
               </div>
 
-              {/* ===== EVALUATION FORMS (only ADMIN/COORDINATOR) ===== */}
-              {canManage && (
-              <>
-              {/* ===== EVALUATION GENERAL ===== */}
-              {isEvalFinalized ? (
-                <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 p-3 sm:p-4 space-y-3">
-                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                    Evaluación General de la Jornada
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border ${getRatingOption(evaluation!.rating!).color}`}>
-                      {getRatingOption(evaluation!.rating!).emoji} {getRatingOption(evaluation!.rating!).label}
-                    </span>
-                    {evaluation?.evaluatedByName && (
-                      <span className="text-xs text-slate-500">por {evaluation.evaluatedByName}</span>
-                    )}
-                  </div>
-                  {evaluation?.comment && (
-                    <p className="text-sm text-slate-600 dark:text-slate-400 italic">&ldquo;{evaluation.comment}&rdquo;</p>
-                  )}
-                  <p className="text-xs text-green-600 dark:text-green-400">✅ Evaluación finalizada. Para editar, reabra la jornada desde el panel admin.</p>
-                </div>
-              ) : (
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 sm:p-4 space-y-4">
-                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Evaluación General de la Jornada
-                </h3>
-
-                <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
-                  {RATING_OPTIONS.map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setEvalRating(opt.value)}
-                      className={`px-3 sm:px-4 py-2 rounded-lg border text-xs sm:text-sm font-medium transition-all ${
-                        evalRating === opt.value
-                          ? opt.color + ' ring-2 ring-offset-1 ring-blue-400'
-                          : 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      {opt.emoji} {opt.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
-                    Comentario / Observaciones
-                  </label>
-                  <textarea
-                    value={evalComment}
-                    onChange={(e) => setEvalComment(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Notas sobre la jornada..."
-                  />
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
-                  <button
-                    onClick={handleSaveEvaluation}
-                    disabled={savingEval}
-                    className="w-full sm:w-auto px-5 py-2 rounded-lg bg-blue-600 text-white font-medium text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {savingEval ? 'Guardando...' : 'Guardar Evaluación General'}
-                  </button>
-                  {evalMsg && (
-                    <span className={`text-xs sm:text-sm font-medium text-center sm:text-left ${evalMsg.includes('Error') || evalMsg.includes('debe') || evalMsg.includes('finalizada') ? 'text-red-600' : 'text-green-600'}`}>
-                      {evalMsg}
-                    </span>
-                  )}
-                </div>
-              </div>
-              )}
-
-            </>
-          )}
           </>
           )}
 
-          {ratingsModalOpen && summary && (
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-              onClick={() => !closingDay && setRatingsModalOpen(false)}
-            >
-              <div
-                className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div className="flex items-start justify-between border-b border-slate-200 p-4 dark:border-slate-700">
-                  <div>
-                    <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">Calificar y cerrar jornada</h2>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                      Califica a cada colaborador presente antes de cerrar.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setRatingsModalOpen(false)}
-                    disabled={closingDay}
-                    className="rounded-lg p-1 text-xl leading-none text-slate-400 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-700"
-                    aria-label="Cerrar modal"
-                  >
-                    &times;
-                  </button>
-                </div>
-
-                <div className="space-y-3 overflow-y-auto p-4">
-                  <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-                    La jornada permanecerá abierta si falta una calificación o ocurre un error.
-                  </div>
-                  <div className="space-y-2">
-                    {summary.attendance.map((a) => {
-                      const pr = personRatingsMap.get(a.person.id) || { rating: 'REGULAR' as Rating, note: '' };
-                      return (
-                        <div key={a.person.id} className="rounded-lg bg-slate-50 p-3 dark:bg-slate-700/50">
-                          <div className="flex items-start gap-2">
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{a.person.name}</div>
-                              <div className="text-xs text-slate-500 dark:text-slate-400">
-                                {a.person.area || '-'} · {formatTime(a.firstIn)} - {formatTime(a.lastOut)}
-                              </div>
-                              {a.missingExit && <div className="text-xs font-medium text-amber-600 dark:text-amber-400">Sin salida registrada</div>}
-                            </div>
-                            <div className="flex shrink-0 gap-1">
-                              {RATING_OPTIONS.map((opt) => (
-                                <button
-                                  key={opt.value}
-                                  type="button"
-                                  onClick={() => updatePersonRating(a.person.id, 'rating', opt.value)}
-                                  className={`flex h-8 w-8 items-center justify-center rounded border text-xs font-medium transition-all ${
-                                    pr.rating === opt.value
-                                      ? opt.color + ' ring-1 ring-blue-400'
-                                      : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-100 dark:border-slate-500 dark:bg-slate-600 dark:text-slate-400'
-                                  }`}
-                                  title={opt.label}
-                                >
-                                  {opt.emoji}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <input
-                            type="text"
-                            value={pr.note}
-                            onChange={(event) => updatePersonRating(a.person.id, 'note', event.target.value)}
-                            placeholder="Nota opcional..."
-                            className="mt-2 w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {ratingsMsg && <p className="text-sm font-medium text-red-600 dark:text-red-400">{ratingsMsg}</p>}
-                </div>
-
-                <div className="flex flex-col-reverse gap-2 border-t border-slate-200 p-4 sm:flex-row sm:justify-end dark:border-slate-700">
-                  <button
-                    type="button"
-                    onClick={() => setRatingsModalOpen(false)}
-                    disabled={closingDay}
-                    className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-700"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmClose}
-                    disabled={closingDay || savingRatings}
-                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {closingDay ? 'Guardando y cerrando...' : 'Guardar y cerrar jornada'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <CloseDayModal
+            open={ratingsModalOpen && !!summary}
+            attendance={summary?.attendance || []}
+            ratingOptions={RATING_OPTIONS}
+            generalRating={evalRating}
+            generalComment={evalComment}
+            personRatings={personRatingsMap}
+            saving={closingDay || savingRatings}
+            error={ratingsMsg}
+            onClose={() => setRatingsModalOpen(false)}
+            onGeneralRatingChange={setEvalRating}
+            onGeneralCommentChange={setEvalComment}
+            onPersonRatingChange={(personId, rating) => updatePersonRating(personId, 'rating', rating)}
+            onPersonNoteChange={(personId, note) => updatePersonRating(personId, 'note', note)}
+            onQuickComment={(text) => setEvalComment((current) => current.trim() ? `${current.trim()} ${text}` : text)}
+            onSubmit={handleConfirmClose}
+          />
         </>
       )}
         </>

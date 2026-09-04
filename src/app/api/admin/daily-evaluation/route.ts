@@ -113,12 +113,24 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const { businessDay, action } = await req.json();
+    const { businessDay, action, rating, comment, ratings } = await req.json();
     if (!businessDay || !['close', 'reopen'].includes(action)) {
       return NextResponse.json({ error: 'businessDay and action (close/reopen) required' }, { status: 400 });
     }
 
     if (action === 'close') {
+      const validRatings = ['MALO', 'REGULAR', 'BUENO', 'MUY_BUENO'];
+      const normalizedComment = typeof comment === 'string' ? comment.trim() : '';
+      if (!validRatings.includes(rating)) {
+        return NextResponse.json({ error: 'Debes seleccionar una calificación global.' }, { status: 400 });
+      }
+      if (!normalizedComment) {
+        return NextResponse.json({ error: 'El comentario global de la jornada es obligatorio.' }, { status: 400 });
+      }
+      if (!Array.isArray(ratings)) {
+        return NextResponse.json({ error: 'Debes enviar las calificaciones individuales.' }, { status: 400 });
+      }
+
       // Prevent closing a future day
       const now = new Date();
       const limaHour = Number(now.toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false }));
@@ -143,16 +155,13 @@ export async function PATCH(req: NextRequest) {
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       });
-      const ratedWorkers = await prisma.personDailyRating.findMany({
-        where: {
-          businessDay,
-          personId: { in: presentWorkers.map((person) => person.id) },
-          rating: { in: ['MALO', 'REGULAR', 'BUENO', 'MUY_BUENO'] },
-        },
-        select: { personId: true, rating: true, note: true },
+      const submittedRatings = new Map(
+        ratings.map((item: { personId?: string; rating?: string; note?: string }) => [item.personId, item])
+      );
+      const missingWorkers = presentWorkers.filter((person) => {
+        const submitted = submittedRatings.get(person.id);
+        return !submitted || !validRatings.includes(submitted.rating || '');
       });
-      const ratedIds = new Set(ratedWorkers.map((rating) => rating.personId));
-      const missingWorkers = presentWorkers.filter((person) => !ratedIds.has(person.id));
       if (missingWorkers.length > 0) {
         return NextResponse.json({
           error: 'Debes asignar una calificación individual a cada colaborador presente antes de cerrar la jornada.',
@@ -176,21 +185,41 @@ export async function PATCH(req: NextRequest) {
         select: { closedAt: true },
       }))?.closedAt;
 
-      const adjustedWorkers = ratedWorkers
-        .filter((rating) => shouldApplyMissingExitAdjustment && missingExitIds.has(rating.personId))
-        .map((rating) => {
-          const note = rating.note?.includes(MISSING_EXIT_NOTE)
-            ? rating.note
-            : [rating.note, MISSING_EXIT_NOTE].filter(Boolean).join(' | ');
+      const adjustedWorkers = presentWorkers
+        .filter((person) => shouldApplyMissingExitAdjustment && missingExitIds.has(person.id))
+        .map((person) => {
+          const submitted = submittedRatings.get(person.id)!;
+          const note = submitted.note?.includes(MISSING_EXIT_NOTE)
+            ? submitted.note
+            : [submitted.note, MISSING_EXIT_NOTE].filter(Boolean).join(' | ');
           return {
-            personId: rating.personId,
-            previousRating: rating.rating,
-            rating: downgradeRating(rating.rating),
+            personId: person.id,
+            previousRating: submitted.rating!,
+            rating: downgradeRating(submitted.rating!),
             note,
           };
         });
 
       const evaluation = await prisma.$transaction(async (tx) => {
+        for (const person of presentWorkers) {
+          const submitted = submittedRatings.get(person.id)!;
+          await tx.personDailyRating.upsert({
+            where: { businessDay_personId: { businessDay, personId: person.id } },
+            create: {
+              businessDay,
+              personId: person.id,
+              rating: submitted.rating!,
+              note: submitted.note?.trim() || null,
+              ratedByUserId: session.userId,
+            },
+            update: {
+              rating: submitted.rating!,
+              note: submitted.note?.trim() || null,
+              ratedByUserId: session.userId,
+            },
+          });
+        }
+
         for (const adjustment of adjustedWorkers) {
           await tx.personDailyRating.update({
             where: { businessDay_personId: { businessDay, personId: adjustment.personId } },
@@ -202,10 +231,16 @@ export async function PATCH(req: NextRequest) {
           where: { businessDay },
           create: {
             businessDay,
+            rating,
+            comment: normalizedComment,
+            evaluatedByUserId: session.userId,
             closedAt: new Date(),
             closedByUserId: session.userId,
           },
           update: {
+            rating,
+            comment: normalizedComment,
+            evaluatedByUserId: session.userId,
             closedAt: new Date(),
             closedByUserId: session.userId,
           },
