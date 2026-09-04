@@ -1489,6 +1489,100 @@ export default function DailyEvaluationPage() {
             </div>
           )}
 
+          {/* ===== INDIVIDUAL RATINGS ===== */}
+          {canManage && summary && summary.attendance.length > 0 && (
+            ratingsLocked ? (
+              <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 p-3 sm:p-4 space-y-3">
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Evaluación Individual — {summary.attendance.length} colaboradores
+                </h3>
+                <div className="space-y-1.5">
+                  {summary.attendance.map(a => {
+                    const pr = personRatingsMap.get(a.person.id) || { rating: 'REGULAR' as Rating, note: '' };
+                    return (
+                      <div key={a.person.id} className="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-slate-800/50">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm truncate">{a.person.name}</div>
+                          <div className="text-xs text-slate-500">{a.person.area || '-'}</div>
+                          {pr.note && <div className="text-xs text-slate-500 italic mt-0.5">{pr.note}</div>}
+                        </div>
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getRatingOption(pr.rating).color}`}>
+                          {getRatingOption(pr.rating).emoji} {getRatingOption(pr.rating).label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-green-600 dark:text-green-400">Calificaciones guardadas. Para editar, reabra la jornada desde el panel admin.</p>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 sm:p-4 space-y-3">
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Evaluación Individual — {summary.attendance.length} colaboradores
+                </h3>
+
+                <div className="space-y-2">
+                  {summary.attendance.map(a => {
+                    const pr = personRatingsMap.get(a.person.id) || { rating: 'REGULAR' as Rating, note: '' };
+                    return (
+                      <div key={a.person.id} className="flex flex-col gap-2 p-2.5 sm:p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+                        <div className="flex items-start sm:items-center gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-sm truncate">{a.person.name}</div>
+                            <div className="text-xs text-slate-500">{a.person.area || '-'} · {formatTime(a.firstIn)} - {formatTime(a.lastOut)}</div>
+                            {a.missingExit && (
+                              <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Sin salida registrada</span>
+                            )}
+                          </div>
+                          <div className="flex gap-1 flex-shrink-0">
+                            {RATING_OPTIONS.map(opt => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() => updatePersonRating(a.person.id, 'rating', opt.value)}
+                                className={`w-8 h-8 sm:w-auto sm:h-auto sm:px-2 sm:py-1 flex items-center justify-center rounded text-xs font-medium border transition-all ${
+                                  pr.rating === opt.value
+                                    ? opt.color + ' ring-1 ring-blue-400'
+                                    : 'bg-white dark:bg-slate-600 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-500 hover:bg-slate-100'
+                                }`}
+                                title={opt.label}
+                              >
+                                {opt.emoji}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <input
+                          type="text"
+                          value={pr.note}
+                          onChange={(e) => updatePersonRating(a.person.id, 'note', e.target.value)}
+                          placeholder="Nota..."
+                          className="w-full rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
+                  <button
+                    onClick={handleSaveRatings}
+                    disabled={savingRatings || isClosed}
+                    className="w-full sm:w-auto px-5 py-2 rounded-lg bg-indigo-600 text-white font-medium text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {savingRatings ? 'Guardando...' : 'Guardar Calificaciones'}
+                  </button>
+                  {!isClosed && <span className="text-xs text-amber-600 dark:text-amber-400">Guarda las calificaciones antes de cerrar la jornada.</span>}
+                  {ratingsMsg && (
+                    <span className={`text-xs sm:text-sm font-medium text-center sm:text-left ${ratingsMsg.includes('Error') || ratingsMsg.includes('guardadas') ? 'text-red-600' : 'text-green-600'}`}>
+                      {ratingsMsg}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          )}
+
           {/* ===== CLOSE DAY SECTION ===== */}
           {canClose && !isFutureDay && (
           <>
@@ -1620,99 +1714,6 @@ export default function DailyEvaluationPage() {
               </div>
               )}
 
-              {/* ===== INDIVIDUAL RATINGS ===== */}
-              {summary && summary.attendance.length > 0 && (
-                ratingsLocked ? (
-                  <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 p-3 sm:p-4 space-y-3">
-                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                      Evaluación Individual — {summary.attendance.length} colaboradores
-                    </h3>
-                    <div className="space-y-1.5">
-                      {summary.attendance.map(a => {
-                        const pr = personRatingsMap.get(a.person.id) || { rating: 'REGULAR' as Rating, note: '' };
-                        return (
-                          <div key={a.person.id} className="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-slate-800/50">
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-sm truncate">{a.person.name}</div>
-                              <div className="text-xs text-slate-500">{a.person.area || '-'}</div>
-                              {pr.note && <div className="text-xs text-slate-500 italic mt-0.5">{pr.note}</div>}
-                            </div>
-                            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getRatingOption(pr.rating).color}`}>
-                              {getRatingOption(pr.rating).emoji} {getRatingOption(pr.rating).label}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <p className="text-xs text-green-600 dark:text-green-400">✅ Calificaciones guardadas. Para editar, reabra la jornada desde el panel admin.</p>
-                  </div>
-                ) : (
-                <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 sm:p-4 space-y-3">
-                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                    Evaluación Individual — {summary.attendance.length} colaboradores
-                  </h3>
-
-                  <div className="space-y-2">
-                    {summary.attendance.map(a => {
-                      const pr = personRatingsMap.get(a.person.id) || { rating: 'REGULAR' as Rating, note: '' };
-                      return (
-                        <div key={a.person.id} className="flex flex-col gap-2 p-2.5 sm:p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-                          <div className="flex items-start sm:items-center gap-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-sm truncate">{a.person.name}</div>
-                              <div className="text-xs text-slate-500">{a.person.area || '-'} · {formatTime(a.firstIn)} - {formatTime(a.lastOut)}</div>
-                              {a.missingExit && (
-                                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">⚠️ Sin salida</span>
-                              )}
-                            </div>
-                            <div className="flex gap-1 flex-shrink-0">
-                              {RATING_OPTIONS.map(opt => (
-                                <button
-                                  key={opt.value}
-                                  type="button"
-                                  onClick={() => updatePersonRating(a.person.id, 'rating', opt.value)}
-                                  className={`w-8 h-8 sm:w-auto sm:h-auto sm:px-2 sm:py-1 flex items-center justify-center rounded text-xs font-medium border transition-all ${
-                                    pr.rating === opt.value
-                                      ? opt.color + ' ring-1 ring-blue-400'
-                                      : 'bg-white dark:bg-slate-600 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-500 hover:bg-slate-100'
-                                  }`}
-                                  title={opt.label}
-                                >
-                                  {opt.emoji}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <input
-                            type="text"
-                            value={pr.note}
-                            onChange={(e) => updatePersonRating(a.person.id, 'note', e.target.value)}
-                            placeholder="Nota..."
-                            className="w-full rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
-                    <button
-                      onClick={handleSaveRatings}
-                    disabled={savingRatings || isClosed}
-                      className="w-full sm:w-auto px-5 py-2 rounded-lg bg-indigo-600 text-white font-medium text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {savingRatings ? 'Guardando...' : 'Guardar Calificaciones'}
-                    </button>
-                    {!isClosed && <span className="text-xs text-amber-600 dark:text-amber-400">Guarda las calificaciones antes de cerrar la jornada.</span>}
-                    {ratingsMsg && (
-                      <span className={`text-xs sm:text-sm font-medium text-center sm:text-left ${ratingsMsg.includes('Error') || ratingsMsg.includes('guardadas') ? 'text-red-600' : 'text-green-600'}`}>
-                        {ratingsMsg}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                )
-              )}
             </>
           )}
           </>
