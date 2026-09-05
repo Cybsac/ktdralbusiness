@@ -154,6 +154,9 @@ export const dataProvider: DataProvider = {
 
   update: async (resource, params) => {
     const url = `/api/admin/${resource}/${params.id}`;
+    const password = resource === 'users' && typeof params.data.password === 'string'
+      ? params.data.password.trim()
+      : '';
 
     // Transform data for the API
     let dataToSend = params.data;
@@ -174,10 +177,6 @@ export const dataProvider: DataProvider = {
         birthday: normalizedBirthday,
       };
 
-      // Include password only if provided
-      if (params.data.password && params.data.password.trim() !== '') {
-        dataToSend.password = params.data.password;
-      }
     }
 
     await fetchUtils.fetchJson(url, {
@@ -188,6 +187,29 @@ export const dataProvider: DataProvider = {
       }),
       credentials: 'include',
     });
+
+    // Passwords use their dedicated endpoint so profile updates and password
+    // changes have a clear contract and consistent validation.
+    if (resource === 'users' && password) {
+      try {
+        await fetchUtils.fetchJson(`/api/admin/users/${params.id}/password`, {
+          method: 'PATCH',
+          body: JSON.stringify({ password }),
+          headers: new Headers({
+            'Content-Type': 'application/json',
+          }),
+          credentials: 'include',
+        });
+      } catch (error: any) {
+        const code = error?.body?.code || error?.body?.error || '';
+        const messages: Record<string, string> = {
+          INVALID_PASSWORD: 'La contraseña debe tener al menos 8 caracteres.',
+          NOT_FOUND: 'El usuario no existe.',
+          UNAUTHORIZED: 'No autorizado para cambiar esta contraseña.',
+        };
+        throw new Error(messages[code] || error?.message || 'No se pudo actualizar la contraseña.');
+      }
+    }
 
     // After PATCH, fetch the fresh record so React Admin's cache has the correct data
     if (resource === 'users') {

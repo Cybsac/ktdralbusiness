@@ -28,6 +28,11 @@ const areaChoices = [
   { id: 'Otros', name: 'Otros' },
 ];
 
+const validateNewPassword = (value?: string) => {
+  if (!value || value.trim() === '') return undefined;
+  return value.trim().length >= 8 ? undefined : 'La contraseña debe tener al menos 8 caracteres';
+};
+
 export const UserEdit = (props: any) => (
   <Edit {...props}>
     <SimpleForm
@@ -44,7 +49,13 @@ export const UserEdit = (props: any) => (
       }}
     >
       <TextInput source="username" validate={required()} fullWidth />
-      <PasswordInput source="password" label="New Password (leave empty to keep current)" fullWidth />
+      <PasswordInput
+        source="password"
+        label="Nueva contraseña (opcional)"
+        helperText="Déjala vacía para conservar la actual. Mínimo 8 caracteres."
+        validate={validateNewPassword}
+        fullWidth
+      />
       <TextInput source="personName" label="Name" validate={required()} fullWidth />
       <TextInput source="dni" fullWidth />
       <SelectInput source="role" choices={roleChoices} validate={required()} fullWidth />
