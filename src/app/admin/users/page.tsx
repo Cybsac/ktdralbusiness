@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { verifyUserSessionCookie } from '@/lib/auth';
 import { UsersClient } from './UsersClient';
-import UsersWithTabs from './UsersWithTabs';
+import UsersWithTabsClient from './UsersWithTabsClient';
 
 export default async function AdminUsersPage({
   searchParams,
@@ -22,5 +22,5 @@ export default async function AdminUsersPage({
   }
 
   // ADMIN and COORDINATOR users get tabbed interface
-  return <UsersWithTabs />;
+  return <UsersWithTabsClient />;
 }
