@@ -15,15 +15,15 @@ export const revalidate = 0;
 
 export async function GET(req: Request) {
   try {
-    // AuthZ: ADMIN or STAFF only (defense-in-depth; middleware already enforces this)
+    // AuthZ: ADMIN, COORDINATOR or STAFF (defense-in-depth; middleware already enforces this)
     const raw = getSessionCookieFromRequest(req);
     const session = await verifySessionCookie(raw);
-    const ok = requireRole(session, ['ADMIN', 'STAFF']);
+    const ok = requireRole(session, ['ADMIN', 'COORDINATOR', 'STAFF']);
     if (!ok.ok) {
       // Permitir STAFF con solo user_session (cualquier área ahora) a leer el status
       const uRaw = getUserCookie(req as any);
       const uSession = await verifyUserSessionCookie(uRaw);
-      if (!(uSession && uSession.role === 'STAFF')) {
+      if (!(uSession && ['COORDINATOR', 'STAFF'].includes(uSession.role))) {
         const status = ok.error === 'UNAUTHORIZED' ? 401 : 403;
         return apiError(ok.error || 'FORBIDDEN', ok.error || 'FORBIDDEN', undefined, status);
       }

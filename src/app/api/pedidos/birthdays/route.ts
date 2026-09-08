@@ -37,11 +37,17 @@ export async function GET(req: NextRequest) {
     });
     if (!parsed.success) return apiError('INVALID_QUERY', 'Validation failed', parsed.error.flatten(), 400);
     const f = parsed.data;
-    // El portal solo consulta celebraciones de hoy en adelante.
+    // STAFF y ADMIN mantienen la vista operativa de hoy en adelante.
+    // COORDINATOR también necesita revisar el histórico reciente, pero siempre
+    // usando la fecha de celebración y conservando las reservas futuras.
     const todayLima = DateTime.now().setZone('America/Lima').startOf('day').toJSDate();
     const requestedDateFrom = f.dateFrom ? new Date(f.dateFrom + 'T00:00:00.000Z') : undefined;
     const requestedDateTo = f.dateTo ? new Date(f.dateTo + 'T23:59:59.999Z') : undefined;
-    const dateFrom = requestedDateFrom && requestedDateFrom > todayLima ? requestedDateFrom : todayLima;
+    const coordinatorMinDate = new Date(todayLima.getTime() - 28 * 24 * 60 * 60 * 1000);
+    const minimumDateFrom = session.role === 'COORDINATOR' ? coordinatorMinDate : todayLima;
+    const dateFrom = requestedDateFrom && requestedDateFrom > minimumDateFrom
+      ? requestedDateFrom
+      : minimumDateFrom;
     const res = await listReservations({ status: f.status, packId: f.packId, dateFrom, dateTo: requestedDateTo, search: f.search }, { page: f.page, pageSize: f.pageSize || 30, sortBy: 'date' });
     return apiOk(res);
   } catch (e:any) {

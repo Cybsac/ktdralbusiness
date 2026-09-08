@@ -382,7 +382,7 @@ export async function listReservations(
 
   // Estrategia: traer coincidencias completas y ordenar en memoria aplicando prioridad de estado.
   // Priorizamos: approved/completed primero (peso 0), luego el resto (peso 1), dentro del mismo peso orden por createdAt DESC.
-  // Se usa createdAt (fecha de creación) en lugar de date (fecha de celebración) para el orden principal solicitado.
+  // Cuando se solicita sortBy=date, priorizamos celebraciones futuras y próximas.
   const rawItems = await prisma.birthdayReservation.findMany({
     where,
     include: { pack: true, inviteTokens: true, courtesyItems: true, photoDeliveries: true, createdByUser: { select: { id: true, username: true, person: { select: { name: true } } } } },
@@ -390,7 +390,7 @@ export async function listReservations(
   rawItems.sort((a, b) => {
     if (sortByCreatedAt) return b.createdAt.getTime() - a.createdAt.getTime();
     if (sortByDate) {
-      const dateOrder = a.date.getTime() - b.date.getTime();
+      const dateOrder = b.date.getTime() - a.date.getTime();
       return dateOrder || b.createdAt.getTime() - a.createdAt.getTime();
     }
     const weight = (s: string) => (s === 'approved' || s === 'completed' ? 0 : 1);
@@ -460,7 +460,7 @@ export async function listReservations(
   decorated.sort((a,b)=>{
     if (sortByCreatedAt) return b.createdAt.getTime() - a.createdAt.getTime();
     if (sortByDate) {
-      const dateOrder = a.date.getTime() - b.date.getTime();
+      const dateOrder = b.date.getTime() - a.date.getTime();
       return dateOrder || b.createdAt.getTime() - a.createdAt.getTime();
     }
     const aPri = (a.status === 'approved' || a.status === 'completed') ? 0 : 1;

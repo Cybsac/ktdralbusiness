@@ -51,18 +51,23 @@ export default async function ULayout({ children }: { children: React.ReactNode 
           case 'ADMIN': return 'Administrador';
           case 'COORDINATOR': return 'Coordinador';
           case 'STAFF': return 'Staff';
+          case 'COLLAB': return 'Colaborador';
           default: return r;
         }
       };
 
-      const roleLabel = staffRecord?.role ? mapRoleLabel(staffRecord.role) : mapRoleLabel(u?.role ?? null);
+      const accessRoleLabel = mapRoleLabel(u?.role ?? null);
+      const functionalRoleLabel = staffRecord?.role ? mapRoleLabel(staffRecord.role) : null;
 
       me = {
         personName: u?.person?.name ?? null,
         dni: u?.person?.dni ?? null,
         jobTitle: u?.person?.jobTitle ?? null,
         area: u?.person?.area ?? null,
-        role: roleLabel ?? null
+        role: [accessRoleLabel, functionalRoleLabel]
+          .filter(Boolean)
+          .filter((label, index, labels) => labels.indexOf(label) === index)
+          .join(' · ') || null
       };
     }
   } catch {}

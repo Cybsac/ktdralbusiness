@@ -12,7 +12,7 @@ console.log("Toggle route module loaded successfully!");
 
 export async function POST(req: Request) {
   try {
-  // Authenticate: accept either admin_session (ADMIN or STAFF) or user_session (STAFF)
+  // Authenticate: accept an authorized user session (ADMIN, COORDINATOR or STAFF)
     const rawCookie = getSessionCookieFromRequest(req as any);
     const session = await verifySessionCookie(rawCookie);
     try {
@@ -25,18 +25,18 @@ export async function POST(req: Request) {
     let allowed = false;
     let actor: { kind: 'admin' | 'staff' | 'unknown'; userId?: string } = { kind: 'unknown' };
 
-    // Path A: Admin session with ADMIN or STAFF role (both can toggle now)
-    const adminAuth = requireRole(session, ['ADMIN','STAFF']);
-    if (adminAuth.ok && (session?.role === 'ADMIN' || session?.role === 'STAFF')) {
+    // Path A: authorized user session
+    const adminAuth = requireRole(session, ['ADMIN', 'COORDINATOR', 'STAFF']);
+    if (adminAuth.ok && ['ADMIN', 'COORDINATOR', 'STAFF'].includes(session?.role || '')) {
       allowed = true;
-      actor = { kind: session.role === 'ADMIN' ? 'admin' : 'staff' };
+      actor = { kind: session?.role === 'ADMIN' ? 'admin' : 'staff', userId: session?.userId };
     }
 
     // Path B: Standalone user_session with STAFF role
     if (!allowed) {
       const userRaw = getUserCookie(req as any);
       const userSession = await verifyUserSessionCookie(userRaw);
-      if (userSession?.role === 'STAFF') {
+      if (userSession && ['COORDINATOR', 'STAFF'].includes(userSession.role)) {
         allowed = true;
         actor = { kind: 'staff', userId: userSession.userId };
       }

@@ -11,13 +11,12 @@ export async function GET(req: Request) {
     const userRaw = getUserCookie(req);
     const userSession = await verifyUserSessionCookie(userRaw);
 
-    // Nueva política: cualquier STAFF (en admin_session o user_session) puede ver y togglear.
-    // ADMIN también (obvio). COLLAB no.
+    // ADMIN, COORDINATOR y STAFF pueden ver y cambiar el estado. COLLAB no.
     let isStaff = false;
-    if (requireRole(adminSession, ['ADMIN','STAFF']).ok) {
-      isStaff = adminSession?.role === 'STAFF' || adminSession?.role === 'ADMIN';
+    if (requireRole(adminSession, ['ADMIN', 'COORDINATOR', 'STAFF']).ok) {
+      isStaff = ['STAFF', 'COORDINATOR', 'ADMIN'].includes(adminSession?.role || '');
     }
-    if (!isStaff && userSession?.role === 'STAFF') {
+    if (!isStaff && ['COORDINATOR', 'STAFF'].includes(userSession?.role || '')) {
       isStaff = true;
     }
     if (!isStaff) return apiError('FORBIDDEN','FORBIDDEN',undefined,403);
