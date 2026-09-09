@@ -18,7 +18,7 @@ type Result = { getText(): string };
 type ScanHistoryEntry = {
   id: string;
   ts: number;
-  type: "offer" | "birthday" | "invitation" | "reusable" | "mundial2026" | "fanzone" | "error";
+  type: "offer" | "birthday" | "invitation" | "reusable" | "static" | "mundial2026" | "fanzone" | "error";
   label: string;
   detail?: string;
   variant: "success" | "error" | "info";
@@ -353,6 +353,22 @@ export default function StaffScannerPage() {
       }
     } catch {
       // Not a URL, continue with normal processing
+    }
+
+    // 3.6) Detect STATIC TOKEN URL: redirect to the static token page
+    // Static QR codes are generated as /static/{tokenId}, either as a full
+    // URL or as a relative path. Keep the token ID path-safe when redirecting.
+    const staticTokenMatch = text.trim().match(/(?:^|\/)(?:static)\/([^\/\s?#]{4,})/i);
+    if (staticTokenMatch) {
+      const tokenId = staticTokenMatch[1];
+      addHistory({ type: "static", label: "Token estático", detail: tokenId, variant: "info" });
+      setBanner({ variant: "success", message: "🎫 Token estático detectado - Redirigiendo..." });
+      beep(880, 120, "sine");
+      vibrate(60);
+      setCooldownUntil(Date.now() + 2000);
+      window.location.href = `/static/${encodeURIComponent(tokenId)}`;
+      processingRef.current = false;
+      return;
     }
 
     // 3.7) Detect REUSABLE TOKEN URL: redirect to reusable token page

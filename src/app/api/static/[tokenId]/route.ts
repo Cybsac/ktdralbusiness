@@ -9,7 +9,7 @@ export async function GET(_: Request, { params }: { params: { tokenId: string } 
   // Raw query to avoid potential stale generated types
   const rows: any[] = await prisma.$queryRawUnsafe(`
     SELECT
-      t.id, t.disabled, t."expiresAt", t."validFrom", t."batchId", t."deliveredAt", t."revealedAt",
+      t.id, t."prizeId", t.disabled, t."expiresAt", t."validFrom", t."batchId", t."deliveredAt", t."revealedAt",
       t."clientResponse",
       b."staticTargetUrl", b.description, b."createdAt", b."actionType", b."actionPayload",
       p.key, p.label, p.color
