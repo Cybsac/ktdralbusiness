@@ -11,7 +11,25 @@ import { isTwoPhaseRedemptionEnabled } from '@/lib/featureFlags';
 
 const prisma = new PrismaClient();
 
+function assertSafeTestDatabase() {
+  const rawUrl = process.env.DATABASE_URL || '';
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  if (nodeEnv === 'production') {
+    throw new Error('[flow.e2e] Abortado: NODE_ENV=production. No se permite limpiar la base.');
+  }
+
+  const url = new URL(rawUrl.replace(/^postgresql:/, 'http:'));
+  const dbName = url.pathname.replace(/^\//, '').split('?')[0];
+  const isLocal = ['localhost', '127.0.0.1'].includes(url.hostname);
+  const isTestDatabase = /test/i.test(dbName);
+  if ((!isLocal && !isTestDatabase) && process.env.TEST_DB !== '1' && process.env.ALLOW_UNSAFE_TEST_DB !== '1') {
+    throw new Error(`[flow.e2e] Abortado: base no marcada como test (host=${url.hostname}, db=${dbName}).`);
+  }
+}
+
 async function reset() {
+  // This suite deletes its fixture data; never allow it to run on a shared DB.
+  assertSafeTestDatabase();
   // TODO: Reemplazar por truncates en Postgres para limpieza más rápida.
   // Eliminado uso de PRAGMA foreign_keys OFF/ON (solo SQLite).
   await prisma.eventLog.deleteMany();

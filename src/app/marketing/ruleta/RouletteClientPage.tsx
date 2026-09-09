@@ -206,7 +206,6 @@ const ROULETTE_CONFIG = {
   soundStartDelayMs: 300,            // delay antes de iniciar sonidos de giro
   softSwitchDelayMs: 500,            // delay de transición suave tras retry
   prizeModalDelayMs: 1500,           // delay antes de mostrar el modal de premio
-  autoRetryDelayMs: 3000,            // delay de auto-reintento en error de servidor
   retryPollingTimeMs: 30000,         // tiempo máximo de polling en RetryOverlay
   smallViewportWidth: 380,           // ancho mínimo para heurística de low motion
   smallViewportHeight: 680,          // alto mínimo para heurística de low motion
@@ -516,16 +515,10 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
           );
           
           if (isServerError && !softSwitchRef.current) {
-            setError("Error de conexión con el servidor. Reintentando automáticamente...");
-            // Auto-retry after a short delay
-            setTimeout(() => {
-              if (!abort) {
-                setError(null);
-                setLoading(true);
-                // Trigger reload by updating activeTokenId
-                setActiveTokenId(prev => prev);
-              }
-            }, ROULETTE_CONFIG.autoRetryDelayMs);
+            // Do not keep the loader open with a no-op state update. A value
+            // set to itself does not rerun this effect and caused an endless
+            // loading screen when the API was unavailable.
+            setError("No se pudo conectar con el servidor. Inténtalo nuevamente.");
           } else if (!softSwitchRef.current) {
             setError(err instanceof Error ? err.message : "Error desconocido");
           }

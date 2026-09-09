@@ -6,6 +6,17 @@ interface PageProps {
   params: { id: string };
 }
 
+function formatDateTimeLima(value: Date | string | null | undefined) {
+  if (!value) return '-';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return new Intl.DateTimeFormat('es-PE', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    timeZone: 'America/Lima',
+  }).format(date);
+}
+
 async function getBatchWithTokens(batchId: string) {
   const batch = await (prisma as any).batch.findUnique({
     where: { id: batchId },
@@ -52,7 +63,7 @@ export default async function StaticBatchPreviewPage({ params }: PageProps) {
         <div>
           <h1 className="text-lg font-semibold">Vista Previa: {batch.description || `Batch ${batch.id}`}</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Lote estático creado el {new Date(batch.createdAt).toLocaleString()}
+            Lote estático creado el {formatDateTimeLima(batch.createdAt)}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -244,13 +255,13 @@ export default async function StaticBatchPreviewPage({ params }: PageProps) {
                       </td>
                       <td className="py-2 px-3 text-sm text-slate-600 dark:text-slate-400">
                         {token.validFrom && new Date(token.validFrom) > new Date() ? (
-                          <span>Activa el {new Date(token.validFrom).toLocaleString()}</span>
+                          <span>Activa el {formatDateTimeLima(token.validFrom)}</span>
                         ) : (
-                          token.expiresAt ? new Date(token.expiresAt).toLocaleString() : '-'
+                          formatDateTimeLima(token.expiresAt)
                         )}
                       </td>
                       <td className="py-2 px-3 text-sm text-slate-600 dark:text-slate-400">
-                        {token.deliveredAt ? new Date(token.deliveredAt).toLocaleString() : '-'}
+                        {formatDateTimeLima(token.deliveredAt)}
                       </td>
                       <td className="py-2 px-3 text-center">
                         <a
