@@ -15,6 +15,8 @@ import { useRouletteTheme } from "@/lib/themes/useRouletteTheme";
 import { useRouletteSounds } from "@/hooks/useRouletteSounds";
 import { useSearchParams } from "next/navigation";
 import layoutStyles from "./rouletteLayout.module.css";
+import ScratchCardExperience from "@/components/experiences/ScratchCardExperience";
+import { getExperienceUi } from "@/lib/experiences/config";
 
 // Confetti ahora usando canvas para menos costo en DOM
 const Confetti = ({ active, lowMotion = false, colors }: { active: boolean; lowMotion?: boolean; colors?: string[] }) => (
@@ -31,8 +33,6 @@ const spinCounterFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
   useGrouping: true,
 });
-
-const PUBLIC_STEPS = ["Escanea", "Gira", "Reclama"] as const;
 
 const GUIDE_SLOT_COUNT = 3;
 
@@ -177,6 +177,7 @@ interface TokenShape {
   disabled: boolean;
   availableFrom?: string | null;
   batchId?: string;
+  experienceType?: "roulette" | "scratch_card";
   reservedByRetry?: boolean;
   prize: { id: string; key: string; label: string; color: string | null; active: boolean };
   realToken?: {
@@ -235,6 +236,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
   const softSwitchRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<TokenShape | null>(null);
+  const isScratchExperience = token?.experienceType === "scratch_card";
   const [elements, setElements] = useState<RouletteElement[]>([]);
   type Phase = "READY" | "SPINNING" | "REVEALED_MODAL" | "REVEALED_PANEL" | "DELIVERED";
   const [phase, setPhase] = useState<Phase>("READY");
@@ -257,6 +259,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
   const [prizeLinkCopied, setPrizeLinkCopied] = useState(false);
   const [guideInsights, setGuideInsights] = useState<RouletteSidebarInsight[]>([]);
   const [guideRotationIndex, setGuideRotationIndex] = useState(0);
+  const experienceUi = getExperienceUi(token?.experienceType);
   const [mobileSliderIndex, setMobileSliderIndex] = useState(0);
 
   useEffect(() => {
@@ -558,10 +561,10 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     // Reproducir sonidos con un ligero retraso para sincronizar con el inicio visual (que espera al fetch)
     // Este delay simula la inercia mecánica y cubre el tiempo de respuesta del servidor
     setTimeout(() => {
-      sounds.playSpinStart();
+      if (!isScratchExperience) sounds.playSpinStart();
       // Iniciar loop infinito con desaceleración basada en la duración visual
       const spinDuration = lowMotion ? ROULETTE_CONFIG.spinDurationMs.lowMotion : ROULETTE_CONFIG.spinDurationMs.normal;
-      void sounds.playSpinLoop({ expectedDurationMs: spinDuration });
+      if (!isScratchExperience) void sounds.playSpinLoop({ expectedDurationMs: spinDuration });
     }, ROULETTE_CONFIG.soundStartDelayMs);
 
     // Audio ya inicializado en useEffect
@@ -576,6 +579,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
       const winIndex = elements.findIndex((e) => e.prizeId === data.prizeId);
       if (winIndex < 0) throw new Error("Premio no encontrado en la ruleta");
       setPrizeIndex(winIndex);
+      const chosen = elements[winIndex];
       // Si el backend indica RETRY, guardamos nextTokenId para transición suave
       if (data?.action === 'RETRY' && data?.nextTokenId) {
         setNextTokenId(data.nextTokenId);
@@ -584,10 +588,13 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
         setNextTokenId(null);
         setFunctionalTokenId(null);
       }
+      if (token?.experienceType === "scratch_card") {
+        window.setTimeout(() => handleSpinEnd(chosen, data?.nextTokenId || null), 900);
+      }
       // La animación del componente NewRoulette usará prizeIndex y disparará handleSpinEnd
     } catch (err) {
       console.error("Error al girar:", err);
-      setError(err instanceof Error ? err.message : "Error al girar la ruleta");
+      setError(err instanceof Error ? err.message : experienceUi.spinErrorFallback);
       setPhase("READY");
     }
   };
@@ -668,17 +675,18 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
       setSuppressRevealed(false);
     }, ROULETTE_CONFIG.softSwitchDelayMs);
   };
-  const handleSpinEnd = (prize: RouletteElement) => {
+  const handleSpinEnd = (prize: RouletteElement, retryTokenOverride?: string | null) => {
     perfMark("spin_end");
     perfMeasure("spin_duration", "spin_start", "spin_end");
     // Presupuesto de animación (varía por lowMotion)
     perfCheckBudget("spin_duration", lowMotion ? ROULETTE_CONFIG.spinBudgetMs.lowMotion : ROULETTE_CONFIG.spinBudgetMs.normal, "spin");
 
     // Detener sonidos de giro y reproducir sonido de parada (sincronizado internamente)
-    void sounds.playSpinStop();
+    if (!isScratchExperience) void sounds.playSpinStop();
 
     // Si hay RETRY, mostramos overlay con polling para esperar token funcional
-    if (nextTokenId) {
+    const retryTokenId = retryTokenOverride || nextTokenId;
+    if (retryTokenId) {
       // Cancelar cualquier timeout de modal anterior
       if (prizeModalTimeoutRef.current) {
         clearTimeout(prizeModalTimeoutRef.current);
@@ -704,9 +712,9 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     setSpinCounter((c) => (c == null ? null : c + 1));
 
     // Reproducir sonido de victoria o derrota según el premio
-    if (prize.key === 'lose') {
+    if (!isScratchExperience && prize.key === 'lose') {
       sounds.playLose();
-    } else {
+    } else if (!isScratchExperience) {
       sounds.playWin();
     }
 
@@ -775,14 +783,14 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
           box: "bg-indigo-500/10 border-indigo-500/30",
           title: "text-indigo-300",
           heading: "Modo de 1 fase activo",
-          msg: "Este entorno no tiene habilitado el flujo de 2 fases (reveal → deliver). Activa TWO_PHASE_REDEMPTION=1 y reinicia el servidor para probar la ruleta.",
+            msg: "Este entorno no tiene habilitado el flujo de 2 fases (reveal → deliver). Activa TWO_PHASE_REDEMPTION=1 y reinicia el servidor para probar la experiencia.",
         }
       : isTokensDisabledError
         ? {
             box: "bg-amber-500/10 border-amber-500/30",
             title: "text-amber-300",
             heading: "Cargando el drop",
-            msg: "Aún no soltamos la ruleta. Se enciende a las 6:00 PM. Quédate cerca.",
+            msg: experienceUi.disabledMessage,
           }
         : {
             box: "bg-red-500/10 border-red-500/30",
@@ -906,11 +914,11 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
             <div className={layoutStyles.heroInner}>
               <RouletteHeading
                 kicker="BIENVENIDO A KTDRAL LOUNGE"
-                title="Ruleta Token Show"
-                subtitle="Escanea tu QR, gira la rueda y descubre al instante lo que te toca esta noche."
+                title={experienceUi.title}
+                subtitle={experienceUi.subtitle}
               />
-              <div className={layoutStyles.stepRail} aria-label="Flujo de la ruleta">
-                {PUBLIC_STEPS.map((step, index) => {
+              <div className={layoutStyles.stepRail} aria-label={experienceUi.flowLabel}>
+                {experienceUi.steps.map((step, index) => {
                   const stepNumber = index + 1;
                   const active = stepNumber <= phaseUi.activeStep;
                   return (
@@ -921,7 +929,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
                         <span className={layoutStyles.stepIndex}>{String(stepNumber).padStart(2, "0")}</span>
                         <span className={layoutStyles.stepLabel}>{step}</span>
                       </div>
-                      {index < PUBLIC_STEPS.length - 1 && <span className={layoutStyles.stepDivider} aria-hidden="true" />}
+                      {index < experienceUi.steps.length - 1 && <span className={layoutStyles.stepDivider} aria-hidden="true" />}
                     </React.Fragment>
                   );
                 })}
@@ -1019,7 +1027,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
                 </div>
                 {spinCounter != null && (
                   <div className={layoutStyles.metricCard}>
-                    <div className={layoutStyles.metricLabel}>Giros del dia</div>
+                    <div className={layoutStyles.metricLabel}>{experienceUi.dailyMetricLabel}</div>
                     <div className={layoutStyles.metricValue}>{spinCounterFormatter.format(spinCounter)}</div>
                   </div>
                 )}
@@ -1027,20 +1035,30 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
 
               <div className={layoutStyles.wheelPanel}>
                 <div className={layoutStyles.wheelStage}>
-                  <NewRoulette
-                    elements={elements}
-                    onSpin={handleSpin}
-                    onSpinEnd={handleSpinEnd} // mantenemos callback legacy para posible animación futura
-                    spinning={phase === "SPINNING"}
-                    prizeIndex={prizeIndex}
-                    variant="inline"
-                    lowMotion={lowMotion}
-                    theme={theme}
-                  />
+                  {token?.experienceType === "scratch_card" ? (
+                    <ScratchCardExperience
+                      prizeLabel={token.prize.label}
+                      disabled={phase !== "READY"}
+                      revealing={phase === "SPINNING"}
+                      revealed={phase !== "READY" && phase !== "SPINNING"}
+                      onReveal={handleSpin}
+                    />
+                  ) : (
+                    <NewRoulette
+                      elements={elements}
+                      onSpin={handleSpin}
+                      onSpinEnd={handleSpinEnd}
+                      spinning={phase === "SPINNING"}
+                      prizeIndex={prizeIndex}
+                      variant="inline"
+                      lowMotion={lowMotion}
+                      theme={theme}
+                    />
+                  )}
                 </div>
-                <div className={layoutStyles.spinCue}>
-                  Presiona GIRAR para comenzar y espera el resultado en pantalla.
-                </div>
+                {token?.experienceType !== "scratch_card" && (
+                  <div className={layoutStyles.spinCue}>{experienceUi.instruction}</div>
+                )}
               </div>
             </div>
           </div>

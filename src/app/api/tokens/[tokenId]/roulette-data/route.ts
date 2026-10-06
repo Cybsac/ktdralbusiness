@@ -206,6 +206,7 @@ function serializeToken(token: any) {
     disabled,
     availableFrom,
     batchId: token.batchId,
+    experienceType: token.batch?.experienceType || 'roulette',
     prize: {
       id: token.prize.id,
       key: token.prize.key,

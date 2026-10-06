@@ -98,6 +98,7 @@ model ReusableTokenRedemption {
 model Batch {
   id               String            @id @default(cuid())
   description      String?
+  experienceType   String            @default("roulette")
   createdBy        String?
   createdAt        DateTime          @default(now())
   functionalDate   DateTime?

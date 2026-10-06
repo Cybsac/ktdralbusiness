@@ -18,6 +18,7 @@ export interface GenerateBatchOptions {
   overrideDisabled?: boolean;
   overrideStartTime?: Date;
   overrideEndTime?: Date;
+  experienceType?: string;
 }
 
 export interface GeneratedToken {
@@ -189,7 +190,7 @@ export async function generateBatchCore(
   const postCommitLogs: { prizeId: string; count: number }[] = [];
   try {
     // Crear batch primero (operación rápida)
-    const b = await prisma.batch.create({ data: { description: options.description } });
+    const b = await prisma.batch.create({ data: { description: options.description, experienceType: options.experienceType || "roulette" } });
     // Derivar functionalDate inmediato para que métricas diarias lo vean (evita fallback createdAt)
     try {
       const fDate = deriveFunctionalDate(options.description, b.createdAt);
@@ -406,7 +407,7 @@ export async function generateBatchPlanned(
   const allTokens: GeneratedToken[] = [];
 
   // Create batch and set functionalDate
-  const b = await prisma.batch.create({ data: { description: options.description } });
+  const b = await prisma.batch.create({ data: { description: options.description, experienceType: options.experienceType || "roulette" } });
   try {
     const fDate = deriveFunctionalDate(options.description, b.createdAt);
     await prisma.batch.update({ where: { id: b.id }, data: { functionalDate: fDate } });

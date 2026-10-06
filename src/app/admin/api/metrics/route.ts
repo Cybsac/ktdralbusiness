@@ -104,14 +104,25 @@ export async function GET(request: Request) {
   ]);
   
   // Métricas filtradas por período
-  const [periodTokensByIngested, periodTokensByCreated, periodRedeemed, periodRouletteSpins, periodAvailableByExpires] = await Promise.all([
+  const [periodTokensByIngested, periodTokensByCreated, periodRedeemed, periodRouletteSpins, periodAvailableByExpires, periodRevealedByBatch] = await Promise.all([
     (prisma as any).token.count({ where: { ingestedAt: { gte: start, lte: end } } }),
     prisma.token.count({ where: { createdAt: { gte: start, lte: end } } }),
     prisma.token.count({ where: { redeemedAt: { gte: start, lte: end } } }),
     // Contar giros por tokens revelados (cubre ruleta admin two-phase y flujo marketing)
     prisma.token.count({ where: { revealedAt: { gte: start, lte: end } } }),
     prisma.token.count({ where: { expiresAt: { gte: start, lte: end } } }),
+    prisma.token.groupBy({ by: ['batchId'], where: { revealedAt: { gte: start, lte: end } }, _count: { _all: true } }),
   ]);
+  const batchIds = periodRevealedByBatch.map((row) => row.batchId);
+  const batchesForExperience = batchIds.length
+    ? await prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, experienceType: true } })
+    : [];
+  const experienceByBatch = new Map(batchesForExperience.map((batch) => [batch.id, batch.experienceType || 'roulette']));
+  const experienceBreakdown = periodRevealedByBatch.reduce<Record<string, number>>((acc, row) => {
+    const experience = experienceByBatch.get(row.batchId) || 'roulette';
+    acc[experience] = (acc[experience] || 0) + row._count._all;
+    return acc;
+  }, {});
   let periodTokensBasis: 'ingested' | 'created' = 'ingested';
   let periodTokens: number;
   const periodIsDaily = period === 'today' || period === 'yesterday' || period === 'day_before_yesterday';
@@ -156,6 +167,7 @@ export async function GET(request: Request) {
       redeemed: periodRedeemed,
       rouletteSpins: periodRouletteSpins,
       available: periodAvailableByExpires,
+      experienceBreakdown,
     }
   });
 }

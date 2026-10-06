@@ -18,6 +18,7 @@ export interface GenerateBatchOptions {
   overrideDisabled?: boolean;
   /** When true, tokens are created without decrementing prize stock (e.g. phrase/message). */
   skipStock?: boolean;
+  experienceType?: string;
 }
 
 export interface GeneratedToken {
@@ -177,7 +178,7 @@ export async function generateBatchStatic(
   const allTokens: GeneratedToken[] = [];
 
   // Create batch and set functionalDate
-  const b = await prisma.batch.create({ data: { description: options.description } });
+  const b = await prisma.batch.create({ data: { description: options.description, experienceType: options.experienceType || "roulette" } });
   try {
     const fDate = deriveFunctionalDate(options.description, b.createdAt);
     await prisma.batch.update({ where: { id: b.id }, data: { functionalDate: fDate } });

@@ -1,0 +1,2 @@
+ALTER TABLE "Batch"
+ADD COLUMN IF NOT EXISTS "experienceType" TEXT NOT NULL DEFAULT 'roulette';

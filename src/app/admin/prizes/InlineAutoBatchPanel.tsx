@@ -10,9 +10,9 @@ const EXPIRATION_OPTIONS = [1, 3, 5, 7, 15, 30];
 
 // Inline type for request payload to /api/batch/generate-all
 type GenerateAllRequest =
-  | { expirationDays: number; includeQr: boolean; lazyQr: boolean; name?: string }
-  | { mode: "singleDay"; singleDayDate: string; includeQr: boolean; lazyQr: boolean; name?: string }
-  | { mode: "singleHour"; date: string; hour: string; durationMinutes: number; includeQr: boolean; lazyQr: boolean; name?: string };
+  | { expirationDays: number; includeQr: boolean; lazyQr: boolean; name?: string; experienceType: "roulette" | "scratch_card" }
+  | { mode: "singleDay"; singleDayDate: string; includeQr: boolean; lazyQr: boolean; name?: string; experienceType: "roulette" | "scratch_card" }
+  | { mode: "singleHour"; date: string; hour: string; durationMinutes: number; includeQr: boolean; lazyQr: boolean; name?: string; experienceType: "roulette" | "scratch_card" };
 
 export default function InlineAutoBatchPanel({ prizes }: Props) {
   const router = useRouter();
@@ -20,6 +20,7 @@ export default function InlineAutoBatchPanel({ prizes }: Props) {
   const [includeQr, setIncludeQr] = useState(true);
   const [lazyQr, setLazyQr] = useState(false); // will be removed logically (always false)
   const [name, setName] = useState("");
+  const [experienceType, setExperienceType] = useState<"roulette" | "scratch_card">("roulette");
   const [mode, setMode] = useState<"byDays" | "singleDay" | "singleHour">("byDays");
   const [singleDayDate, setSingleDayDate] = useState(""); // YYYY-MM-DD
   // singleHour specific
@@ -93,6 +94,7 @@ export default function InlineAutoBatchPanel({ prizes }: Props) {
           includeQr,
           lazyQr: false,
           name: name || undefined,
+          experienceType,
         };
       } else if (mode === 'singleHour') {
         if (!hourDate) throw new Error('Selecciona fecha de ventana');
@@ -106,9 +108,10 @@ export default function InlineAutoBatchPanel({ prizes }: Props) {
           includeQr,
           lazyQr: false,
           name: name || undefined,
+          experienceType,
         };
       } else {
-        bodyPayload = { expirationDays, includeQr, lazyQr: false, name: name || undefined };
+        bodyPayload = { expirationDays, includeQr, lazyQr: false, name: name || undefined, experienceType };
       }
 
       const res = await fetch("/api/batch/generate-all", {
@@ -221,6 +224,14 @@ export default function InlineAutoBatchPanel({ prizes }: Props) {
         </span>
       </div>
       <div className="card-body grid gap-4 md:grid-cols-3">
+        <div className="form-row md:col-span-3">
+          <label className="text-xs font-medium">Experiencia del lote</label>
+          <select className="input" value={experienceType} onChange={(e) => setExperienceType(e.target.value as "roulette" | "scratch_card")}>
+            <option value="roulette">Ruleta</option>
+            <option value="scratch_card">Raspa y gana</option>
+          </select>
+          <p className="text-[11px] text-slate-500 mt-1">Se guarda en el lote; los premios y el backend de revelación permanecen iguales.</p>
+        </div>
         {/* Modal post-generación */}
         {postGen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

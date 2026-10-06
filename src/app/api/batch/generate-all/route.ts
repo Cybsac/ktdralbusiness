@@ -17,6 +17,7 @@ const ALLOWED_EXPIRATION = new Set([1, 3, 5, 7, 15, 30]);
 import { generateQrPngDataUrl } from "@/lib/qr";
 import { createZipStream } from "@/lib/zip";
 import { getPublicBaseUrl } from "@/lib/config";
+import { TOKEN_EXPERIENCE_TYPES } from "@/lib/experiences/types";
 
 // Body (legacy): { expirationDays: number, includeQr?: boolean, lazyQr?: boolean, name?: string }
 // Body (new byDays): { mode: 'byDays', expirationDays: number, includeQr?: boolean, lazyQr?: boolean, name?: string }
@@ -31,6 +32,7 @@ const legacySchema = z.object({
   includeQr: z.boolean().optional().default(true),
   lazyQr: z.boolean().optional().default(false),
   name: z.string().min(1).max(120).optional(),
+  experienceType: z.enum(TOKEN_EXPERIENCE_TYPES).optional().default("roulette"),
 });
 
 const byDaysSchema = z.object({
@@ -43,6 +45,7 @@ const byDaysSchema = z.object({
   includeQr: z.boolean().optional().default(true),
   lazyQr: z.boolean().optional().default(false),
   name: z.string().min(1).max(120).optional(),
+  experienceType: z.enum(TOKEN_EXPERIENCE_TYPES).optional().default("roulette"),
 });
 
 const singleDaySchema = z.object({
@@ -52,6 +55,7 @@ const singleDaySchema = z.object({
   includeQr: z.boolean().optional().default(true),
   lazyQr: z.boolean().optional().default(false),
   name: z.string().min(1).max(120).optional(),
+  experienceType: z.enum(TOKEN_EXPERIENCE_TYPES).optional().default("roulette"),
 });
 
 const singleHourSchema = z.object({
@@ -62,6 +66,7 @@ const singleHourSchema = z.object({
   includeQr: z.boolean().optional().default(true),
   lazyQr: z.boolean().optional().default(false),
   name: z.string().min(1).max(120).optional(),
+  experienceType: z.enum(TOKEN_EXPERIENCE_TYPES).optional().default("roulette"),
 });
 
 const plannedCountsSchema = z.object({
@@ -76,6 +81,7 @@ const plannedCountsSchema = z.object({
     .positive()
     .refine((v) => ALLOWED_EXPIRATION.has(v), { message: "INVALID_EXPIRATION" })
     .optional(),
+  experienceType: z.enum(TOKEN_EXPERIENCE_TYPES).optional().default("roulette"),
 });
 
 const schema = z.union([legacySchema, byDaysSchema, singleDaySchema, singleHourSchema, plannedCountsSchema]);
@@ -110,6 +116,7 @@ export async function POST(req: Request) {
   let includeQr = true;
   let lazyQr = false;
   let providedName: string | undefined;
+  let experienceType: "roulette" | "scratch_card" = "roulette";
   let singleDayStart: DateTime | null = null;
   let singleDayEnd: DateTime | null = null;
   let singleHourWindowStart: Date | null = null;
@@ -117,6 +124,7 @@ export async function POST(req: Request) {
   let singleHourDuration: number | null = null;
 
   if ("mode" in parsed.data) {
+    experienceType = parsed.data.experienceType;
     if (parsed.data.mode === "byDays") {
       mode = "byDays";
       expirationDays = parsed.data.expirationDays;
@@ -175,6 +183,7 @@ export async function POST(req: Request) {
       expirationDays = parsed.data.expirationDays;
     }
   } else {
+    experienceType = parsed.data.experienceType;
     // Legacy payload without mode
     expirationDays = parsed.data.expirationDays;
     includeQr = parsed.data.includeQr;
@@ -253,6 +262,7 @@ export async function POST(req: Request) {
     includeQr,
     lazyQr,
     expirationDays,
+    experienceType,
   };
 
   if (mode === "singleDay" && singleDayEnd && singleDayStart) {
