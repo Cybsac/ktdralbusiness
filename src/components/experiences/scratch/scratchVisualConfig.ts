@@ -2,7 +2,7 @@ export const SCRATCH_VISUAL_CONFIG = {
   revealThreshold: 0.48,
   coverage: { areaWeight: 0.7, gestureWeight: 0.3, minimumArea: 0.16 },
   interaction: { touchBrushSize: 32, mouseBrushSize: 30, maxPixelRatio: 2 },
-  pattern: { type: "logo" as const, asset: "/logo.svg", opacity: 0.18, spacing: 60, width: 44, rotation: -8 },
+  pattern: { type: "logo" as const, asset: "/logo.svg", opacity: 0.18, spacing: 60, width: 44, rotation: -8, responsive: { mobileBreakpoint: 400, mobileVerticalScale: 0.76 } },
   coating: {
     base: ["#b8b0a5", "#f2ede4", "#c9c0b4", "#817970"],
     pattern: "rgba(146,106,48,.58)",

@@ -1,5 +1,7 @@
 import { SCRATCH_VISUAL_CONFIG } from "./scratchVisualConfig";
 
+const coatingRenderVersions = new WeakMap<HTMLCanvasElement, number>();
+
 function drawTrackedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, spacing: number) {
   const widths = [...text].map((character) => ctx.measureText(character).width);
   const totalWidth = widths.reduce((sum, value) => sum + value, 0) + spacing * Math.max(0, text.length - 1);
@@ -17,6 +19,8 @@ function drawNightlifeIcon(ctx: CanvasRenderingContext2D, type: string, x: numbe
 }
 
 export function drawCoating(canvas: HTMLCanvasElement, width: number, height: number, pixelRatio: number) {
+  const renderVersion = (coatingRenderVersions.get(canvas) || 0) + 1;
+  coatingRenderVersions.set(canvas, renderVersion);
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.save();
@@ -41,10 +45,22 @@ export function drawCoating(canvas: HTMLCanvasElement, width: number, height: nu
   if (pattern.type === "logo") {
     const patternLogo = new Image();
     patternLogo.onload = () => {
-      ctx.save(); ctx.globalAlpha = pattern.opacity; ctx.strokeStyle = SCRATCH_VISUAL_CONFIG.coating.pattern; ctx.filter = "sepia(1) saturate(.65)";
+      if (coatingRenderVersions.get(canvas) !== renderVersion) return;
+      ctx.save(); ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0); ctx.globalAlpha = pattern.opacity; ctx.strokeStyle = SCRATCH_VISUAL_CONFIG.coating.pattern; ctx.filter = "sepia(1) saturate(.65)";
       const ratio = patternLogo.naturalHeight / Math.max(1, patternLogo.naturalWidth); const logoHeight = pattern.width * ratio;
-      for (let row = -1, y = -pattern.spacing; y < height + pattern.spacing; row += 1, y += pattern.spacing) for (let x = -pattern.spacing; x < width + pattern.spacing; x += pattern.spacing) {
-        ctx.save(); ctx.translate(x + (row % 2 === 0 ? pattern.spacing * .5 : 0), y); ctx.rotate(pattern.rotation * Math.PI / 180); ctx.drawImage(patternLogo, -pattern.width / 2, -logoHeight / 2, pattern.width, logoHeight); ctx.restore();
+      const angle = pattern.rotation * Math.PI / 180;
+      const halfWidth = pattern.width / 2; const halfHeight = logoHeight / 2;
+      const edgeX = Math.abs(Math.cos(angle) * halfWidth) + Math.abs(Math.sin(angle) * halfHeight);
+      const edgeY = Math.abs(Math.sin(angle) * halfWidth) + Math.abs(Math.cos(angle) * halfHeight);
+      const verticalSpacing = width <= pattern.responsive.mobileBreakpoint ? pattern.spacing * pattern.responsive.mobileVerticalScale : pattern.spacing;
+      const columns = Math.max(1, Math.floor((width - edgeX * 2) / pattern.spacing) + 1);
+      const rows = Math.max(1, Math.floor((height - edgeY * 2) / verticalSpacing) + 1);
+      const stepX = columns > 1 ? (width - edgeX * 2) / (columns - 1) : 0;
+      const stepY = rows > 1 ? (height - edgeY * 2) / (rows - 1) : 0;
+      for (let row = 0; row < rows; row += 1) for (let column = 0; column < columns; column += 1) {
+        const drawX = edgeX + column * stepX;
+        const y = edgeY + row * stepY;
+        ctx.save(); ctx.translate(drawX, y); ctx.rotate(angle); ctx.drawImage(patternLogo, -halfWidth, -halfHeight, pattern.width, logoHeight); ctx.restore();
       }
       ctx.restore();
     };
