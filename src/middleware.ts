@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
 import { isBirthdaysEnabledPublic } from "@/lib/featureFlags";
 import { getEdgeAppAccessState } from "@/lib/app-access/edge";
+import { isEmergencyAccessCookieValid } from "@/lib/app-access/emergency";
 
 const STAFF_ALLOWED_ADMIN_ROUTES = [
   '/admin/attendance',
@@ -54,20 +55,27 @@ const CANONICAL_PUBLIC_URL = "https://www.ktdrallounge.com";
 const APP_ACCESS_BYPASS_PATHS = [
   '/service-suspended',
   '/admin/service-access',
+  '/admin/recovery',
   '/api/admin/app-access',
   '/api/public/app-access',
+  '/api/admin/app-access/emergency',
+];
+
+const EMERGENCY_AUTH_PATHS = [
   '/u/login',
-  '/u/reset-password',
+  '/u/change-password',
   '/api/user/auth/login',
+  '/api/user/auth/change-password',
   '/api/user/auth/logout',
   '/api/user/auth/me',
-  '/api/customer/auth/login',
-  '/api/customer/auth/logout',
-  '/api/customer/auth/me',
 ];
 
 function isAppAccessBypassPath(pathname: string): boolean {
   return APP_ACCESS_BYPASS_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
+function isEmergencyAuthPath(pathname: string): boolean {
+  return EMERGENCY_AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
 function isAssetPath(pathname: string): boolean {
@@ -116,6 +124,7 @@ export async function middleware(req: NextRequest) {
   if (!isAssetPath(pathname) && !isAppAccessBypassPath(pathname)) {
     const appAccess = await getEdgeAppAccessState(req.url);
     const isBlocked = appAccess?.status === 'SUSPENDED' || appAccess?.status === 'MAINTENANCE';
+    const hasEmergencyAccess = isBlocked && await isEmergencyAccessCookieValid(req);
 
     if (isBlocked) {
       const rawCookie = getUserSessionCookieFromRequest(req);
@@ -128,14 +137,19 @@ export async function middleware(req: NextRequest) {
         }
       }
 
-      if (pathname.startsWith('/api/')) {
-        return NextResponse.json(
-          { error: 'APP_ACCESS_BLOCKED', message: 'El servicio se encuentra temporalmente suspendido.' },
-          { status: 503, headers: { 'Cache-Control': 'no-store' } },
-        );
-      }
+      if (hasEmergencyAccess && isEmergencyAuthPath(pathname)) {
+        // The recovery cookie only opens the administrator authentication flow.
+        // It never grants access to /u or to regular application routes.
+      } else {
+        if (pathname.startsWith('/api/')) {
+          return NextResponse.json(
+            { error: 'APP_ACCESS_BLOCKED', message: 'El servicio se encuentra temporalmente suspendido.' },
+            { status: 503, headers: { 'Cache-Control': 'no-store' } },
+          );
+        }
 
-      return NextResponse.redirect(new URL('/service-suspended', req.url));
+        return NextResponse.redirect(new URL('/service-suspended', req.url));
+      }
     }
   }
 
@@ -151,14 +165,7 @@ export async function middleware(req: NextRequest) {
     "/marketing/",
     "/reservatucumple",
     "/u/login",
-    "/u/reset-password",
-    "/u/register",
     "/api/user/auth/login",
-    "/api/user/auth/reset-password",
-    "/api/customer/auth/login",
-    "/api/customer/auth/logout",
-    "/api/customer/auth/me",
-    "/api/customers",
   ];
 
   if (publicRoutes.some((route) => pathname === route || pathname.startsWith(route))) {

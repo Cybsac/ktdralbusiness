@@ -9,6 +9,7 @@ function LoginClient() {
   const params = useSearchParams();
   const requestedNext = params ? params.get("next") || "" : "";
   const from = params ? params.get("from") || "" : "";
+  const emergency = from === 'emergency';
   const [dniOrUser, setDniOrUser] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -70,12 +71,11 @@ function LoginClient() {
   ) : (
     <main className="mx-auto max-w-sm space-y-8 py-16">
       <div className="space-y-2 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Acceso Colaborador</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Inicia sesión para usar el scanner.</p>
+        <h1 className="text-2xl font-semibold tracking-tight">{emergency ? 'Acceso administrativo de recuperación' : 'Acceso Colaborador'}</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{emergency ? 'Solo se permite una cuenta ADMIN mientras el servicio está suspendido.' : 'Inicia sesión para usar el scanner.'}</p>
       </div>
 
-      {/* Banner de Reset de Contraseñas */}
-      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+      {!emergency && <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
         <div className="flex items-start">
           <div className="flex-shrink-0">
             <svg className="h-5 w-5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -96,7 +96,7 @@ function LoginClient() {
             </div>
           </div>
         </div>
-      </div>
+      </div>}
 
       <form onSubmit={submit} className="space-y-6 card">
         <div className="card-body space-y-4">
@@ -149,14 +149,14 @@ function LoginClient() {
         </div>
       </form>
 
-      <div className="text-center">
+      {!emergency && <div className="text-center">
         <p className="text-sm text-slate-500 dark:text-slate-400">
           ¿No tienes cuenta?{" "}
           <a href="/u/register" className="text-[var(--color-accent)] hover:underline font-medium">
             Crear cuenta
           </a>
         </p>
-      </div>
+      </div>}
     </main>
   );
 }

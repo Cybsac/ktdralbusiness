@@ -49,6 +49,10 @@ async function getSharp() {
 ```bash
 DATABASE_URL="postgresql://..."  # DSN PostgreSQL
 TOKEN_SECRET="clave-segura"      # Para firmar tokens
+
+# Acceso de recuperación cuando la aplicación está suspendida.
+# Debe ser un secreto independiente, largo y gestionado solo en el entorno.
+APP_ACCESS_EMERGENCY_SECRET="secreto-de-recuperacion-de-alta-entropia"
 PUBLIC_BASE_URL="https://tu-app.railway.app"
 ALLOW_MIGRATIONS=1               # Solo primera vez
 ```

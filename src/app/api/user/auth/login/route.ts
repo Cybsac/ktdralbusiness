@@ -4,11 +4,20 @@ import { logEvent } from "@/lib/log";
 import { createUserSessionCookie, buildSetUserCookie } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { apiError, apiOk } from '@/lib/apiError';
+import { getAppAccessState } from '@/lib/app-access/service';
+import { isEmergencyAccessCookieValid } from '@/lib/app-access/emergency';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
+    const appAccess = await getAppAccessState();
+    const isBlocked = appAccess.status === 'SUSPENDED' || appAccess.status === 'MAINTENANCE';
+    const emergencyAccess = isBlocked && await isEmergencyAccessCookieValid(req);
+    if (isBlocked && !emergencyAccess) {
+      return apiError('APP_ACCESS_BLOCKED', 'El servicio se encuentra temporalmente suspendido.', undefined, 503, { 'Cache-Control': 'no-store' });
+    }
+
     const body = await req.json().catch(() => ({} as any));
     const { username, password, dni: dniRaw } = body || {};
 
@@ -64,6 +73,11 @@ export async function POST(req: Request) {
     if (!['ADMIN', 'COORDINATOR', 'STAFF', 'COLLAB'].includes(user.role)) {
       await logEvent("USER_AUTH_FAIL", "Login colaborador: rol inválido", { userId: user.id, role: user.role });
       return apiError('INVALID_CREDENTIALS', 'Rol de usuario inválido', undefined, 401);
+    }
+
+    if (emergencyAccess && user.role !== 'ADMIN') {
+      await logEvent("USER_AUTH_FAIL", "Recuperación administrativa: rol no autorizado", { userId: user.id, role: user.role });
+      return apiError('ADMIN_REQUIRED', 'El acceso de recuperación solo permite administradores.', undefined, 403);
     }
 
     // Crear sesión (incluye área para permisos funcionales en middleware)
