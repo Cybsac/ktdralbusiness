@@ -74,7 +74,11 @@ function isAppAccessBypassPath(pathname: string): boolean {
   return APP_ACCESS_BYPASS_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
-function isEmergencyAuthPath(pathname: string): boolean {
+function isEmergencyAuthPath(req: NextRequest): boolean {
+  const { pathname, searchParams } = req.nextUrl;
+  if (pathname === '/u/login') {
+    return searchParams.get('from') === 'emergency' && searchParams.get('next') === '/admin/service-access';
+  }
   return EMERGENCY_AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
@@ -137,7 +141,7 @@ export async function middleware(req: NextRequest) {
         }
       }
 
-      if (hasEmergencyAccess && isEmergencyAuthPath(pathname)) {
+      if (hasEmergencyAccess && isEmergencyAuthPath(req)) {
         // The recovery cookie only opens the administrator authentication flow.
         // It never grants access to /u or to regular application routes.
       } else {
