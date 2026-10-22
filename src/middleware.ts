@@ -169,6 +169,12 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL("/", req.url), 301);
   }
 
+  // These are the only anonymous recovery entry points while the service is blocked.
+  // The page itself only collects the configured recovery secret; the API validates it.
+  if (pathname === '/admin/recovery' || pathname === '/api/admin/app-access/emergency') {
+    return NextResponse.next();
+  }
+
   const publicRoutes = [
     "/marketing/",
     "/reservatucumple",
