@@ -375,6 +375,13 @@ export function AdminSidebar({ isCollapsed = false, onToggle, basePath = 'admin'
           { href: "/menu", label: "Menú Público", icon: ICONS.starSmall }
         ]
       }] : []),
+      ...(basePath === 'admin' && userRole === 'ADMIN' ? [{
+        title: "SISTEMA",
+        icon: ICONS.settings,
+        items: [
+          { href: `${pathPrefix}/service-access`, label: "Acceso de la aplicación", icon: ICONS.settings },
+        ]
+      }] : []),
       ...(basePath === 'admin' ? [{
         title: "UPGRADE",
         icon: ICONS.star,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
 import { isBirthdaysEnabledPublic } from "@/lib/featureFlags";
+import { getEdgeAppAccessState } from "@/lib/app-access/edge";
 
 const STAFF_ALLOWED_ADMIN_ROUTES = [
   '/admin/attendance',
@@ -50,6 +51,29 @@ function matchesAny(pathname: string, prefixes: string[]): boolean {
 const LEGACY_PUBLIC_HOST = "tokensapp-production.up.railway.app";
 const CANONICAL_PUBLIC_URL = "https://www.ktdrallounge.com";
 
+const APP_ACCESS_BYPASS_PATHS = [
+  '/service-suspended',
+  '/admin/service-access',
+  '/api/admin/app-access',
+  '/api/public/app-access',
+  '/u/login',
+  '/u/reset-password',
+  '/api/user/auth/login',
+  '/api/user/auth/logout',
+  '/api/user/auth/me',
+  '/api/customer/auth/login',
+  '/api/customer/auth/logout',
+  '/api/customer/auth/me',
+];
+
+function isAppAccessBypassPath(pathname: string): boolean {
+  return APP_ACCESS_BYPASS_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
+function isAssetPath(pathname: string): boolean {
+  return pathname.startsWith('/_next/') || pathname === '/favicon.ico' || pathname === '/manifest.webmanifest' || pathname === '/sw.js';
+}
+
 function shouldRedirectLegacyPublicRequest(req: NextRequest): boolean {
   const forwardedHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
   const requestHost = forwardedHost || req.headers.get("host") || req.nextUrl.hostname;
@@ -87,6 +111,32 @@ export async function middleware(req: NextRequest) {
     const canonicalUrl = new URL(`${CANONICAL_PUBLIC_URL}${pathname}`);
     canonicalUrl.search = req.nextUrl.search;
     return NextResponse.redirect(canonicalUrl, 307);
+  }
+
+  if (!isAssetPath(pathname) && !isAppAccessBypassPath(pathname)) {
+    const appAccess = await getEdgeAppAccessState(req.url);
+    const isBlocked = appAccess?.status === 'SUSPENDED' || appAccess?.status === 'MAINTENANCE';
+
+    if (isBlocked) {
+      const rawCookie = getUserSessionCookieFromRequest(req);
+      const session = rawCookie ? await verifyUserSessionCookie(rawCookie) : null;
+      const isPrivilegedAdmin = session?.role === 'ADMIN';
+
+      if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+        if (isPrivilegedAdmin) {
+          return NextResponse.redirect(new URL('/admin/service-access', req.url));
+        }
+      }
+
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: 'APP_ACCESS_BLOCKED', message: 'El servicio se encuentra temporalmente suspendido.' },
+          { status: 503, headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
+
+      return NextResponse.redirect(new URL('/service-suspended', req.url));
+    }
   }
 
   if (pathname === "/") {
@@ -144,6 +194,10 @@ export async function middleware(req: NextRequest) {
 
   if (pathname.startsWith("/admin/")) {
     if (!userSession) return redirectToLogin();
+
+    if (pathname === '/admin/service-access' && role !== 'ADMIN') {
+      return NextResponse.redirect(new URL('/admin', req.nextUrl.origin));
+    }
 
     if (role === 'ADMIN' || role === 'COORDINATOR') return NextResponse.next();
     if (role === 'STAFF' && matchesAny(pathname, STAFF_ALLOWED_ADMIN_ROUTES)) return NextResponse.next();

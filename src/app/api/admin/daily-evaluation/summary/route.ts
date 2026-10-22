@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { businessDayWindowUtc, limaCalendarDayWindowUtc } from '@/lib/attendanceDay';
+import { businessDayWindowUtc, currentBusinessDay, limaCalendarDayWindowUtc } from '@/lib/attendanceDay';
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -296,13 +296,35 @@ export async function GET(req: NextRequest) {
     }
     const staticCirculationPrizes = Array.from(staticCirculationMap.values()).sort((a, b) => b.count - a.count);
 
-    // 4. All available prizes (not disabled, not expired, not delivered) — grouped by label
+    // 4. Historical remaining tokens for the latest static batch available
+    // on or before the selected date.
+    // A token remains available for a past day when it was not delivered yet
+    // at the end of that business day. This makes the KPI show the original
+    // total before any later delivery and decrease as deliveries accumulate.
+    const staticBatchAnchor = await prisma.batch.findFirst({
+      where: {
+        staticTargetUrl: { not: null },
+        functionalDate: { lte: fStart },
+      },
+      orderBy: { functionalDate: 'desc' },
+      select: { functionalDate: true },
+    });
+    const staticBatchFilter = staticBatchAnchor?.functionalDate
+      ? {
+          staticTargetUrl: { not: null },
+          functionalDate: staticBatchAnchor.functionalDate,
+        }
+      : { id: '__no_static_batch_for_selected_day__' };
+    const staticKpiCutoff = day === currentBusinessDay() ? new Date() : endUtc;
     const staticAvailableTokens = await prisma.token.findMany({
       where: {
         disabled: false,
-        deliveredAt: null,
-        expiresAt: { gte: now2 },
-        batch: { staticTargetUrl: { not: null } },
+        expiresAt: { gte: staticKpiCutoff },
+        OR: [
+          { deliveredAt: null },
+          { deliveredAt: { gte: staticKpiCutoff } },
+        ],
+        batch: staticBatchFilter,
       },
       include: {
         prize: { select: { id: true, label: true, color: true } },

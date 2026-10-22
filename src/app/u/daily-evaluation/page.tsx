@@ -1166,7 +1166,7 @@ export default function DailyEvaluationPage() {
           )}
 
           {/* ====== TOKENS ESTÁTICOS ====== */}
-          {summary?.staticBatches && (summary.staticBatches.availableTotal > 0 || summary.staticBatches.deliveredToday > 0 || summary.staticBatches.revealedToday > 0 || summary.staticBatches.inCirculation > 0) && (
+          {summary?.staticBatches && (summary.staticBatches.availableTotal > 0 || summary.staticBatches.deliveredToday > 0 || summary.staticBatches.revealedToday > 0) && (
             <>
               <div className="relative flex items-center gap-3 pt-2">
                 <div className="flex-1 h-px bg-indigo-200 dark:bg-indigo-700" />
@@ -1177,7 +1177,7 @@ export default function DailyEvaluationPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                {/* Disponibles en la semana */}
+                {/* Tokens restantes según la fecha seleccionada */}
                 <button
                   onClick={() => setModalSection('staticAvailable')}
                   className="relative rounded-xl border p-3 sm:p-4 text-left transition-all hover:shadow-md border-emerald-200 dark:border-emerald-700 bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-900/10 dark:to-green-900/10 hover:border-emerald-400 dark:hover:border-emerald-500"
@@ -1185,7 +1185,7 @@ export default function DailyEvaluationPage() {
                   <div className="text-2xl sm:text-3xl font-bold text-emerald-800 dark:text-emerald-200">
                     {summary.staticBatches.availableTotal}
                   </div>
-                  <div className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">Disponibles en la semana</div>
+                  <div className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">Tokens restantes</div>
                 </button>
 
                 {/* Escaneados hoy */}
@@ -1210,16 +1210,6 @@ export default function DailyEvaluationPage() {
                   <div className="text-[10px] sm:text-xs text-indigo-600 dark:text-indigo-400 font-medium mt-0.5">Entregados hoy</div>
                 </button>
 
-                {/* En circulación global (snapshot) */}
-                <button
-                  onClick={() => setModalSection('staticCirculation')}
-                  className="relative rounded-xl border p-3 sm:p-4 text-left transition-all hover:shadow-md border-amber-200 dark:border-amber-700 bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/10 dark:to-yellow-900/10 hover:border-amber-400 dark:hover:border-amber-500"
-                >
-                  <div className="text-2xl sm:text-3xl font-bold text-amber-800 dark:text-amber-200">
-                    {summary.staticBatches.inCirculation}
-                  </div>
-                  <div className="text-[10px] sm:text-xs text-amber-600 dark:text-amber-400 font-medium mt-0.5">En circulación global</div>
-                </button>
               </div>
 
               {/* Modal: premios disponibles */}
@@ -1228,13 +1218,13 @@ export default function DailyEvaluationPage() {
                   <div className="w-full max-w-sm rounded-2xl border border-emerald-200 dark:border-emerald-700 bg-white dark:bg-slate-800 p-4 shadow-xl" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                        🎟️ Disponibles en la semana — {summary.staticBatches.availableTotal}
+                        🎟️ Tokens restantes — {summary.staticBatches.availableTotal}
                       </h3>
                       <button onClick={() => setModalSection(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                         <span className="text-lg text-slate-400">&times;</span>
                       </button>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Tokens activos no expirados ni entregados</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Tokens no entregados ni vencidos hasta la fecha seleccionada</p>
                     {summary.staticBatches.availablePrizes.length === 0 ? (
                       <p className="text-xs text-slate-500 dark:text-slate-400">Sin premios disponibles.</p>
                     ) : (

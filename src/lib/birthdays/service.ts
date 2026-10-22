@@ -20,6 +20,15 @@ function nowLima(): DateTime {
   return DateTime.now().setZone('America/Lima');
 }
 
+const BIRTHDAY_CARD_RETENTION_DAYS = 7;
+
+function isBirthdayCardRetentionExpired(celebrationDate: Date): boolean {
+  const celebrationDayLima = DateTime.fromJSDate(celebrationDate)
+    .setZone('America/Lima')
+    .startOf('day');
+  return nowLima() >= celebrationDayLima.plus({ days: BIRTHDAY_CARD_RETENTION_DAYS });
+}
+
 function toIso(d: Date) {
   return d.toISOString();
 }
@@ -444,7 +453,9 @@ export async function listReservations(
     await Promise.all(toCheckFs.map(async r => {
       try {
         // Si la reserva está aprobada, intenta generar las tarjetas automáticamente
-        if (r.status === 'approved') {
+        // Do not regenerate cards that are already beyond the retention window.
+        // This keeps the cleanup of old Supabase objects permanent.
+        if (r.status === 'approved' && !isBirthdayCardRetentionExpired(r.date)) {
           const baseUrl = process.env.PUBLIC_BASE_URL || '';
           try { await (await import('./cards')).ensureBirthdayCards(r.id, baseUrl); } catch {}
         }

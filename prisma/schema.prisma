@@ -175,6 +175,27 @@ model SystemConfig {
   updatedAt               DateTime @updatedAt
 }
 
+enum AppAccessStatus {
+  ACTIVE
+  SUSPENDED
+  MAINTENANCE
+}
+
+model AppAccessControl {
+  id             String          @id @default(cuid())
+  scopeKey       String          @unique @default("default")
+  status         AppAccessStatus @default(ACTIVE)
+  publicTitle    String          @default("Servicio temporalmente suspendido")
+  publicMessage  String          @default("El servicio no está disponible temporalmente. Estamos trabajando para restablecerlo.")
+  supportContact String?
+  resumeAt       DateTime?
+  updatedBy      String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([status])
+}
+
 model EventLog {
   id        String   @id @default(cuid())
   type      String
