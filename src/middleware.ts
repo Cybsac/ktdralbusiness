@@ -54,9 +54,7 @@ const CANONICAL_PUBLIC_URL = "https://www.ktdrallounge.com";
 
 const APP_ACCESS_BYPASS_PATHS = [
   '/service-suspended',
-  '/admin/service-access',
   '/admin/recovery',
-  '/api/admin/app-access',
   '/api/public/app-access',
   '/api/admin/app-access/emergency',
 ];
@@ -80,6 +78,10 @@ function isEmergencyAuthPath(req: NextRequest): boolean {
     return searchParams.get('from') === 'emergency' && searchParams.get('next') === '/admin/service-access';
   }
   return EMERGENCY_AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
+function isAdminControlPath(pathname: string): boolean {
+  return pathname === '/admin/service-access' || pathname === '/api/admin/app-access';
 }
 
 function isAssetPath(pathname: string): boolean {
@@ -136,12 +138,14 @@ export async function middleware(req: NextRequest) {
       const isPrivilegedAdmin = session?.role === 'ADMIN';
 
       if (pathname === '/admin' || pathname.startsWith('/admin/')) {
-        if (isPrivilegedAdmin) {
+        if (isPrivilegedAdmin && pathname !== '/admin/service-access') {
           return NextResponse.redirect(new URL('/admin/service-access', req.url));
         }
       }
 
-      if (hasEmergencyAccess && isEmergencyAuthPath(req)) {
+      if (isAdminControlPath(pathname) && isPrivilegedAdmin) {
+        // An authenticated ADMIN may only use the service control panel while blocked.
+      } else if (hasEmergencyAccess && isEmergencyAuthPath(req)) {
         // The recovery cookie only opens the administrator authentication flow.
         // It never grants access to /u or to regular application routes.
       } else {
