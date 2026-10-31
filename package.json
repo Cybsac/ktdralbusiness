@@ -57,7 +57,7 @@
     "build:css": "npx postcss src/app/globals.css -o src/app/output.css"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.12.0"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for Next.js (App Router) + Prisma
 # Suitable for Railway/Render/Fly single-instance deployments
 
-ARG NODE_VERSION=20
+ARG NODE_VERSION=22
 
 # Use AWS Public ECR mirror of Docker Official Images (avoids Docker Hub rate limits)
 FROM public.ecr.aws/docker/library/node:${NODE_VERSION}-alpine AS base
