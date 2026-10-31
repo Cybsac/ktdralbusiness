@@ -1,3 +1,4 @@
+import { getPublicBaseUrl } from "@/lib/config";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
@@ -78,7 +79,7 @@ export async function GET(req: NextRequest) {
 
     const formattedTokens = tokens.map(token => ({
       id: token.id,
-      qrUrl: `${process.env.NEXT_PUBLIC_QR_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/reusable/${token.id}`,
+      qrUrl: `${getPublicBaseUrl(req.url)}/reusable/${token.id}`,
       prize: {
         id: prizeById.get(token.prizeId)?.id || token.prizeId,
         label: prizeById.get(token.prizeId)?.label || 'Premio desconocido',

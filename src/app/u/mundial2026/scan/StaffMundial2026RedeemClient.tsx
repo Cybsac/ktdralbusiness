@@ -1,4 +1,5 @@
 "use client";
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -72,7 +73,7 @@ export default function StaffMundial2026RedeemClient() {
     setMessage(null);
 
     try {
-      const response = await fetch("/api/system/mundial2026/redeem", {
+      const response = await prizeAuthorizedFetch("/api/system/mundial2026/redeem", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

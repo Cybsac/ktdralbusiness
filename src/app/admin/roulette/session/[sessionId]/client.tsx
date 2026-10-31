@@ -1,4 +1,5 @@
 "use client";
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 import React, { useCallback, useEffect, useState } from 'react';
 import RouletteWheel from '../../RouletteWheel';
 
@@ -30,7 +31,7 @@ export default function RouletteSessionClient({ sessionId }: { sessionId: string
   const confirmDelivery = useCallback(async (tokenId: string) => {
     setDelivering(tokenId);
     try {
-      const res = await fetch(`/api/token/${tokenId}/deliver`, { method: 'POST' });
+      const res = await prizeAuthorizedFetch(`/api/token/${tokenId}/deliver`, { method: 'POST' });
       if (!res.ok) throw new Error('DELIVER_FAILED');
       const data = await res.json();
       if (data.phase === 'DELIVERED') {
@@ -42,7 +43,7 @@ export default function RouletteSessionClient({ sessionId }: { sessionId: string
   useEffect(() => { load(); }, [load]);
 
   const spinWrapper = useCallback(async () => {
-    const res = await fetch(`/api/roulette/${sessionId}`, { method: 'POST' });
+    const res = await prizeAuthorizedFetch(`/api/roulette/${sessionId}`, { method: 'POST' });
     if (!res.ok) throw new Error('SPIN_FAILED');
     const data: any = await res.json();
     if (data.phase === 'REVEALED') {

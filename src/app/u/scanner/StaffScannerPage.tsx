@@ -1,4 +1,5 @@
 "use client";
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
@@ -618,7 +619,7 @@ export default function StaffScannerPage() {
                       onClick={async () => {
                         if (!offerOverlay.purchaseId) return;
                         try {
-                          const res = await fetch("/api/offers/complete-delivery", {
+                          const res = await prizeAuthorizedFetch("/api/offers/complete-delivery", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ purchaseId: offerOverlay.purchaseId }),

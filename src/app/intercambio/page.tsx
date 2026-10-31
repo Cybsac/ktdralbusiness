@@ -1,3 +1,5 @@
+import { cookies } from 'next/headers';
+import { verifyUserSessionCookie } from '@/lib/auth';
 import { Suspense } from 'react';
 import ExchangeForm from './ExchangeForm';
 
@@ -9,7 +11,10 @@ function ExchangeFormFallback() {
   );
 }
 
-export default function IntercambioPage() {
+export default async function IntercambioPage() {
+  const session = await verifyUserSessionCookie(cookies().get('user_session')?.value);
+  if (!session || !['ADMIN', 'COORDINATOR'].includes(session.role)) return <div className="mx-auto max-w-lg p-8 text-center"><h1 className="text-2xl font-bold">Intercambio no disponible</h1><p className="mt-3">Este servicio no está disponible al público.</p><a href="/" className="btn mt-5">Volver al inicio</a></div>;
+
   return (
     <div className="min-h-screen bg-[#0E0606] text-white">
       <div className="max-w-lg mx-auto px-4 py-8 sm:py-12">

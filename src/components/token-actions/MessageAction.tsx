@@ -1,5 +1,6 @@
 "use client";
 import React from "react";
+
 import type { ActionComponentProps, MessagePayload } from "./types";
 
 export default function MessageAction({ payload }: ActionComponentProps) {

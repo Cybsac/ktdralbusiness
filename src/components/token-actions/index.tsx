@@ -1,7 +1,8 @@
 "use client";
-import React from "react";
 import dynamic from "next/dynamic";
-import type { ActionType, ActionComponentProps } from "./types";
+import React from "react";
+
+import type { ActionComponentProps, ActionType } from "./types";
 export { GATED_ACTIONS, PRIZELESS_ACTIONS } from "./types";
 
 const TriviaAction = dynamic(() => import("./TriviaAction"), { ssr: false });
@@ -44,7 +45,7 @@ export default function DynamicTokenAction({
   tokenId: string;
   prizeLabel: string;
   prizeColor: string | null;
-  onComplete?: (passed: boolean) => void;
+  onComplete?: (_passed: boolean) => void;
   isStaff?: boolean;
   clientResponse?: string | null;
 }) {

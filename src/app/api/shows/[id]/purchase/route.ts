@@ -1,3 +1,4 @@
+import { getGlobalIo } from "@/lib/socket";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
@@ -220,7 +221,7 @@ export async function POST(
     // TODO: Integrar con pasarela de pagos
 
     // Emitir evento de socket para notificar a staff/admin
-    const io = (global as any).io;
+    const io = getGlobalIo();
     if (io) {
       io.to("staff-general").emit("ticket-purchased", {
         purchaseId: result.mainPurchase.id,

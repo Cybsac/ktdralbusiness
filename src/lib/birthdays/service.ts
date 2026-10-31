@@ -500,6 +500,8 @@ export async function getReservation(id: string): Promise<any | null> {
 
   return {
     id: reservation.id,
+    packId: reservation.packId,
+    updatedAt: reservation.updatedAt.toISOString(),
     celebrantName: reservation.celebrantName,
     phone: reservation.phone,
     documento: reservation.documento,

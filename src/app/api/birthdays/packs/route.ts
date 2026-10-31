@@ -1,3 +1,4 @@
+import { birthdayManager } from '@/lib/birthdays/managementAuth';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { apiError, apiOk } from '@/lib/apiError';
@@ -11,7 +12,7 @@ export async function GET(req: NextRequest) {
   // If public flag is off, still allow ADMIN/STAFF to fetch packs from admin UI.
   const cookie = getSessionCookieFromRequest(req as unknown as Request);
   const session = await verifySessionCookie(cookie);
-  const isAdmin = !!session && requireRole(session, ['ADMIN', 'STAFF']).ok;
+  const isAdmin = !!await birthdayManager(req);
   if (!isBirthdaysEnabledPublic() && !isAdmin) {
     return apiError('NOT_FOUND', 'Not found', undefined, 404, cors);
   }

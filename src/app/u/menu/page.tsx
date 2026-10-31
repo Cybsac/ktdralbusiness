@@ -133,24 +133,24 @@ export default function StaffMenuPage() {
   useEffect(() => {
     if (socket) {
       // Listener para nuevos pedidos (útil para mostrar indicadores de actividad)
-      socket.on("new-order", (orderData: any) => {
+      const onSocketNewOrder = (orderData: any) => {
         console.log("🍽️ Menú: Nuevo pedido detectado:", orderData);
         setNewOrderActivity(true);
         // Ocultar indicador después de 3 segundos
         setTimeout(() => setNewOrderActivity(false), 3000);
-      });
+      };
+      socket.on("new-order", onSocketNewOrder);
 
       // Listener para actualizaciones de estado de pedidos
-      socket.on("order-status-update", (orderData: any) => {
+      const onSocketOrderStatusUpdate = (orderData: any) => {
         console.log("📦 Menú: Estado de pedido actualizado:", orderData);
         // Aquí podríamos actualizar indicadores visuales de actividad
-      });
+      };
+      socket.on("order-status-update", onSocketOrderStatusUpdate);
 
       return () => {
-        socket.off("connect");
-        socket.off("disconnect");
-        socket.off("new-order");
-        socket.off("order-status-update");
+        socket.off("new-order", onSocketNewOrder);
+        socket.off("order-status-update", onSocketOrderStatusUpdate);
       };
     }
   }, [socket]);
@@ -386,10 +386,6 @@ El punto de servicio específico asignado no fue encontrado. Contacta al adminis
         setOrderSuccess(true);
         setCart([]);
         setSelectedServicePoint(null);
-        // Emitir evento para actualizar otros dashboards
-        if (socket) {
-          socket.emit("new-order", orderData);
-        }
         // Reset success state after 3 seconds
         setTimeout(() => setOrderSuccess(false), 3000);
       } else {

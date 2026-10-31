@@ -1,5 +1,6 @@
 /*
-  Daily cron helper: enables scheduled tokens for “today” (America/Lima)
+  Compatibility health check: scheduling is evaluated automatically from explicit dates.
+  This helper never enables manually blocked tokens.
   Usage:
     - Env: CRON_SECRET must match server env
     - Env: CRON_BASE_URL e.g. https://yourapp.up.railway.app (recommended)

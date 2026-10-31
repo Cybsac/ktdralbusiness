@@ -9,7 +9,7 @@ import { createTriviaSuccessResponse, withTriviaErrorHandler } from "@/lib/trivi
 // GET /api/trivia/available-question-sets - Listar sets de preguntas activos para el público
 export const GET = withTriviaErrorHandler(async (req: Request) => {
   const questionSets = await prisma.triviaQuestionSet.findMany({
-    where: { active: true },
+    where: { active: true, audience:"PUBLIC" },
     select: {
       id: true,
       name: true,

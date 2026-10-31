@@ -1,3 +1,4 @@
+import { getGlobalIo } from "@/lib/socket";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyUserSessionCookie, getUserSessionCookieFromRequest } from '@/lib/auth';
@@ -138,7 +139,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Emitir evento de socket para actualizar la UI en tiempo real
-    const io = (global as any).io;
+    const io = getGlobalIo();
     if (io) {
       io.to("staff-general").emit("ticket-validated", {
         packageId: updatedPackage.id,

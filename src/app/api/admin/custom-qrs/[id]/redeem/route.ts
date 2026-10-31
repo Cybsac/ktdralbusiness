@@ -1,7 +1,7 @@
+import { requirePrizeAuthorization, getPrizeActor } from '@/lib/prize-authorization/service';
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { getSessionCookieFromRequest, requireRole, verifySessionCookie } from "@/lib/auth";
 import { apiError } from "@/lib/apiError";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
@@ -38,12 +38,11 @@ function parseMetadata(value: string | null) {
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
+  const prizeGate = await requirePrizeAuthorization(req, 'custom_qr');
+  if (prizeGate) return prizeGate;
+
   try {
-    const raw = getSessionCookieFromRequest(req);
-    const session = await verifySessionCookie(raw);
-    if (!session) return apiError("UNAUTHORIZED", "UNAUTHORIZED", undefined, 401);
-    const roleCheck = requireRole(session, ["ADMIN", "COORDINATOR", "STAFF", "COLLAB"]);
-    if (!roleCheck.ok) return apiError("FORBIDDEN", "FORBIDDEN", undefined, 403);
+    const session = getPrizeActor(req);
 
     const qrId = params.id;
     const customQr = await (prisma as any).customQr.findUnique({

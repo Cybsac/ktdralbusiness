@@ -1,3 +1,4 @@
+import { getSocketOperator } from './identity';
 import { Server as ServerIO } from "socket.io";
 import { emitSocketEvent } from "../socket";
 
@@ -67,7 +68,7 @@ export function emitOfferPurchased(purchase: any) {
       createdAt: purchase.createdAt
     },
     timestamp: new Date().toISOString()
-  });
+  }, ['admin-offers']);
 }
 
 // Función para configurar eventos de socket para ofertas
@@ -80,9 +81,8 @@ export function setupOffersSocketEvents(io: ServerIO) {
     });
 
     // Unirse a sala de admin de ofertas
-    socket.on("join-admin-offers", () => {
-      socket.join("admin-offers");
-      console.log(`Admin ${socket.id} se unió a la sala de admin de ofertas`);
+    socket.on('join-admin-offers', async () => {
+      try { const session = await getSocketOperator(socket); if (session && ['ADMIN', 'COORDINATOR'].includes(session.role)) await socket.join('admin-offers'); } catch {}
     });
 
     // Solicitar actualización de ofertas

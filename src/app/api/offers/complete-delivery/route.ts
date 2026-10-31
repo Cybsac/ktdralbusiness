@@ -1,26 +1,12 @@
+import { requirePrizeAuthorization, prizeDeliveryAudit } from '@/lib/prize-authorization/service';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
+  const prizeGate = await requirePrizeAuthorization(request, 'offers');
+  if (prizeGate) return prizeGate;
+
   try {
-    // Verificar que el usuario esté autenticado como admin/staff
-    const cookie = request.headers.get('cookie');
-    if (!cookie) {
-      return NextResponse.json(
-        { error: 'No autorizado' },
-        { status: 401 }
-      );
-    }
-
-    const session = await verifyUserSessionCookie(cookie);
-    if (!session || !['STAFF', 'COORDINATOR', 'ADMIN'].includes(session.role)) {
-      return NextResponse.json(
-        { error: 'No autorizado - se requiere rol de staff' },
-        { status: 403 }
-      );
-    }
-
     const body = await request.json();
     const { purchaseId } = body;
 
@@ -60,15 +46,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Actualizar el estado a CONFIRMED
-    const updatedPurchase = await prisma.offerPurchase.update({
-      where: { id: purchaseId },
-      data: {
-        status: 'CONFIRMED',
-        updatedAt: new Date()
-      },
-      include: {
-        offer: true
-      }
+    const updatedPurchase = await prisma.$transaction(async tx => {
+      const changed = await tx.offerPurchase.updateMany({ where: { id: purchaseId, status: 'PENDING' }, data: { status: 'CONFIRMED', updatedAt: new Date() } });
+      if (!changed.count) throw new Error('ALREADY_DELIVERED');
+      await tx.eventLog.create({ data: prizeDeliveryAudit(request, 'offers', purchaseId) });
+      return tx.offerPurchase.findUniqueOrThrow({ where: { id: purchaseId }, include: { offer: true } });
     });
 
     return NextResponse.json({
@@ -85,6 +67,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'ALREADY_DELIVERED') return NextResponse.json({ message: 'La oferta ya fue entregada.' }, { status: 409 });
     console.error('Error completing offer delivery:', error);
     return NextResponse.json(
       { error: 'Error interno del servidor' },

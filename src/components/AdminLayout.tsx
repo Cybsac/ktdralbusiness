@@ -1,23 +1,30 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { usePathname } from "next/navigation";
-import Link from "next/link";
 import { IconQrcode } from "@tabler/icons-react";
-import { AdminSidebar } from "@/components/AdminSidebar";
-import AdminMobilePanel from "@/components/AdminMobilePanel";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { type ReactNode, useEffect, useState } from "react";
+
 import { AdminMobileHeader } from "@/components/AdminMobileHeader";
+import AdminMobilePanel from "@/components/AdminMobilePanel";
+import { AdminSidebar } from "@/components/AdminSidebar";
 import { useUser } from "@/components/UserProvider";
 
 interface AdminLayoutProps {
-  children: React.ReactNode;
+  children: ReactNode;
   title?: string;
   breadcrumbs?: Array<{ label: string; href?: string }>;
-  basePath?: 'admin' | 'u';
+  basePath?: "admin" | "u";
   hasSession?: boolean;
 }
 
-export function AdminLayout({ children, title, breadcrumbs, basePath = 'admin', hasSession = true }: AdminLayoutProps) {
+export function AdminLayout({
+  children,
+  title,
+  breadcrumbs,
+  basePath = "admin",
+  hasSession = true,
+}: AdminLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -25,32 +32,35 @@ export function AdminLayout({ children, title, breadcrumbs, basePath = 'admin', 
   // Get user info from context
   const { userInfo } = useUser();
 
-  // Update sidebar state when window resizes and after hydration
+  // Breakpoint changes affect layout, never the user's collapse preference.
   useEffect(() => {
     setIsHydrated(true);
-    const updateViewport = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobileView(mobile);
-      setSidebarCollapsed(mobile);
-    };
-
+    try {
+      setSidebarCollapsed(sessionStorage.getItem(`navigation:collapsed:${basePath}`) === "true");
+    } catch {
+      /* Optional persistence. */
+    }
+    const viewport = window.matchMedia("(max-width: 767px)");
+    const updateViewport = () => setIsMobileView(viewport.matches);
     updateViewport();
-
-    const handleResize = () => {
-      setIsMobileView(window.innerWidth < 768);
-      setSidebarCollapsed(window.innerWidth < 768);
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    viewport.addEventListener("change", updateViewport);
+    return () => viewport.removeEventListener("change", updateViewport);
+  }, [basePath]);
+  const toggleSidebar = () =>
+    setSidebarCollapsed((previous) => {
+      const next = !previous;
+      try {
+        sessionStorage.setItem(`navigation:collapsed:${basePath}`, String(next));
+      } catch {
+        /* Optional persistence. */
+      }
+      return next;
+    });
 
   // Use default collapsed state during SSR to prevent hydration mismatch
   const currentSidebarCollapsed = isHydrated ? sidebarCollapsed : false;
 
   const pathname = usePathname();
-
-  console.log('AdminLayout pathname:', JSON.stringify(pathname));
 
   // If no session, show content without sidebar
   if (!hasSession) {
@@ -111,6 +121,13 @@ export function AdminLayout({ children, title, breadcrumbs, basePath = 'admin', 
 
           {/* Main Content */}
           <main className="flex-1 p-3 sm:p-4 lg:p-6">
+            {hasSession && (
+              <div className="mb-3 text-right">
+                <a href="/u/prize-authorization" className="text-sm underline">
+                  Mi clave de canjes
+                </a>
+              </div>
+            )}
             {children}
           </main>
         </div>
@@ -118,24 +135,43 @@ export function AdminLayout({ children, title, breadcrumbs, basePath = 'admin', 
     );
   }
 
-  const isAdminRoot = pathname && pathname.startsWith('/admin') && !pathname.includes('/admin/');
-  const isOnScanner = pathname === '/admin/scanner' || pathname === '/admin/assistance';
+  const isAdminRoot = pathname && pathname.startsWith("/admin") && !pathname.includes("/admin/");
+  const isOnScanner = pathname === "/admin/scanner" || pathname === "/admin/assistance";
 
   // FAB Scanner element — shared across layouts
-  const fabScanner = !isOnScanner && hasSession ? (
-    <>
-      <Link
-        href="/admin/scanner"
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-teal-600 px-5 py-3.5 text-white shadow-lg hover:bg-teal-700 active:scale-95 transition-all duration-150 ring-2 ring-teal-400/30"
-        aria-label="Abrir escáner QR"
-      >
-        <IconQrcode className="w-6 h-6" />
-        <span className="text-sm font-semibold hidden sm:inline">Escáner</span>
-        <span className="pointer-events-none absolute inset-0 rounded-full animate-[fabPing_2.4s_cubic-bezier(0,.6,.4,1)_infinite] bg-teal-400/40" aria-hidden="true" />
-      </Link>
-      <style jsx global>{`@keyframes fabPing{0%{transform:scale(1);opacity:.55}70%{transform:scale(1.55);opacity:0}100%{transform:scale(1.55);opacity:0}}`}</style>
-    </>
-  ) : null;
+  const fabScanner =
+    !isOnScanner && hasSession ? (
+      <>
+        <Link
+          href="/admin/scanner"
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-teal-600 px-5 py-3.5 text-white shadow-lg hover:bg-teal-700 active:scale-95 transition-all duration-150 ring-2 ring-teal-400/30"
+          aria-label="Abrir escáner QR"
+        >
+          <IconQrcode className="w-6 h-6" />
+          <span className="text-sm font-semibold hidden sm:inline">Escáner</span>
+          <span
+            className="pointer-events-none absolute inset-0 rounded-full animate-[fabPing_2.4s_cubic-bezier(0,.6,.4,1)_infinite] bg-teal-400/40"
+            aria-hidden="true"
+          />
+        </Link>
+        <style jsx global>{`
+          @keyframes fabPing {
+            0% {
+              transform: scale(1);
+              opacity: 0.55;
+            }
+            70% {
+              transform: scale(1.55);
+              opacity: 0;
+            }
+            100% {
+              transform: scale(1.55);
+              opacity: 0;
+            }
+          }
+        `}</style>
+      </>
+    ) : null;
 
   // For all admin pages (including root), use the same layout logic
   // Only show AdminMobilePanel for the root page on mobile
@@ -155,14 +191,16 @@ export function AdminLayout({ children, title, breadcrumbs, basePath = 'admin', 
       <div className="hidden md:block fixed inset-y-0 left-0 z-50">
         <AdminSidebar
           isCollapsed={currentSidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(!currentSidebarCollapsed)}
+          onToggle={toggleSidebar}
           basePath={basePath}
           userInfo={userInfo}
         />
       </div>
 
       {/* Main Content - Offset by sidebar width - Full width on mobile */}
-      <div className={`transition-all duration-300 ${currentSidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} flex flex-col min-h-screen`}>
+      <div
+        className={`transition-all duration-300 ${currentSidebarCollapsed ? "md:ml-16" : "md:ml-64"} flex flex-col min-h-screen`}
+      >
         {/* Mobile Header - Only show on mobile for all admin pages */}
         {isMobileView && hasSession && (
           <AdminMobileHeader userInfo={userInfo} basePath={basePath} />
@@ -221,7 +259,16 @@ export function AdminLayout({ children, title, breadcrumbs, basePath = 'admin', 
         )}
 
         {/* Page Content */}
-        <main className={`flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 ${(title || (breadcrumbs && breadcrumbs.length > 0) || (isMobileView && hasSession)) ? '' : 'pt-8'}`}>
+        <main
+          className={`flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 ${title || (breadcrumbs && breadcrumbs.length > 0) || (isMobileView && hasSession) ? "" : "pt-8"}`}
+        >
+          {hasSession && (
+            <div className="mb-3 text-right">
+              <a href="/u/prize-authorization" className="text-sm underline">
+                Mi clave de canjes
+              </a>
+            </div>
+          )}
           {children}
         </main>
         {fabScanner}

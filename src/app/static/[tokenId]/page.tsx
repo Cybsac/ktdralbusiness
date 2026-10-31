@@ -1,4 +1,7 @@
 "use client";
+import { PrizeDeliveryAction } from "@/components/prize-authorization/PrizeDeliveryAction";
+import { generateQrPngDataUrl } from '@/lib/qr';
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 import React, { useEffect, useState, useCallback } from "react";
 import { DateTime } from "luxon";
 import DynamicTokenAction, { GATED_ACTIONS, PRIZELESS_ACTIONS } from "@/components/token-actions";
@@ -121,25 +124,20 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tokenData, setTokenData] = useState<TokenData | null>(null);
-  // Detectar modo staff por query param o por API
+  // Display the operational view only for an authenticated active account.
   const [isStaff, setIsStaff] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
     async function checkStaff() {
-      let staffParam = false;
-      if (typeof window !== 'undefined') {
-        const urlParams = new URLSearchParams(window.location.search);
-        staffParam = urlParams.get('staff') === '1';
-      }
       try {
         const res = await fetch('/api/static/session');
         const data = await res.json();
-        const newIsStaff = staffParam || data.isStaff === true;
+        const newIsStaff = data.canDeliverWithoutOtp === true;
         const newIsAdmin = data.isAdmin === true;
         setIsStaff(newIsStaff);
         setIsAdmin(newIsAdmin);
       } catch (error) {
-        setIsStaff(staffParam);
+        setIsStaff(false);
         setIsAdmin(false);
       }
     }
@@ -183,8 +181,8 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
     if (typeof window !== 'undefined') {
       try {
         const fullUrl = window.location.href;
-        // Usamos un servicio público de generación de QR (no persistente)
-        setQrSrc(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(fullUrl)}`);
+        // Generate the QR locally.
+        generateQrPngDataUrl(fullUrl).then(setQrSrc).catch(() => setQrSrc(''));
       } catch (e) {
         // silence
       }
@@ -195,13 +193,13 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
     setMarkingDelivery(true);
     setDeliveryError(null);
     try {
-      const res = await fetch(`/api/token/${tokenId}/deliver`, {
+      const res = await prizeAuthorizedFetch(`/api/token/${tokenId}/deliver`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al marcar entrega');
+      if (!res.ok) throw new Error(data.message || data.error || 'Error al marcar entrega');
       setDeliverySuccess(true);
       window.location.reload();
     } catch (err: any) {
@@ -228,7 +226,7 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#0E0606] text-white p-6 relative overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-red-600/10 rounded-full blur-[100px]" />
-        
+
         <div className="relative z-10 max-w-md w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center">
             <div className="text-6xl mb-6">🎁</div>
             <h1 className="text-2xl font-bold mb-2 text-white">Algo salió mal</h1>
@@ -262,7 +260,7 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#0E0606] text-white p-6 relative overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-red-900/20 rounded-full blur-[100px]" />
-        
+
         <div className="relative z-10 max-w-md w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center">
             <div className="text-6xl mb-6 grayscale opacity-50">⏰</div>
             <h1 className="text-2xl font-bold mb-2 text-white">Token Expirado</h1>
@@ -289,7 +287,7 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#0E0606] text-white p-6 relative overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-gray-600/20 rounded-full blur-[100px]" />
-        
+
         <div className="relative z-10 max-w-md w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center">
             <div className="text-6xl mb-6 grayscale opacity-50">🚫</div>
             <h1 className="text-2xl font-bold mb-2 text-white">Token Deshabilitado</h1>
@@ -313,7 +311,7 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#0E0606] text-white p-6 relative overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-green-600/20 rounded-full blur-[100px]" />
-        
+
         <div className="relative z-10 max-w-md w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center">
             <div className="text-6xl mb-6">✅</div>
             <h1 className="text-2xl font-bold mb-2 text-white">¡Token Canjeado!</h1>
@@ -354,7 +352,7 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#0E0606] text-white p-4 relative overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 rounded-full blur-[100px]" />
-        
+
         <div className="relative z-10 max-w-md w-full flex flex-col gap-6">
             {/* Header / Back */}
             <div className="flex justify-between items-center px-2">
@@ -379,9 +377,9 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
                         className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center shadow-lg overflow-hidden"
                         style={{ backgroundColor: tokenData.prize.color || '#e5e7eb' }}
                     >
-                        <img 
-                            src="/prizes/gift.png" 
-                            alt="Premio" 
+                        <img
+                            src="/prizes/gift.png"
+                            alt="Premio"
                             className="w-8 h-8 object-contain"
                         />
                     </div>
@@ -442,7 +440,7 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
         </div>
 
         {/* Main Card */}
-        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col items-center text-center relative overflow-hidden group">
+        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-4 sm:p-8 shadow-2xl flex flex-col items-center text-center relative overflow-hidden group">
             {/* Card shine effect */}
             <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
@@ -474,8 +472,8 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
                     </h2>
                     <div className="h-1 w-16 bg-[#FF4D2E] mx-auto rounded-full my-4" />
                     <p className="text-white/80 text-sm leading-relaxed">
-                      {isStaff 
-                        ? 'Token válido. Procede a marcar la entrega.' 
+                      {isStaff
+                        ? 'Token válido. Procede a marcar la entrega.'
                         : '¡Felicidades! Acércate a la barra, muestra este código QR y canjea tu token.'}
                     </p>
                 </div>
@@ -489,13 +487,13 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
               (isStaff && actionType === 'challenge' && actionCompleted) ||
               (!isStaff && (!GATED_ACTIONS.has(actionType) || actionCompleted))
             ) && (
-                <div className="bg-white p-4 rounded-xl shadow-lg mb-6 transform transition-transform hover:scale-105 duration-300">
-                    <img 
-                        src={qrSrc} 
-                        alt="QR Canje" 
-                        className="w-48 h-48 object-contain" 
+                <div className="bg-white max-w-full p-3 sm:p-4 rounded-xl shadow-lg mb-6 transform transition-transform hover:scale-105 duration-300">
+                    <img
+                        src={qrSrc}
+                        alt="QR Canje"
+                        className="w-48 max-w-full h-auto aspect-square object-contain"
                     />
-                    <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center justify-between gap-2 mt-2">
                         <div className="text-black/60 text-[10px] font-mono uppercase tracking-widest">Escanear en barra</div>
                         <button
                             onClick={async () => {
@@ -540,34 +538,11 @@ export default function StaticTokenPage({ params }: StaticTokenPageProps) {
 
             {/* Staff Actions — hidden for prizeless actions (no physical prize to deliver) */}
             {/* For challenge type, delivery button only shows after staff marks challenge completed */}
-            {isStaff && !isPrizeless && !tokenData.deliveredAt && !tokenData.disabled && !isExpired && !isValidFromFuture && (
+            {!isPrizeless && !tokenData.deliveredAt && !tokenData.disabled && !isExpired && !isValidFromFuture && (
               actionType !== 'challenge' || actionCompleted
             ) && (
                 <div className="w-full mt-8 pt-6 border-t border-white/10">
-                    <button
-                    onClick={handleMarkDelivered}
-                    disabled={markingDelivery}
-                    className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all duration-200 flex items-center justify-center gap-2 ${
-                        markingDelivery 
-                        ? 'bg-gray-600 cursor-not-allowed opacity-50' 
-                        : 'bg-[#FF4D2E] hover:bg-[#FF6542] active:scale-[0.98] text-white'
-                    }`}
-                    >
-                    {markingDelivery ? (
-                        <>
-                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            <span>Procesando...</span>
-                        </>
-                    ) : (
-                        <>
-                            <span>✅</span>
-                            <span>Marcar como Entregado</span>
-                        </>
-                    )}
-                    </button>
+                    <PrizeDeliveryAction authenticated={isStaff} onClick={handleMarkDelivered} disabled={markingDelivery} busy={markingDelivery} />
                     {deliveryError && (
                         <div className="mt-3 p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-200 text-xs text-left">
                             ⚠️ {deliveryError}

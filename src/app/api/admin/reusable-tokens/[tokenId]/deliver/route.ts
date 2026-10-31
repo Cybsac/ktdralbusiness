@@ -1,67 +1,28 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { requirePrizeAuthorization, getPrizeActor } from '@/lib/prize-authorization/service';
+import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
-import { mapAreaToStaffRole } from '@/lib/staff-roles';
-import { isValidArea } from '@/lib/areas';
 import { apiError, apiOk } from '@/lib/apiError';
 
 // POST /api/admin/reusable-tokens/[tokenId]/deliver
 // Marca un token reutilizable como entregado (solo para STAFF/ADMIN)
 
 export async function POST(req: NextRequest, { params }: { params: { tokenId: string } }) {
+  const prizeGate = await requirePrizeAuthorization(req, 'reusable');
+  if (prizeGate) return prizeGate;
+
   try {
     const { tokenId } = params;
     if (!tokenId) {
       return apiError('TOKEN_ID_REQUIRED', 'tokenId requerido', undefined, 400);
     }
 
-    // Verificar autenticación - aceptar tanto admin_session como user_session para STAFF
-    let session = null;
-    let userRole = null;
-
-    // Primero intentar con admin_session
-    const adminRaw = getSessionCookieFromRequest(req);
-    const adminSession = await verifySessionCookie(adminRaw);
-    if (adminSession) {
-      session = adminSession;
-      userRole = 'ADMIN'; // Los admin tienen acceso completo
-    } else {
-      // Si no hay admin_session, intentar con user_session
-      const userRaw = getUserSessionCookieFromRequest(req);
-      const userSession = await verifyUserSessionCookie(userRaw);
-      if (userSession) {
-        // Verificar que el usuario tenga rol STAFF
-        const user = await prisma.user.findUnique({
-          where: { id: userSession.userId },
-          include: { person: true }
-        });
-        if (user?.person?.area) {
-          const area = user.person.area;
-          if (isValidArea(area)) {
-            userRole = mapAreaToStaffRole(area);
-            if (userRole) {
-              session = userSession;
-            }
-          }
-        }
-      }
-    }
-
-    if (!session || !userRole) {
-      return apiError('UNAUTHORIZED', 'No autorizado - se requiere sesión de STAFF o ADMIN');
-    }
-
-    // Verificar permisos - STAFF y ADMIN pueden marcar entregas
-    if (!['ADMIN', 'STAFF', 'WAITER', 'CASHIER', 'BARTENDER'].includes(userRole)) {
-      return apiError('UNAUTHORIZED', 'Rol insuficiente para marcar entregas');
-    }
+    const session = getPrizeActor(req);
 
     // Verificar que el token existe y es reutilizable
     const token = await prisma.reusableToken.findUnique({
       where: { id: tokenId },
       include: {
-        prize: { select: { key: true, label: true } }
+        prize: { select: { active: true, key: true, label: true } }
       }
     });
 
@@ -69,10 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: { tokenId: st
       return apiError('TOKEN_NOT_FOUND', 'Token no encontrado', undefined, 404);
     }
 
-    // Para admin/staff, permitir marcar como entregado incluso si ya fue usado
-    // Esto es útil cuando se entrega físicamente después del canje digital
-    // O cuando se necesita re-entregar por correcciones
-    // Solo verificar que el token existe
+    if (!token.prize.active) return apiError('PRIZE_INACTIVE', 'Premio inactivo', undefined, 410);
 
     // No permitir marcar como entregado si ya está completamente usado
     if (token.usedCount >= token.maxUses) {
@@ -91,18 +49,13 @@ export async function POST(req: NextRequest, { params }: { params: { tokenId: st
     // Esto refleja el número real de entregas realizadas
     updateData.usedCount = { increment: 1 };
 
-    await prisma.reusableToken.update({
-      where: { id: tokenId },
-      data: updateData
-    });
-
-    // Registrar en historial de canjes
-    await prisma.reusableTokenRedemption.create({
-      data: {
-        tokenId,
-        type: 'deliver',
-        userId: session.userId,
-      }
+    await prisma.$transaction(async tx => {
+      const changed = await tx.reusableToken.updateMany({
+        where: { id: tokenId, disabled: false, expiresAt: { gt: deliveredAt }, usedCount: { lt: token.maxUses } },
+        data: updateData,
+      });
+      if (!changed.count) throw new Error('TOKEN_UNAVAILABLE');
+      await tx.reusableTokenRedemption.create({ data: { tokenId, type: 'deliver', userId: session.userId, note: JSON.stringify({ authorizationMethod: session.method, responsibleName: session.name, credentialId: session.credentialId, credentialRevision: session.revision }) } });
     });
 
     return apiOk({
@@ -114,6 +67,7 @@ export async function POST(req: NextRequest, { params }: { params: { tokenId: st
     });
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'TOKEN_UNAVAILABLE') return apiError('TOKEN_UNAVAILABLE', 'El QR está agotado, vencido o deshabilitado.', undefined, 409);
     console.error('Error marking reusable token as delivered:', error);
     return apiError('INTERNAL_ERROR', 'Error interno del servidor');
   }

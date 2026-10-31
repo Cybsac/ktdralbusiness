@@ -1,4 +1,5 @@
 'use client';
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -252,7 +253,7 @@ export default function IntercambioClientePage() {
     if (action === 'reject' && note === null) return; // cancelled
 
     try {
-      const res = await fetch(`/api/admin/intercambio/${id}/review`, {
+      const res = await prizeAuthorizedFetch(`/api/admin/intercambio/${id}/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, reviewNote: note || undefined }),

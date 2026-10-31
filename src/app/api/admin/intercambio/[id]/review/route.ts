@@ -1,3 +1,4 @@
+import { requirePrizeAuthorization } from '@/lib/prize-authorization/service';
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
@@ -38,6 +39,8 @@ export async function POST(
     }
 
     if (action === 'approve') {
+      const prizeGate = await requirePrizeAuthorization(req, 'exchange');
+      if (prizeGate) return prizeGate;
       // Try to assign a reward token from the batch configuration
       let rewardTokenId: string | null = null;
       let rewardDelivered = false;

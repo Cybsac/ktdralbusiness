@@ -1,4 +1,6 @@
 "use client";
+import { PrizeDeliveryAction } from "@/components/prize-authorization/PrizeDeliveryAction";
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 import React, { useState, useRef, useEffect } from 'react';
 import { QrCode, CheckCircle, XCircle, Clock, AlertTriangle, User, Phone, Mail, Calendar, DollarSign, Package, ArrowLeft } from 'lucide-react';
 import { DateTime } from 'luxon';
@@ -129,7 +131,7 @@ export default function ValidateQROffersPage() {
 
     setDelivering(true);
     try {
-      const response = await fetch('/api/offers/complete-delivery', {
+      const response = await prizeAuthorizedFetch('/api/offers/complete-delivery', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -140,7 +142,7 @@ export default function ValidateQROffersPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Error al marcar como entregado');
+        throw new Error(data.message || data.error || 'Error al marcar como entregado');
       }
 
       // Actualizar el resultado localmente para reflejar el cambio
@@ -161,8 +163,8 @@ export default function ValidateQROffersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen bg-gray-50 p-3 sm:p-6">
+      <div className="min-w-0 max-w-4xl mx-auto break-words">
         <div className="bg-white rounded-lg shadow-lg p-6">
           <div className="flex items-center gap-3 mb-6">
             <QrCode className="w-8 h-8 text-blue-600" />
@@ -459,23 +461,7 @@ export default function ValidateQROffersPage() {
               {/* Botón para marcar como entregado */}
               {result.purchase.status !== 'CONFIRMED' && (
                 <div className="mt-6 flex justify-center">
-                  <button
-                    onClick={markAsDelivered}
-                    disabled={delivering}
-                    className="flex items-center gap-2 px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {delivering ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        Procesando...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle className="w-5 h-5" />
-                        Marcar como Entregado
-                      </>
-                    )}
-                  </button>
+                  <PrizeDeliveryAction onClick={markAsDelivered} disabled={delivering} busy={delivering} />
                 </div>
               )}
             </div>

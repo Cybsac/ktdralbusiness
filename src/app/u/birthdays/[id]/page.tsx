@@ -1,4 +1,5 @@
 "use client";
+import { ReservationEditor } from '@/components/birthdays/ReservationEditor';
 import { useEffect, useState } from 'react';
 import { DateTime } from 'luxon';
 import { birthdayReservationSourceLabel } from '@/lib/birthdays/attribution';
@@ -59,6 +60,7 @@ export default function StaffBirthdayDetail({ params }: { params: { id: string }
           </div>
         )}
 
+        <ReservationEditor id={id} onSaved={load} />
         {/* Main content grid - responsive */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
           {/* Reservation details card */}
@@ -161,9 +163,7 @@ export default function StaffBirthdayDetail({ params }: { params: { id: string }
               <button className="btn flex-1 sm:flex-none" disabled={busy} onClick={() => genTokens(false)}>
                 Generar
               </button>
-              <button className="btn flex-1 sm:flex-none" disabled={busy} onClick={() => genTokens(true)}>
-                Forzar
-              </button>
+
               <button className="btn flex-1 sm:flex-none" onClick={downloadCards}>
                 Descargar
               </button>

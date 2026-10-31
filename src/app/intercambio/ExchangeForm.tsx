@@ -1,4 +1,5 @@
 'use client';
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -208,7 +209,7 @@ export default function ExchangeForm() {
         media: state.uploadedMedia.length > 0 ? state.uploadedMedia : undefined,
       };
 
-      const res = await fetch('/api/exchange/submit', {
+      const res = await prizeAuthorizedFetch('/api/exchange/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

@@ -1,3 +1,4 @@
+import { requirePrizeAuthorization } from '@/lib/prize-authorization/service';
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
@@ -43,6 +44,10 @@ export async function PUT(
     if (!roleCheck.ok) return apiError('FORBIDDEN', 'FORBIDDEN', undefined, 403);
 
     const body = await req.json();
+    if (body.rewardDelivered === true || body.rewardTokenId) {
+      const prizeGate = await requirePrizeAuthorization(req, 'exchange');
+      if (prizeGate) return prizeGate;
+    }
 
     const exchange = await prisma.clientExchange.update({
       where: { id: params.id },

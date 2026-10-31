@@ -421,3 +421,14 @@ WHERE guest_arrivals > 0
 curl -H "Authorization: Basic $(echo -n 'health:HEALTH_TOKEN' | base64)" \
   http://localhost:3000/api/admin/birthdays/health
 ```
+
+
+## Edición de reservas y regeneración de tarjetas
+
+Desde `/u/birthdays` y `/admin/birthdays`, «Editar reserva» abre el detalle con un formulario común. Permite corregir nombre, DNI, WhatsApp, correo, fecha, hora, paquete, invitados previstos y sesión de fotos. «Guardar y regenerar tarjeta» guarda primero los datos y después compone una nueva imagen. Si el almacenamiento falla, los datos permanecen guardados y «Regenerar tarjeta» permite reintentar.
+
+- `PATCH /api/admin/birthdays/:id`: requiere sesión autorizada y `expectedUpdatedAt`; evita sobrescribir cambios simultáneos. Mantiene los códigos QR, sus usos, estado e historial.
+- Cambiar fecha recalcula la expiración al final del día de Lima y firma el claim actualizado. Cambiar paquete ajusta el máximo de usos del token universal según `qrCount`. Se bloquean ambos cambios si ya hubo ingresos o usos.
+- `POST /api/admin/birthdays/:id/cards/generate?regenerate=1`: reemplaza la referencia de imagen usando un archivo nuevo para evitar caché. No fuerza la regeneración de tokens.
+- La descarga estándar y el endpoint público de imagen componen la tarjeta con los datos actuales. Las exportaciones con `templateId` explícito conservan su flujo de impresión.
+- Las pruebas `tests/birthdays/update_reservation.test.ts` y `tests/birthdays/regenerate_cards.test.ts` usan dobles de Prisma y almacenamiento; no conectan a una base de datos. No ejecutar suites generales o E2E contra bases con datos reales.

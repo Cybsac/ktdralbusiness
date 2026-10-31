@@ -1,6 +1,8 @@
 "use client";
+import { STATIC_BATCH_LIMITS, staticBatchRequestSchema, type StaticBatchRequest } from "@/lib/batch/static-request";
+import { PrizeAuthorizationLink } from '@/components/prize-authorization/PrizeAuthorizationLink';
 import React, { useEffect, useMemo, useState, useTransition } from 'react';
-import { ACTION_LABELS, ACTION_DESCRIPTIONS, PRIZELESS_ACTIONS } from '@/components/token-actions/types';
+import { FEEDBACK_LIMITS, DEFAULT_RAFFLE_PARTICIPANTS, ACTION_TYPES, ACTION_LABELS, ACTION_DESCRIPTIONS, PRIZELESS_ACTIONS } from '@/components/token-actions/types';
 import type { ActionType } from '@/components/token-actions/types';
 
 interface Prize {
@@ -88,7 +90,7 @@ function StaticPrizeManager({ prizes: initialPrizes, onPrizesUpdated }: { prizes
 
   async function updatePrizesWithRefresh() {
     try {
-      const res = await fetch('/api/prizes');
+      const res = await fetch('/api/prizes?scope=static');
       if (res.ok) {
         const json = await res.json();
         const raw = Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : []);
@@ -142,6 +144,7 @@ function StaticPrizeManager({ prizes: initialPrizes, onPrizesUpdated }: { prizes
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               label: form.label,
+              gameEnabled:false,staticEnabled:true,
               color: form.color || undefined,
               stock: form.stock === "" ? undefined : Number(form.stock),
             }),
@@ -478,27 +481,19 @@ function StaticPrizeManager({ prizes: initialPrizes, onPrizesUpdated }: { prizes
   );
 }
 
-type ValidityMode = 'byDays' | 'singleDay' | 'singleHour';
+type ValidityMode = StaticBatchRequest["validity"]["mode"];
 
-interface PayloadByDays { name: string; targetUrl?: string; includeQr: boolean; lazyQr: boolean; prizes: { prizeId: string; count: number }[]; validity: { mode: 'byDays'; expirationDays: number }; }
-interface PayloadSingleDay { name: string; targetUrl?: string; includeQr: boolean; lazyQr: boolean; prizes: { prizeId: string; count: number }[]; validity: { mode: 'singleDay'; date: string }; }
-interface PayloadSingleHour { name: string; targetUrl?: string; includeQr: boolean; lazyQr: boolean; prizes: { prizeId: string; count: number }[]; validity: { mode: 'singleHour'; date: string; hour: string; durationMinutes: number }; }
-
-type StaticRequest = PayloadByDays | PayloadSingleDay | PayloadSingleHour;
-
-const EXPIRATION_OPTIONS = [1,3,5,7,15,30];
 
 export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, batchPrizeStats }: Props) {
   const [prizes, setPrizes] = useState(() => initialPrizes.filter(p => !SYSTEM_PRIZE_KEYS.has(p.key || '')));
   const [name, setName] = useState('');
   const [targetUrl, setTargetUrl] = useState('');
   const [mode, setMode] = useState<ValidityMode>('byDays');
-  const [expirationDays, setExpirationDays] = useState(7);
+  const [expirationDays, setExpirationDays] = useState<number | "">(7);
   const [singleDayDate, setSingleDayDate] = useState('');
   const [hourDate, setHourDate] = useState('');
   const [hourTime, setHourTime] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(60);
-  const [includeQr, setIncludeQr] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string|null>(null);
   const [success, setSuccess] = useState<string|null>(null);
@@ -519,15 +514,15 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
   const [challengeDifficulty, setChallengeDifficulty] = useState<'easy'|'medium'|'hard'>('medium');
   const [challengeRequiresValidation, setChallengeRequiresValidation] = useState(true);
   const [raffleName, setRaffleName] = useState('');
-  const [raffleMaxParticipants, setRaffleMaxParticipants] = useState(999);
+  const [raffleMaxParticipants, setRaffleMaxParticipants] = useState<number>(DEFAULT_RAFFLE_PARTICIPANTS);
   const [messageHtml, setMessageHtml] = useState('');
   const [messageCtaLabel, setMessageCtaLabel] = useState('');
   const [messageCtaUrl, setMessageCtaUrl] = useState('');
   // Feedback payload
   const [feedbackPrompt, setFeedbackPrompt] = useState('¿Qué te pareció la noche?');
   const [feedbackPlaceholder, setFeedbackPlaceholder] = useState('Escribe aquí tu mensaje…');
-  const [feedbackMinLength, setFeedbackMinLength] = useState(5);
-  const [feedbackMaxLength, setFeedbackMaxLength] = useState(500);
+  const [feedbackMinLength, setFeedbackMinLength] = useState<number>(FEEDBACK_LIMITS.minLength);
+  const [feedbackMaxLength, setFeedbackMaxLength] = useState<number>(FEEDBACK_LIMITS.maxLength);
   const [feedbackThankYou, setFeedbackThankYou] = useState('¡Gracias por tu mensaje!');
 
   function buildActionPayload(): string | undefined {
@@ -572,8 +567,8 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
   }
 
   // Derived
-  // Solo mostrar premios activos con stock numérico disponible > 0 (evitar premios ya emitidos o ilimitados/null)
-  const activePrizeList = useMemo(() => prizes.filter(p => p.active && typeof p.stock === 'number' && p.stock > 0), [prizes]);
+  // Premios activos con stock disponible o ilimitado.
+  const activePrizeList = useMemo(() => prizes.filter(p => p.active && (p.stock === null || p.stock > 0)), [prizes]);
   const isPrizeless = PRIZELESS_ACTIONS.has(actionType);
   const totalRequested = useMemo(() => isPrizeless ? tokenCount : Object.entries(counts).reduce((a,[id,v]) => a + (v||0),0), [counts, isPrizeless, tokenCount]);
 
@@ -599,12 +594,10 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
     if (totalRequested <= 0) { setError(isPrizeless ? 'Define cantidad de tokens' : 'Define cantidades'); return; }
     setLoading(true); setError(null); setSuccess(null);
     try {
-      let payload: StaticRequest;
+      let payload: StaticBatchRequest;
       const base = {
         name: name || 'Lote estático',
         ...(trimmedUrl && { targetUrl: trimmedUrl }),
-        includeQr,
-        lazyQr: false,
         ...(isPrizeless
           ? { prizes: [] as { prizeId: string; count: number }[], tokenCount }
           : { prizes: Object.entries(counts).filter(([,v]) => v>0).map(([prizeId,v]) => ({ prizeId, count: v })) }),
@@ -612,21 +605,23 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
         actionPayload: buildActionPayload(),
       };
       if (mode === 'byDays') {
-        payload = { ...base, validity: { mode: 'byDays', expirationDays } } as PayloadByDays;
+        payload = { ...base, validity: { mode: 'byDays', expirationDays: Number(expirationDays) } };
       } else if (mode === 'singleDay') {
         if (!singleDayDate) throw new Error('Selecciona fecha');
-        payload = { ...base, validity: { mode: 'singleDay', date: singleDayDate } } as PayloadSingleDay;
+        payload = { ...base, validity: { mode: 'singleDay', date: singleDayDate } };
       } else {
         if (!hourDate) throw new Error('Fecha ventana requerida');
-        if (!/^[0-2]\d:[0-5]\d$/.test(hourTime)) throw new Error('Hora inválida');
-        payload = { ...base, validity: { mode: 'singleHour', date: hourDate, hour: hourTime, durationMinutes } } as PayloadSingleHour;
+        if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(hourTime)) throw new Error('Hora inválida');
+        payload = { ...base, validity: { mode: 'singleHour', date: hourDate, hour: hourTime, durationMinutes } };
       }
-      const res = await fetch('/api/batch/generate-static', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const checked = staticBatchRequestSchema.safeParse(payload);
+      if (!checked.success) throw new Error(checked.error.issues[0]?.message || 'Revisa la configuración');
+      const res = await fetch('/api/batch/generate-static', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(checked.data) });
       const ct = res.headers.get('Content-Type') || '';
       if (!res.ok) {
         if (ct.includes('application/json')) {
           const j = await res.json().catch(()=>({}));
-          setError(j.error || 'Error');
+          setError(j.message || j.error || 'Error');
         } else setError('Error desconocido');
         return;
       }
@@ -697,6 +692,7 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <PrizeAuthorizationLink />
       {/* Header */}
       <div>
         <h1 className="text-xl font-bold tracking-tight">Tokens Estáticos · Generador</h1>
@@ -717,7 +713,7 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
             {!isPrizeless && <button type="button" className="text-[10px] underline" onClick={fillMax}>Rellenar máximos</button>}
           </div>
           <div className="flex flex-wrap gap-1 -mx-5 px-5">
-            {(Object.keys(ACTION_LABELS) as ActionType[]).map(t => (
+            {ACTION_TYPES.map(t => (
               <button
                 key={t}
                 type="button"
@@ -753,10 +749,7 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
             <label className="text-xs font-medium">Nombre</label>
             <input className="input" value={name} maxLength={120} placeholder="Ej: Campaña Octubre" onChange={e=>setName(e.target.value)} />
           </div>
-          <div className="form-row">
-            <label className="text-xs font-medium">Incluye QR</label>
-            <label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={includeQr} onChange={e=>setIncludeQr(e.target.checked)} /><span>Sí</span></label>
-          </div>
+          <p className="text-xs text-slate-500">Cada pulsera incluye su código QR automáticamente.</p>
 
           {/* Configuración del tipo de acción (seleccionada en pestañas) */}
           {actionType === 'trivia' && (
@@ -872,8 +865,8 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
           </div>
           {mode==='byDays' && (
             <div className="form-row">
-              <label className="text-xs font-medium">Expiración</label>
-              <select className="input" value={expirationDays} onChange={e=>setExpirationDays(Number(e.target.value))}>{EXPIRATION_OPTIONS.map(d=> <option key={d} value={d}>{d} días</option>)}</select>
+              <label htmlFor="static-expiration-days" className="text-xs font-medium">Expiración (días)</label>
+              <input id="static-expiration-days" type="number" inputMode="numeric" min={1} step={1} required className="input" value={expirationDays} onChange={e=>setExpirationDays(e.target.value === '' ? '' : Number(e.target.value))} />
             </div>) }
           {mode==='singleDay' && (
             <div className="form-row">
@@ -890,8 +883,8 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
             {isPrizeless ? (
               <div className="space-y-2">
                 <label className="text-xs font-medium">Cantidad de tokens en el lote</label>
-                <input type="number" min={1} max={100000} className="input w-40 text-xs" value={tokenCount} onChange={e => setTokenCount(Math.max(1, Number(e.target.value) || 1))} />
-                <p className="text-[10px] text-slate-500">Este tipo de acción no consume premios. Los tokens se generan sin premio asociado.</p>
+                <input type="number" min={1} max={STATIC_BATCH_LIMITS.tokens} className="input w-40 text-xs" value={tokenCount} onChange={e => setTokenCount(Math.max(1, Number(e.target.value) || 1))} />
+                <p className="text-[10px] text-slate-500">Este tipo de acción no consume premios. El QR abre el contenido sin entregar un premio físico.</p>
               </div>
             ) : (
               <>
@@ -901,9 +894,9 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
                 {activePrizeList.map(p => (
                   <tr key={p.id} className="border-t border-slate-200 dark:border-slate-700">
                     <td className="py-1 pr-2"><span className="inline-block h-2 w-2 rounded-full align-middle mr-1" style={{ background: p.color || '#999' }} />{p.label}</td>
-                    <td className="py-1 pr-2 tabular-nums text-xs">{typeof p.stock === 'number' ? p.stock : '—'}</td>
+                    <td className="py-1 pr-2 tabular-nums text-xs">{typeof p.stock === 'number' ? p.stock : 'Ilimitado'}</td>
                     <td className="py-1 pr-2">
-                      <input type="number" min={0} max={p.stock || 999999} className="input h-6 text-xs" value={counts[p.id] ?? ''} onChange={e=> setCount(p.id, e.target.value === '' ? 0 : Number(e.target.value))} />
+                      <input type="number" min={0} max={p.stock ?? STATIC_BATCH_LIMITS.tokens} className="input h-6 text-xs" value={counts[p.id] ?? ''} onChange={e=> setCount(p.id, e.target.value === '' ? 0 : Number(e.target.value))} />
                     </td>
                   </tr>
                 ))}
@@ -915,7 +908,7 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
               <button type="button" className="btn-outline !py-1 !px-2 text-[10px]" onClick={fillMax}>Usar stock completo</button>
               <button type="button" className="btn-outline !py-1 !px-2 text-[10px]" onClick={clearAll}>Limpiar</button>
             </div>
-            <p className="mt-1 text-[10px] text-slate-500">Sólo se listan premios con stock &gt; 0. Los agotados o ilimitados no pueden usarse en lotes estáticos.</p>
+            <p className="mt-1 text-[10px] text-slate-500">Se listan premios activos con stock disponible o ilimitado. Define la cantidad que deseas generar.</p>
               </>
             )}
           </div>
@@ -924,7 +917,7 @@ export default function PrizestaticsClient({ prizes: initialPrizes, lastBatch, b
             {error && <span className="text-[11px] text-rose-600">{error}</span>}
             {success && <span className="text-[11px] text-emerald-600">{success}</span>}
           </div>
-          <p className="col-span-full text-[10px] text-slate-500">{isPrizeless ? 'Las frases y mensajes no consumen premios. Solo aplican las reglas de validez (expiración, fecha, ventana horaria).' : 'Todos los tipos de lote consumen del mismo inventario de premios. El tipo de acción define la experiencia del token (canje directo, trivia, reto, etc.).'}</p>
+          <p className="col-span-full text-[10px] text-slate-500">{isPrizeless ? 'Las frases y mensajes no consumen premios. Solo aplican las reglas de validez (expiración, fecha, ventana horaria).' : 'Las dinámicas con premio comparten inventario. Frases y mensajes no descuentan stock.'}</p>
         </div>
       </div>
 

@@ -1,3 +1,4 @@
+import { createReusablePrize } from "@/lib/reusable-prizes/service";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
@@ -33,30 +34,14 @@ export async function POST(req: NextRequest) {
       return apiError('UNAUTHORIZED', auth.error || 'No autorizado');
     }
 
-    const body = await req.json();
-    const { label, key, color, description } = body;
-
-    if (!label?.trim() || !key?.trim()) {
-      return NextResponse.json({ error: 'Label y key son requeridos' }, { status: 400 });
+    const { label, description } = await req.json();
+    if (typeof label !== 'string' || !label.trim()) {
+      return NextResponse.json({ error: 'Nombre del premio requerido' }, { status: 400 });
     }
-
-    // Check if key already exists
-    const existing = await prisma.reusablePrize.findUnique({
-      where: { key: key.trim() }
-    });
-
-    if (existing) {
-      return NextResponse.json({ error: 'Ya existe un premio con esa key' }, { status: 400 });
+    if (description != null && typeof description !== 'string') {
+      return NextResponse.json({ error: 'Descripción inválida' }, { status: 400 });
     }
-
-    const prize = await prisma.reusablePrize.create({
-      data: {
-        label: label.trim(),
-        key: key.trim(),
-        color: color || null,
-        description: description?.trim() || null
-      }
-    });
+    const prize = await createReusablePrize({ label: label.trim(), description: description?.trim() || null });
 
     return NextResponse.json(prize);
   } catch (error) {

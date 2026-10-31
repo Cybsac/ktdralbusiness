@@ -1,3 +1,5 @@
+import { SOCKET_PATH } from "@/lib/socket-contract";
+import { isPrizeDeliveryPath } from '@/lib/prize-authorization/delivery-routes';
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
 import { isBirthdaysEnabledPublic } from "@/lib/featureFlags";
@@ -101,7 +103,7 @@ function shouldRedirectLegacyPublicRequest(req: NextRequest): boolean {
   return !(
     pathname.startsWith("/api/") ||
     pathname.startsWith("/_next/") ||
-    pathname.startsWith("/socket.io/") ||
+    pathname === SOCKET_PATH || pathname.startsWith(`${SOCKET_PATH}/`) ||
     pathname === "/favicon.ico"
   );
 }
@@ -198,15 +200,8 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   };
 
-  if (pathname.startsWith('/api/admin/custom-qrs/') && pathname.endsWith('/redeem')) {
-    if (!userSession) {
-      return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
-    }
-    if (['ADMIN', 'COORDINATOR', 'STAFF', 'COLLAB'].includes(role || '')) {
-      return NextResponse.next();
-    }
-    return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 });
-  }
+  // Final delivery handlers perform session-or-personal-OTP authorization themselves.
+  if (isPrizeDeliveryPath(pathname)) return NextResponse.next();
 
   if (pathname.startsWith("/u/") || pathname === "/u") {
     if (!userSession) return redirectToLogin();

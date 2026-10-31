@@ -1,3 +1,4 @@
+import { requirePrizeAuthorization, getPrizeActor } from '@/lib/prize-authorization/service';
 import { z } from "zod";
 
 import { apiError, apiOk } from "@/lib/apiError";
@@ -12,6 +13,9 @@ const redeemSchema = z.object({
 
 // POST /api/customers/redeem - Redeem customer points
 export async function POST(req: Request) {
+  const prizeGate = await requirePrizeAuthorization(req, 'points');
+  if (prizeGate) return prizeGate;
+
   try {
     const json = await req.json();
     const parsed = redeemSchema.safeParse(json);
@@ -24,7 +28,8 @@ export async function POST(req: Request) {
     const result = await redeemCustomerPoints(
       data.customerId,
       data.pointsToRedeem,
-      data.reason
+      data.reason,
+      getPrizeActor(req)
     );
 
     if (!result.success) {

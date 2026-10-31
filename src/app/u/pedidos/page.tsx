@@ -343,18 +343,21 @@ export default function CartaDashboard() {
   useEffect(() => {
     if (socket) {
       // Actualizar estado de conexi�n
-      socket.on("connect", () => {
+      setSocketConnected(socket.connected);
+      const onSocketConnect = () => {
         console.log("?? Socket conectado - modo tiempo real activado");
         setSocketConnected(true);
-      });
+      };
+      socket.on("connect", onSocketConnect);
 
-      socket.on("disconnect", () => {
+      const onSocketDisconnect = () => {
         console.log("?? Socket desconectado - usando polling de respaldo");
         setSocketConnected(false);
-      });
+      };
+      socket.on("disconnect", onSocketDisconnect);
 
       // Listener para actualizaciones de pedidos
-      socket.on("order-status-update", (data: any) => {
+      const onSocketOrderStatusUpdate = (data: any) => {
         console.log("?? Actualizaci�n de pedido recibida:", data);
         setOrders(prevOrders =>
           prevOrders.map(order =>
@@ -364,10 +367,11 @@ export default function CartaDashboard() {
           )
         );
         setLastUpdate(new Date());
-      });
+      };
+      socket.on("order-status-update", onSocketOrderStatusUpdate);
 
       // Listener para nuevos pedidos
-      socket.on("new-order", (orderData: any) => {
+      const onSocketNewOrder = (orderData: any) => {
         console.log("??? Nuevo pedido recibido:", orderData);
         setNewOrderNotification(true);
         // Peque�o delay para mostrar notificaci�n antes de recargar
@@ -375,21 +379,23 @@ export default function CartaDashboard() {
           fetchOrders(false);
           setNewOrderNotification(false);
         }, 500);
-      });
+      };
+      socket.on("new-order", onSocketNewOrder);
 
       // Listener para actualizaciones de inventario
-      socket.on("inventory-update", (data: any) => {
+      const onSocketInventoryUpdate = (data: any) => {
         console.log("?? Actualizaci�n de inventario recibida:", data);
         // Aqu� podr�amos mostrar una notificaci�n o actualizar alg�n estado relacionado con inventario
         // Por ahora solo loggeamos para debugging
-      });
+      };
+      socket.on("inventory-update", onSocketInventoryUpdate);
 
       return () => {
-        socket.off("connect");
-        socket.off("disconnect");
-        socket.off("order-status-update");
-        socket.off("new-order");
-        socket.off("inventory-update");
+        socket.off("connect", onSocketConnect);
+        socket.off("disconnect", onSocketDisconnect);
+        socket.off("order-status-update", onSocketOrderStatusUpdate);
+        socket.off("new-order", onSocketNewOrder);
+        socket.off("inventory-update", onSocketInventoryUpdate);
       };
     }
   }, [socket]);

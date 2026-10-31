@@ -1,7 +1,14 @@
-import { prisma } from "@/lib/prisma";
-import TriviaClient from "./TriviaClient";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: 'Trivia' };
+import { verifyUserSessionCookie } from "@/lib/auth";
+import { NEWS_POLICY } from "@/lib/internal-news/contracts";
+import { sanitizeNewsHtml } from "@/lib/internal-news/html";
+import { prisma } from "@/lib/prisma";
+
+import InternalNewsClient from "./InternalNewsClient";
+
+export const metadata = { title: "Comunicados internos" };
 export const dynamic = "force-dynamic";
 
 type TriviaQuestionSetWithCounts = {
@@ -13,7 +20,7 @@ type TriviaQuestionSetWithCounts = {
   createdAt: Date;
   updatedAt: Date;
   questionCount: number;
-  sessionCount: number;
+  assignmentCount: number;
 };
 
 type TriviaAnswer = {
@@ -39,127 +46,118 @@ type TriviaQuestionWithStats = {
   answers: TriviaAnswer[];
   answerCount: number;
   correctAnswerCount: number;
-  attemptCount: number;
 };
 
-type TriviaStats = {
+type InternalNewsStats = {
   totalQuestionSets: number;
   activeQuestionSets: number;
   totalQuestions: number;
   activeQuestions: number;
-  totalSessions: number;
-  completedSessions: number;
+  totalAssignments: number;
+  completedAssignments: number;
   averageCompletionRate: number;
 };
 
-async function getTriviaData(): Promise<{
+async function getInternalNewsData(): Promise<{
   questionSets: TriviaQuestionSetWithCounts[];
   questions: TriviaQuestionWithStats[];
-  stats: TriviaStats;
+  stats: InternalNewsStats;
 }> {
   // Obtener sets de preguntas con conteos
   const questionSets = await prisma.triviaQuestionSet.findMany({
+    where: { audience: "INTERNAL" },
     include: {
       _count: {
         select: {
-          questions: true
-        }
-      }
+          questions: true,
+          commitmentAssignments: true,
+        },
+      },
     },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: "desc" },
   });
 
   // Calcular conteo de sesiones por question set
-  const questionSetsWithCounts = await Promise.all(
-    questionSets.map(async (set) => {
-      const sessionCount = await prisma.triviaSession.count({
-        where: {
-          questionSetId: set.id
-        }
-      });
-
-      return {
-        ...set,
-        questionCount: set._count.questions,
-        sessionCount
-      };
-    })
-  );
+  const questionSetsWithCounts = questionSets.map((set) => ({
+    ...set,
+    regulationContent: sanitizeNewsHtml(set.regulationContent),
+    questionCount: set._count.questions,
+    assignmentCount: set._count.commitmentAssignments,
+  }));
 
   // Obtener preguntas con estadísticas
   const questions = await prisma.triviaQuestion.findMany({
+    where: { questionSet: { audience: "INTERNAL" } },
     include: {
       answers: {
-        orderBy: { order: 'asc' }
+        orderBy: { order: "asc" },
       },
       _count: {
         select: {
-          progress: true,
-          answers: true
-        }
-      }
+          answers: true,
+        },
+      },
     },
-    orderBy: { order: 'asc' }
+    orderBy: { order: "asc" },
   });
 
-  const questionsWithStats = questions.map(question => ({
+  const questionsWithStats = questions.map((question) => ({
     ...question,
     answerCount: question._count.answers,
-    correctAnswerCount: question.answers.filter(a => a.isCorrect).length,
-    attemptCount: question._count.progress
+    correctAnswerCount: question.answers.filter((a) => a.isCorrect).length,
   }));
 
   // Calcular estadísticas generales
   const totalQuestionSets = questionSets.length;
-  const activeQuestionSets = questionSets.filter(s => s.active).length;
+  const activeQuestionSets = questionSets.filter((s) => s.active).length;
   const totalQuestions = questions.length;
-  const activeQuestions = questions.filter(q => q.active).length;
+  const activeQuestions = questions.filter((q) => q.active).length;
 
-  const sessions = await prisma.triviaSession.findMany({
-    include: {
-      _count: {
-        select: { progress: true }
-      }
-    }
-  });
+  const [totalAssignments, completedAssignments] = await Promise.all([
+    prisma.commitmentAssignment.count({ where: { status: { not: "SKIPPED" } } }),
+    prisma.commitmentAssignment.count({ where: { status: "COMPLETED" } }),
+  ]);
+  const averageCompletionRate =
+    totalAssignments > 0 ? (completedAssignments / totalAssignments) * 100 : 0;
 
-  const totalSessions = sessions.length;
-  const completedSessions = sessions.filter(s => s.completed).length;
-  const averageCompletionRate = totalSessions > 0
-    ? (completedSessions / totalSessions) * 100
-    : 0;
-
-  const stats: TriviaStats = {
+  const stats: InternalNewsStats = {
     totalQuestionSets,
     activeQuestionSets,
     totalQuestions,
     activeQuestions,
-    totalSessions,
-    completedSessions,
-    averageCompletionRate: Math.round(averageCompletionRate * 100) / 100
+    totalAssignments,
+    completedAssignments,
+    averageCompletionRate: Math.round(averageCompletionRate * 100) / 100,
   };
 
   return {
     questionSets: questionSetsWithCounts,
     questions: questionsWithStats,
-    stats
+    stats,
   };
 }
 
-export default async function TriviaPage() {
-  const { questionSets, questions, stats } = await getTriviaData();
+export default async function InternalNewsPage() {
+  const session = await verifyUserSessionCookie(cookies().get("user_session")?.value);
+  if (!session) redirect("/u/login");
+  if (!(NEWS_POLICY.contentRoles as readonly string[]).includes(session.role)) redirect("/u");
+  const canAssign = (NEWS_POLICY.assignmentRoles as readonly string[]).includes(session.role);
+  const { questionSets, questions, stats } = await getInternalNewsData();
 
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Administración de Trivia</h1>
-        <p className="text-gray-600">Gestiona sets de preguntas y preguntas de la trivia pública</p>
+        <h1 className="text-2xl font-bold text-gray-900">Comunicados internos</h1>
+        <p className="text-gray-600">
+          Gestiona comunicados obligatorios, novedades y sus preguntas de conocimiento
+        </p>
       </div>
 
-      <TriviaClient
+      <InternalNewsClient
         initialQuestionSets={questionSets}
         initialQuestions={questions}
         initialStats={stats}
+        canAssign={canAssign}
       />
     </div>
   );

@@ -119,18 +119,21 @@ export default function AdminPedidosPage() {
   useEffect(() => {
     if (socket) {
       // Actualizar estado de conexión
-      socket.on("connect", () => {
+      setSocketConnected(socket.connected);
+      const onSocketConnect = () => {
         console.log("🔌 Admin: Socket conectado - modo tiempo real activado");
         setSocketConnected(true);
-      });
+      };
+      socket.on("connect", onSocketConnect);
 
-      socket.on("disconnect", () => {
+      const onSocketDisconnect = () => {
         console.log("🔌 Admin: Socket desconectado - usando polling de respaldo");
         setSocketConnected(false);
-      });
+      };
+      socket.on("disconnect", onSocketDisconnect);
 
       // Listener para actualizaciones de pedidos
-      socket.on("order-status-update", (data: any) => {
+      const onSocketOrderStatusUpdate = (data: any) => {
         console.log("📦 Admin: Actualización de pedido recibida:", data);
         setOrders(prevOrders =>
           prevOrders.map(order =>
@@ -140,23 +143,25 @@ export default function AdminPedidosPage() {
           )
         );
         setLastUpdate(new Date());
-      });
+      };
+      socket.on("order-status-update", onSocketOrderStatusUpdate);
 
       // Listener para nuevos pedidos
-      socket.on("new-order", (orderData: any) => {
+      const onSocketNewOrder = (orderData: any) => {
         console.log("🍽️ Admin: Nuevo pedido recibido:", orderData);
         setNewOrderNotification(true);
         setTimeout(() => {
           fetchOrders(false);
           setNewOrderNotification(false);
         }, 500);
-      });
+      };
+      socket.on("new-order", onSocketNewOrder);
 
       return () => {
-        socket.off("connect");
-        socket.off("disconnect");
-        socket.off("order-status-update");
-        socket.off("new-order");
+        socket.off("connect", onSocketConnect);
+        socket.off("disconnect", onSocketDisconnect);
+        socket.off("order-status-update", onSocketOrderStatusUpdate);
+        socket.off("new-order", onSocketNewOrder);
       };
     }
   }, [socket]);

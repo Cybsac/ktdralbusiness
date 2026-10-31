@@ -1,20 +1,20 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
-import { apiError } from '@/lib/apiError';
-import { checkRateLimit } from '@/lib/rateLimit';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
-import { generateQrPngDataUrl } from '@/lib/qr';
-import { composeTemplateWithQr } from '@/lib/print/compose';
-import { createZipStream } from '@/lib/zip';
-import path from 'path';
-import os from 'os';
-import { writeFile, unlink } from 'fs/promises';
-import { randomUUID } from 'crypto';
-import { getBirthdayCards } from '@/lib/birthdays/cards';
-import { getBirthdayQrBaseUrl } from '@/lib/config';
-import { supabaseAdmin } from '@/lib/supabase';
+import { randomUUID } from "crypto";
+import { unlink, writeFile } from "fs/promises";
+import { NextRequest, NextResponse } from "next/server";
+import os from "os";
+import path from "path";
+import { z } from "zod";
+
+import { apiError } from "@/lib/apiError";
+import { getBirthdayCards } from "@/lib/birthdays/cards";
+import { generateInviteCard } from "@/lib/birthdays/generateInviteCard";
+import { birthdayManager } from "@/lib/birthdays/managementAuth";
+import { getBirthdayQrBaseUrl } from "@/lib/config";
+import { composeTemplateWithQr } from "@/lib/print/compose";
+import { prisma } from "@/lib/prisma";
+import { generateQrPngDataUrl } from "@/lib/qr";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { createZipStream } from "@/lib/zip";
 
 const QuerySchema = z.object({
   templateId: z.string().optional(),
@@ -24,63 +24,105 @@ const QuerySchema = z.object({
 
 function dataUrlToBuffer(dataUrl: string): Buffer {
   const m = dataUrl.match(/^data:(.*?);base64,(.+)$/);
-  if (!m) throw new Error('INVALID_DATA_URL');
-  return Buffer.from(m[2], 'base64');
+  if (!m) throw new Error("INVALID_DATA_URL");
+  return Buffer.from(m[2], "base64");
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   // Authn/Authz
-  const adminCookie = getSessionCookieFromRequest(req as unknown as Request);
-  const userCookie = getUserSessionCookieFromRequest(req as unknown as Request);
-  const adminSession = await verifySessionCookie(adminCookie);
-  const userSession = await verifyUserSessionCookie(userCookie);
-  const session = adminSession || userSession;
-  if (!session) return apiError('UNAUTHORIZED', 'No session', undefined, 401);
-  // Allow ADMIN/STAFF from admin session, or COLLAB/STAFF from user session
-  const isAdmin = adminSession?.role && ['ADMIN', 'COORDINATOR', 'STAFF'].includes(adminSession.role);
-  const isUser = userSession?.role && ['COLLAB', 'STAFF'].includes(userSession.role);
-  if (!isAdmin && !isUser) return apiError('FORBIDDEN', 'Insufficient permissions', undefined, 403);
+  if (!(await birthdayManager(req))) return apiError("UNAUTHORIZED", "Sin acceso", undefined, 401);
 
   // RL: protect heavy export
-  const ip = req.headers.get('x-forwarded-for') || (req as any).ip || 'unknown';
+  const ip = req.headers.get("x-forwarded-for") || (req as any).ip || "unknown";
   const rl = checkRateLimit(`admin:birthdays:cards:${ip}`);
-  if (!rl.ok) return apiError('RATE_LIMITED', 'Too many requests', undefined, 429, { 'Retry-After': String(rl.retryAfterSeconds) });
+  if (!rl.ok)
+    return apiError("RATE_LIMITED", "Too many requests", undefined, 429, {
+      "Retry-After": String(rl.retryAfterSeconds),
+    });
 
   // Parse query
   const { searchParams } = new URL(req.url);
   const parsed = QuerySchema.safeParse({
-    templateId: searchParams.get('templateId') || undefined,
-    max: searchParams.get('max') || undefined,
+    templateId: searchParams.get("templateId") || undefined,
+    max: searchParams.get("max") || undefined,
   });
-  if (!parsed.success) return apiError('INVALID_QUERY', 'Validation failed', parsed.error.flatten(), 400);
+  if (!parsed.success)
+    return apiError("INVALID_QUERY", "Validation failed", parsed.error.flatten(), 400);
   const limit = parsed.data.max ?? 2000;
 
   // Fetch reservation and tokens
   const reservationId = params.id;
-  const reservation = await prisma.birthdayReservation.findUnique({ where: { id: reservationId }, include: { pack: true } });
-  if (!reservation) return apiError('NOT_FOUND', 'Reservation not found', undefined, 404);
+  const reservation = await prisma.birthdayReservation.findUnique({
+    where: { id: reservationId },
+    include: { pack: true },
+  });
+  if (!reservation) return apiError("NOT_FOUND", "Reservation not found", undefined, 404);
 
-  const tokens = await prisma.inviteToken.findMany({ where: { reservationId }, orderBy: { code: 'asc' } });
-  if (!tokens.length) return apiError('NO_TOKENS', 'No invite tokens for this reservation', undefined, 404);
+  const tokens = await prisma.inviteToken.findMany({
+    where: { reservationId },
+    orderBy: { code: "asc" },
+  });
+  if (!tokens.length)
+    return apiError("NO_TOKENS", "No invite tokens for this reservation", undefined, 404);
 
   // Expect: one 'host' and one 'guest' token in new model. Back-compat: if there are many guests, fallback to old behavior.
-  const host = tokens.find(t => t.kind === 'host');
-  const guest = tokens.find(t => t.kind === 'guest');
+  const host = tokens.find((t) => t.kind === "host");
+  const guest = tokens.find((t) => t.kind === "guest");
 
   // Try to get pre-generated birthday cards from storage
   const { paths: storedCardUrls } = await getBirthdayCards(reservationId);
-  const hasStoredHost = storedCardUrls.host && storedCardUrls.host.startsWith('http');
-  const hasStoredGuest = storedCardUrls.guest && storedCardUrls.guest.startsWith('http');
+
+  // The universal invitation uses the birthday design with current reservation data.
+  // Explicit print templates retain their existing export behavior below.
+  if (!parsed.data.templateId) {
+    const baseUrl = getBirthdayQrBaseUrl(req.url);
+    const images = await Promise.all(
+      tokens.slice(0, limit).map(async (t) => ({
+        code: t.code,
+        buffer: await generateInviteCard(
+          t.kind === "host" ? "host" : "guest",
+          t.code,
+          `${baseUrl}/b/${encodeURIComponent(t.code)}`,
+          "png",
+          reservation.celebrantName,
+          reservation.date.toISOString()
+        ),
+      }))
+    );
+    const { archive, stream } = createZipStream();
+    for (const image of images) archive.append(image.buffer, { name: `invite-${image.code}.png` });
+    void archive.finalize();
+    const { Readable } = await import("stream");
+    return new Response(Readable.toWeb(stream) as ReadableStream, {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="reservation-${reservationId}-invites.zip"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 
   // Resolve print template
-  let template = null as null | { id: string; filePath: string | null; storageUrl: string | null; storageKey: string | null; meta: string | null };
+  let template = null as null | {
+    id: string;
+    filePath: string | null;
+    storageUrl: string | null;
+    storageKey: string | null;
+    meta: string | null;
+  };
   if (parsed.data.templateId) {
-    template = await prisma.printTemplate.findUnique({ where: { id: parsed.data.templateId }, select: { id: true, filePath: true, storageUrl: true, storageKey: true, meta: true } });
+    template = await prisma.printTemplate.findUnique({
+      where: { id: parsed.data.templateId },
+      select: { id: true, filePath: true, storageUrl: true, storageKey: true, meta: true },
+    });
   } else {
     // use latest template as default
-    template = await prisma.printTemplate.findFirst({ orderBy: { createdAt: 'desc' }, select: { id: true, filePath: true, storageUrl: true, storageKey: true, meta: true } });
+    template = await prisma.printTemplate.findFirst({
+      orderBy: { createdAt: "desc" },
+      select: { id: true, filePath: true, storageUrl: true, storageKey: true, meta: true },
+    });
   }
-  if (!template) return apiError('NO_TEMPLATE', 'No print template configured', undefined, 400);
+  if (!template) return apiError("NO_TEMPLATE", "No print template configured", undefined, 400);
 
   // Resolve template path - prefer Supabase URL, fallback to local file
   let templatePath: string;
@@ -88,7 +130,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   if (template.storageUrl) {
     // Download from Supabase
-    console.log('Downloading template from Supabase:', template.storageUrl);
+    console.log("Downloading template from Supabase:", template.storageUrl);
     const response = await fetch(template.storageUrl);
     if (!response.ok) {
       throw new Error(`Failed to download template from Supabase: ${response.status}`);
@@ -99,14 +141,24 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     templatePath = tempTemplatePath;
   } else if (template.filePath) {
     // Use local file (compatibility)
-    templatePath = path.resolve(process.cwd(), template.filePath.startsWith('public/') ? template.filePath : `public/templates/${template.filePath}`);
+    templatePath = path.resolve(
+      process.cwd(),
+      template.filePath.startsWith("public/")
+        ? template.filePath
+        : `public/templates/${template.filePath}`
+    );
   } else {
-    return apiError('TEMPLATE_FILE_NOT_FOUND', 'No template file available', undefined, 400);
+    return apiError("TEMPLATE_FILE_NOT_FOUND", "No template file available", undefined, 400);
   }
 
-  console.log('Using template path:', templatePath);
+  console.log("Using template path:", templatePath);
   let dpi = 300;
-  let qrMeta = { xMm: 150, yMm: 230, widthMm: 30, rotationDeg: 0 } as { xMm: number; yMm: number; widthMm: number; rotationDeg?: number };
+  let qrMeta = { xMm: 150, yMm: 230, widthMm: 30, rotationDeg: 0 } as {
+    xMm: number;
+    yMm: number;
+    widthMm: number;
+    rotationDeg?: number;
+  };
   if (template.meta) {
     try {
       const meta = JSON.parse(template.meta);
@@ -126,9 +178,13 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       const baseUrl = getBirthdayQrBaseUrl(req.url);
 
       // Helper function to download stored card or generate on-demand
-      async function getCardBuffer(kind: 'host' | 'guest', tokenCode: string, redeemUrl: string): Promise<Buffer> {
+      const getCardBuffer = async (
+        kind: "host" | "guest",
+        tokenCode: string,
+        redeemUrl: string
+      ): Promise<Buffer> => {
         const storedUrl = storedCardUrls[kind];
-        if (storedUrl && storedUrl.startsWith('http')) {
+        if (storedUrl && storedUrl.startsWith("http")) {
           // Download from Supabase
           console.log(`Downloading stored ${kind} card from:`, storedUrl);
           const response = await fetch(storedUrl);
@@ -144,22 +200,29 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         console.log(`Generating ${kind} card on-demand`);
         const dataUrl = await generateQrPngDataUrl(redeemUrl);
         const qrBuf = dataUrlToBuffer(dataUrl);
-        return await composeTemplateWithQr({ templatePath, qrBuffer: qrBuf, qrMetadata: qrMeta, dpi });
-      }
+        return await composeTemplateWithQr({
+          templatePath,
+          qrBuffer: qrBuf,
+          qrMetadata: qrMeta,
+          dpi,
+        });
+      };
 
       if (host && guest) {
         // 1 host card
         const hostUrl = `${baseUrl}/b/${encodeURIComponent(host.code)}`;
-        const hostPng = await getCardBuffer('host', host.code, hostUrl);
+        const hostPng = await getCardBuffer("host", host.code, hostUrl);
         archive.append(hostPng, { name: `invite-host-${host.code}.png` });
 
         // N guest copies (limited by 'limit')
         const maxCopies = Math.min(limit, (guest as any).maxUses || reservation.pack.qrCount || 1);
         const guestUrl = `${baseUrl}/b/${encodeURIComponent(guest.code)}`;
-        const guestPng = await getCardBuffer('guest', guest.code, guestUrl);
+        const guestPng = await getCardBuffer("guest", guest.code, guestUrl);
 
         for (let i = 1; i <= maxCopies; i++) {
-          archive.append(guestPng, { name: `invite-guest-${guest.code}-${i.toString().padStart(2,'0')}.png` });
+          archive.append(guestPng, {
+            name: `invite-guest-${guest.code}-${i.toString().padStart(2, "0")}.png`,
+          });
         }
       } else {
         // Legacy fallback: print all tokens individually
@@ -168,29 +231,34 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           const redeemUrl = `${baseUrl}/b/${encodeURIComponent(t.code)}`;
           const dataUrl = await generateQrPngDataUrl(redeemUrl);
           const qrBuf = dataUrlToBuffer(dataUrl);
-          const composed = await composeTemplateWithQr({ templatePath, qrBuffer: qrBuf, qrMetadata: qrMeta, dpi });
+          const composed = await composeTemplateWithQr({
+            templatePath,
+            qrBuffer: qrBuf,
+            qrMetadata: qrMeta,
+            dpi,
+          });
           const filename = `invite-${t.code}.png`;
           archive.append(composed, { name: filename });
         }
       }
       await archive.finalize();
     } catch (e) {
-      archive.emit('error', e as any);
+      archive.emit("error", e as any);
     } finally {
       // Clean up temp template file
       if (tempTemplatePath) {
         try {
           await unlink(tempTemplatePath);
         } catch (cleanupError) {
-          console.warn('Error cleaning up temp template file:', cleanupError);
+          console.warn("Error cleaning up temp template file:", cleanupError);
         }
       }
     }
   })();
 
   const headers = new Headers({
-    'Content-Type': 'application/zip',
-    'Content-Disposition': `attachment; filename="reservation-${reservationId}-invites.zip"`,
+    "Content-Type": "application/zip",
+    "Content-Disposition": `attachment; filename="reservation-${reservationId}-invites.zip"`,
   });
   return new NextResponse(stream as any, { status: 200, headers });
 }

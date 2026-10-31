@@ -1,3 +1,4 @@
+import type { PrizeActor } from '@/lib/prize-authorization/service';
 import { prisma } from './prisma';
 
 // Configuración del sistema de puntos
@@ -147,7 +148,8 @@ export function canRedeemPoints(customerPoints: number, requiredPoints: number):
 export async function redeemCustomerPoints(
   customerId: string,
   pointsToRedeem: number,
-  reason: string
+  reason: string,
+  responsible?: PrizeActor
 ): Promise<{ success: boolean; newPoints: number }> {
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
@@ -170,7 +172,7 @@ export async function redeemCustomerPoints(
     data: {
       type: 'POINTS_REDEEMED',
       message: `Customer ${customerId} redeemed ${pointsToRedeem} points for: ${reason}`,
-      metadata: JSON.stringify({ customerId, pointsToRedeem, reason, newPoints }),
+      metadata: JSON.stringify({ customerId, pointsToRedeem, reason, newPoints, responsible }),
     },
   });
 

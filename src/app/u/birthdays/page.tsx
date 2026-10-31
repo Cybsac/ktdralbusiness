@@ -217,7 +217,8 @@ const ReservationCard = memo(function ReservationCard({ r, busyApprove, busyGene
 
 					{/* Botones de acción */}
 					<div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-						{r.status==='pending_review' && (
+						                        <a className="btn-outline h-8 px-3 text-xs inline-flex items-center justify-center" href={`/u/birthdays/${encodeURIComponent(r.id)}`}>Editar reserva</a>
+                        {r.status==='pending_review' && (
 							<button className="btn h-8 px-3 text-xs min-w-[80px] touch-manipulation" disabled={busyApprove} onClick={()=>onApprove(r.id)}>
 								{busyApprove? '⏳ Aprobando…':'✅ Aprobar'}
 							</button>

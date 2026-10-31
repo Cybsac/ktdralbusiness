@@ -14,7 +14,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const id = params.id;
 
-    const { label, key, color, description } = await req.json();
+    const { label, description } = await req.json();
 
     const existing = await prisma.reusablePrize.findUnique({ where: { id } });
     if (!existing) {
@@ -23,25 +23,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const updateData: any = {};
     if (label !== undefined) {
-      if (!label || label.trim().length === 0) {
+      if (typeof label !== "string" || label.trim().length === 0) {
         return apiError('INVALID_INPUT', 'Label requerido');
       }
       updateData.label = label.trim();
     }
-    if (key !== undefined) {
-      if (!key || key.trim().length === 0) {
-        return apiError('INVALID_INPUT', 'Key requerido');
-      }
-      // Check if key already exists (excluding current prize)
-      const keyExists = await prisma.reusablePrize.findFirst({
-        where: { key: key.trim(), id: { not: id } }
-      });
-      if (keyExists) {
-        return apiError('CONFLICT', 'Ya existe un premio con esa key');
-      }
-      updateData.key = key.trim();
-    }
-    if (color !== undefined) updateData.color = color || null;
+    if (description != null && typeof description !== "string") return apiError("INVALID_INPUT", "Descripción inválida");
     if (description !== undefined) updateData.description = description?.trim() || null;
 
     const prize = await prisma.reusablePrize.update({

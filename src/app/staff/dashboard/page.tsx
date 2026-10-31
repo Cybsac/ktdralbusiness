@@ -193,19 +193,6 @@ export default function StaffDashboard() {
           )
         );
 
-        // Emitir actualización a través de Socket.IO
-        if (socket) {
-          const order = orders.find(o => o.id === orderId);
-          if (order) {
-            socket.emit("order-status-update", {
-              orderId: parseInt(orderId),
-              tableId: order.tableId,
-              tableName: `Mesa ${order.tableId}`,
-              status: newStatus,
-              timestamp: new Date().toISOString(),
-            });
-          }
-        }
       } else {
         // Mostrar error al usuario
         const errorData = await response.json().catch(() => ({ error: 'Error desconocido' }));
@@ -262,7 +249,7 @@ export default function StaffDashboard() {
   useEffect(() => {
     if (socket) {
       // Listener para actualizaciones de pedidos
-      socket.on("order-status-update", (data: any) => {
+      const onSocketOrderStatusUpdate = (data: any) => {
         console.log("?? Actualizaci�n de pedido recibida:", data);
         setOrders(prevOrders =>
           prevOrders.map(order =>
@@ -271,17 +258,19 @@ export default function StaffDashboard() {
               : order
           )
         );
-      });
+      };
+      socket.on("order-status-update", onSocketOrderStatusUpdate);
 
       // Listener para nuevos pedidos
-      socket.on("new-order", (orderData: any) => {
+      const onSocketNewOrder = (orderData: any) => {
         console.log("??? Nuevo pedido recibido:", orderData);
         fetchOrders(); // Recargar todos los pedidos para incluir el nuevo
-      });
+      };
+      socket.on("new-order", onSocketNewOrder);
 
       return () => {
-        socket.off("order-status-update");
-        socket.off("new-order");
+        socket.off("order-status-update", onSocketOrderStatusUpdate);
+        socket.off("new-order", onSocketNewOrder);
       };
     }
   }, [socket]);

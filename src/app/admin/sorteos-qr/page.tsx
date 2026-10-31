@@ -1,4 +1,5 @@
 "use client";
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { QR_THEMES } from "@/lib/qr-custom";
@@ -242,7 +243,7 @@ export default function CustomQrsAdminPage() {
     if (!confirm('¿Estás seguro de marcar este QR como redimido?')) return;
 
     try {
-      const response = await fetch(`/api/admin/custom-qrs/${qrId}/redeem`, {
+      const response = await prizeAuthorizedFetch(`/api/admin/custom-qrs/${qrId}/redeem`, {
         method: 'POST'
       });
 
@@ -263,7 +264,7 @@ export default function CustomQrsAdminPage() {
 
     try {
       const promises = Array.from(selectedQrs).map(qrId =>
-        fetch(`/api/admin/custom-qrs/${qrId}/redeem`, { method: 'POST' })
+        prizeAuthorizedFetch(`/api/admin/custom-qrs/${qrId}/redeem`, { method: 'POST' })
       );
 
       await Promise.all(promises);

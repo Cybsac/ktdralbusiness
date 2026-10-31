@@ -106,6 +106,7 @@ const AdminReservationCard = memo(function AdminReservationCard({ r, busyApprove
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
+        <a className="btn-outline h-8 px-3" href={`/admin/birthdays/${encodeURIComponent(r.id)}`}>Editar reserva</a>
         {r.status==='pending_review' && <button className="btn h-8 px-3" disabled={busyApprove} onClick={()=>onApprove(r.id)}>{busyApprove? 'Aprobando…':'Aprobar'}</button>}
         {!r.tokensGeneratedAt && <button className="btn h-8 px-3" disabled={busyGenerate} onClick={()=>onGenerateCards(r.id)}>{busyGenerate? 'Generando…':'Generar tarjetas'}</button>}
         {r.tokensGeneratedAt && <button className="btn h-8 px-3" onClick={()=>onViewCards(r.id)}>Ver tarjetas</button>}

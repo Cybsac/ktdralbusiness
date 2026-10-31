@@ -1,6 +1,6 @@
+import { requirePrizeAuthorization, getPrizeActor } from '@/lib/prize-authorization/service';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getSessionCookieFromRequest, verifySessionCookie } from '@/lib/auth';
 import { apiError } from '@/lib/apiError';
 import { DateTime } from 'luxon';
 
@@ -8,30 +8,30 @@ import { DateTime } from 'luxon';
 // Redime un token reutilizable (incrementa usedCount)
 
 export async function POST(req: NextRequest, { params }: { params: { tokenId: string } }) {
+  const prizeGate = await requirePrizeAuthorization(req, 'reusable');
+  if (prizeGate) return prizeGate;
+
   try {
     const { tokenId } = params;
     if (!tokenId) {
       return apiError('TOKEN_ID_REQUIRED', 'tokenId requerido', undefined, 400);
     }
 
-    // Verificar sesión del usuario
-    const raw = getSessionCookieFromRequest(req);
-    const session = await verifySessionCookie(raw);
-    if (!session) {
-      return apiError('UNAUTHORIZED', 'Sesión requerida para redimir token', undefined, 401);
-    }
+    const session = getPrizeActor(req);
 
     // Verificar que el token existe
     const token = await prisma.reusableToken.findUnique({
       where: { id: tokenId },
       include: {
-        prize: { select: { key: true, label: true, color: true } }
+        prize: { select: { active: true, key: true, label: true, color: true } }
       }
     });
 
     if (!token) {
       return apiError('TOKEN_NOT_FOUND', 'Token no encontrado', undefined, 404);
     }
+
+    if (!token.prize.active) return apiError('PRIZE_INACTIVE', 'Premio inactivo', undefined, 410);
 
     // Verificar que no esté deshabilitado
     if (token.disabled) {
@@ -68,24 +68,14 @@ export async function POST(req: NextRequest, { params }: { params: { tokenId: st
     }
 
     // Incrementar usedCount y registrar fecha de último canje
-    const updatedToken = await prisma.reusableToken.update({
-      where: { id: tokenId },
-      data: {
-        usedCount: { increment: 1 },
-        redeemedAt: new Date()
-      },
-      include: {
-        prize: { select: { key: true, label: true, color: true } }
-      }
-    });
-
-    // Registrar en historial de canjes
-    await prisma.reusableTokenRedemption.create({
-      data: {
-        tokenId,
-        type: 'redeem',
-        userId: session.userId,
-      }
+    const updatedToken = await prisma.$transaction(async tx => {
+      const changed = await tx.reusableToken.updateMany({
+        where: { id: tokenId, disabled: false, expiresAt: { gt: new Date() }, usedCount: { lt: token.maxUses } },
+        data: { usedCount: { increment: 1 }, redeemedAt: new Date() },
+      });
+      if (!changed.count) throw new Error('TOKEN_UNAVAILABLE');
+      await tx.reusableTokenRedemption.create({ data: { tokenId, type: 'redeem', userId: session.userId, note: JSON.stringify({ authorizationMethod: session.method, responsibleName: session.name, credentialId: session.credentialId, credentialRevision: session.revision }) } });
+      return tx.reusableToken.findUniqueOrThrow({ where: { id: tokenId }, include: { prize: { select: { active: true, key: true, label: true, color: true } } } });
     });
 
     return NextResponse.json({
@@ -101,6 +91,7 @@ export async function POST(req: NextRequest, { params }: { params: { tokenId: st
     });
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'TOKEN_UNAVAILABLE') return apiError('TOKEN_UNAVAILABLE', 'El QR ya no está disponible.', undefined, 409);
     console.error('Error redeeming reusable token:', error);
     return apiError('INTERNAL_ERROR', 'Error interno del servidor');
   }

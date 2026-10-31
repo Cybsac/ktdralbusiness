@@ -1,28 +1,69 @@
-import { prisma } from "@/lib/prisma";
-import { isTwoPhaseRedemptionEnabled } from "@/lib/featureFlags";
 import { NextRequest } from "next/server";
-import { pickWeighted } from "@/lib/pickWeighted";
-import { logEvent } from "@/lib/log";
-import { checkRateLimit } from "@/lib/rateLimit";
-import { apiError, apiOk } from '@/lib/apiError';
 
-interface SnapshotPrize { prizeId: string; label: string; color: string | null; count: number }
-interface SnapshotToken { tokenId: string; prizeId: string; label: string; color: string | null }
-interface SnapshotMetaPrize { mode: 'BY_PRIZE'; prizes: SnapshotPrize[]; createdAt: string }
-interface SnapshotMetaToken { mode: 'BY_TOKEN'; tokens: SnapshotToken[]; createdAt: string }
-type SnapshotMeta = SnapshotMetaPrize | SnapshotMetaToken | (Record<string, any> & { mode: string });
+import { apiError, apiOk } from "@/lib/apiError";
+import { isTwoPhaseRedemptionEnabled } from "@/lib/featureFlags";
+import { logEvent } from "@/lib/log";
+import { pickWeighted } from "@/lib/pickWeighted";
+import { prisma } from "@/lib/prisma";
+import { getPrizeActor, requirePrizeAuthorization } from "@/lib/prize-authorization/service";
+import { PrizeGameError } from "@/lib/prize-games/contracts";
+import { gameFailure } from "@/lib/prize-games/http";
+import { claimSessionToken, sessionClaimWhere } from "@/lib/prize-games/session-claim";
+import { gameTransaction } from "@/lib/prize-games/transaction";
+import { checkRateLimit } from "@/lib/rateLimit";
+
+interface SnapshotPrize {
+  prizeId: string;
+  label: string;
+  color: string | null;
+  count: number;
+}
+interface SnapshotToken {
+  tokenId: string;
+  prizeId: string;
+  label: string;
+  color: string | null;
+}
+interface SnapshotMetaPrize {
+  mode: "BY_PRIZE";
+  prizes: SnapshotPrize[];
+  createdAt: string;
+}
+interface SnapshotMetaToken {
+  mode: "BY_TOKEN";
+  tokens: SnapshotToken[];
+  createdAt: string;
+}
+type SnapshotMeta =
+  | SnapshotMetaPrize
+  | SnapshotMetaToken
+  | (Record<string, any> & { mode: string });
 
 // Calcula la distribución real vs esperada dado el snapshot inicial y los spins (incluyendo el elegido en esta transacción)
 function computeDistribution(snapshot: SnapshotMeta, spinsHistory: any[], chosenPrizeId: string) {
   // Construir conteos iniciales por premio
-  const initialCounts = new Map<string, { prizeId: string; label: string; color: string | null; initial: number }>();
-  if ((snapshot as any).mode === 'BY_PRIZE' && (snapshot as any).prizes) {
+  const initialCounts = new Map<
+    string,
+    { prizeId: string; label: string; color: string | null; initial: number }
+  >();
+  if ((snapshot as any).mode === "BY_PRIZE" && (snapshot as any).prizes) {
     for (const p of (snapshot as any).prizes as SnapshotPrize[]) {
-      initialCounts.set(p.prizeId, { prizeId: p.prizeId, label: p.label, color: p.color, initial: p.count });
+      initialCounts.set(p.prizeId, {
+        prizeId: p.prizeId,
+        label: p.label,
+        color: p.color,
+        initial: p.count,
+      });
     }
-  } else if ((snapshot as any).mode === 'BY_TOKEN' && (snapshot as any).tokens) {
+  } else if ((snapshot as any).mode === "BY_TOKEN" && (snapshot as any).tokens) {
     for (const t of (snapshot as any).tokens as SnapshotToken[]) {
-      if (!initialCounts.has(t.prizeId)) initialCounts.set(t.prizeId, { prizeId: t.prizeId, label: t.label, color: t.color, initial: 0 });
+      if (!initialCounts.has(t.prizeId))
+        initialCounts.set(t.prizeId, {
+          prizeId: t.prizeId,
+          label: t.label,
+          color: t.color,
+          initial: 0,
+        });
       initialCounts.get(t.prizeId)!.initial++;
     }
   }
@@ -47,7 +88,18 @@ function computeDistribution(snapshot: SnapshotMeta, spinsHistory: any[], chosen
     if (expected > 0) chiSquare += (deviation * deviation) / expected;
     const absDevPct = Math.abs(deviationPct);
     if (absDevPct > maxAbsDeviationPct) maxAbsDeviationPct = absDevPct;
-    perPrize.push({ prizeId, label, color, initial, expected: Number(expected.toFixed(4)), expectedPct: Number(expectedPct.toFixed(6)), actual, actualPct: Number(actualPct.toFixed(6)), deviation: Number(deviation.toFixed(4)), deviationPct: Number(deviationPct.toFixed(6)) });
+    perPrize.push({
+      prizeId,
+      label,
+      color,
+      initial,
+      expected: Number(expected.toFixed(4)),
+      expectedPct: Number(expectedPct.toFixed(6)),
+      actual,
+      actualPct: Number(actualPct.toFixed(6)),
+      deviation: Number(deviation.toFixed(4)),
+      deviationPct: Number(deviationPct.toFixed(6)),
+    });
   }
   return {
     totalSpins,
@@ -60,29 +112,37 @@ function computeDistribution(snapshot: SnapshotMeta, spinsHistory: any[], chosen
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;
-  if (!id) return apiError('ID_REQUIRED', 'ID requerido', undefined, 400);
+  if (!id) return apiError("ID_REQUIRED", "ID requerido", undefined, 400);
 
   // Access rouletteSession model (generated by Prisma). Cast prisma as any to avoid stale type tooling issues.
   const session = await (prisma as any).rouletteSession.findUnique({
     where: { id },
-  include: { spinsHistory: { orderBy: { order: "asc" } } },
+    include: { spinsHistory: { orderBy: { order: "asc" } } },
   });
-  if (!session) return apiError('NOT_FOUND', 'Sesión no encontrada', undefined, 404);
+  if (!session) return apiError("NOT_FOUND", "Sesión no encontrada", undefined, 404);
 
   let snapshot: SnapshotMeta;
   try {
     snapshot = JSON.parse(session.meta) as SnapshotMeta;
   } catch {
-    return apiError('BAD_SNAPSHOT', 'Snapshot inválido', undefined, 500);
+    return apiError("BAD_SNAPSHOT", "Snapshot inválido", undefined, 500);
   }
 
   // Recalcular remaining a partir del snapshot y spins
-  const remainingMap = new Map<string, { prizeId: string; label: string; color: string | null; remaining: number }>();
+  const remainingMap = new Map<
+    string,
+    { prizeId: string; label: string; color: string | null; remaining: number }
+  >();
   let remaining: any[] = [];
   let finished = false;
-  if ((snapshot as any).mode === 'BY_PRIZE' && (snapshot as any).prizes) {
+  if ((snapshot as any).mode === "BY_PRIZE" && (snapshot as any).prizes) {
     for (const p of (snapshot as any).prizes as SnapshotPrize[]) {
-      remainingMap.set(p.prizeId, { prizeId: p.prizeId, label: p.label, color: p.color, remaining: p.count });
+      remainingMap.set(p.prizeId, {
+        prizeId: p.prizeId,
+        label: p.label,
+        color: p.color,
+        remaining: p.count,
+      });
     }
     for (const spin of session.spinsHistory) {
       const item = remainingMap.get(spin.prizeId);
@@ -90,44 +150,66 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     }
     remaining = Array.from(remainingMap.values()).filter((r) => r.remaining > 0);
     finished = session.status !== "ACTIVE" || remaining.length === 0;
-  } else if ((snapshot as any).mode === 'BY_TOKEN' && (snapshot as any).tokens) {
+  } else if ((snapshot as any).mode === "BY_TOKEN" && (snapshot as any).tokens) {
     const tokensAll = (snapshot as any).tokens as SnapshotToken[];
-    const consumedOrders = new Set((session.spinsHistory as any[]).map(s => s.order));
-    // Tokens restantes = total maxSpins - spinsHistory length
-    const consumedCount = (session.spinsHistory as any[]).length;
-    const remainingCount = session.maxSpins - consumedCount;
-    finished = session.status !== 'ACTIVE' || remainingCount === 0;
-    // Para GET devolvemos conteo agrupado por prizeId de tokens no consumidos
-    const prizeRemaining = new Map<string, { prizeId: string; label: string; color: string | null; remaining: number }>();
-    // En BY_TOKEN el orden de consumo se deriva de spinsHistory.order, pero snapshot no almacena mapping token->order; consumimos secuencialmente según aparición
-    // Simple: reconstruir tokens consumidos = first N tokensAll (N = spinsHistory.length)
-    const tokensRemaining = tokensAll.slice(consumedCount);
+    const consumedIds = new Set(
+      (session.spinsHistory as Array<{ tokenId: string | null }>).flatMap((spin) =>
+        spin.tokenId ? [spin.tokenId] : []
+      )
+    );
+    const tokensRemaining = tokensAll.filter((token) => !consumedIds.has(token.tokenId));
+    finished = session.status !== "ACTIVE" || tokensRemaining.length === 0;
+    const prizeRemaining = new Map<
+      string,
+      { prizeId: string; label: string; color: string | null; remaining: number }
+    >();
     for (const t of tokensRemaining) {
-      if (!prizeRemaining.has(t.prizeId)) prizeRemaining.set(t.prizeId, { prizeId: t.prizeId, label: t.label, color: t.color, remaining: 0 });
+      if (!prizeRemaining.has(t.prizeId))
+        prizeRemaining.set(t.prizeId, {
+          prizeId: t.prizeId,
+          label: t.label,
+          color: t.color,
+          remaining: 0,
+        });
       prizeRemaining.get(t.prizeId)!.remaining++;
     }
     remaining = Array.from(prizeRemaining.values());
   } else {
-    finished = session.status !== 'ACTIVE';
+    finished = session.status !== "ACTIVE";
   }
 
   // Enriquecer spins con estado de token si existe tokenId
   const tokenIds = session.spinsHistory.map((s: any) => s.tokenId).filter((t: any) => !!t);
-  let tokenMap: Record<string, { id: string; revealedAt: Date | null; deliveredAt: Date | null; redeemedAt: Date | null }> = {};
+  let tokenMap: Record<
+    string,
+    { id: string; revealedAt: Date | null; deliveredAt: Date | null; redeemedAt: Date | null }
+  > = {};
   if (tokenIds.length) {
     try {
       const tokens = await (prisma as any).token.findMany({
         where: { id: { in: tokenIds } },
-        select: { id: true, revealedAt: true, deliveredAt: true, redeemedAt: true }
+        select: { id: true, revealedAt: true, deliveredAt: true, redeemedAt: true },
       });
       tokenMap = Object.fromEntries(tokens.map((t: any) => [t.id, t]));
     } catch (e: any) {
       // If the underlying DB/schema lacks two-phase columns (revealedAt), fallback to raw select
-      if (e && e.code === 'P2022') {
+      if (e && e.code === "P2022") {
         try {
-          const safeList = tokenIds.map((id: string) => `'${id.replace("'", "''")}'`).join(',');
-          const rows: any[] = await prisma.$queryRawUnsafe(`SELECT id, deliveredAt, redeemedAt FROM Token WHERE id IN (${safeList})`);
-          tokenMap = Object.fromEntries(rows.map((r: any) => [r.id, { id: r.id, revealedAt: null, deliveredAt: r.deliveredAt ?? null, redeemedAt: r.redeemedAt ?? null }]));
+          const safeList = tokenIds.map((id: string) => `'${id.replace("'", "''")}'`).join(",");
+          const rows: any[] = await prisma.$queryRawUnsafe(
+            `SELECT id, deliveredAt, redeemedAt FROM Token WHERE id IN (${safeList})`
+          );
+          tokenMap = Object.fromEntries(
+            rows.map((r: any) => [
+              r.id,
+              {
+                id: r.id,
+                revealedAt: null,
+                deliveredAt: r.deliveredAt ?? null,
+                redeemedAt: r.redeemedAt ?? null,
+              },
+            ])
+          );
         } catch {
           // last-resort: leave tokenMap empty
           tokenMap = {};
@@ -139,39 +221,43 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
 
   return apiOk({
-      sessionId: session.id,
-      batchId: session.batchId,
-      mode: session.mode,
-      status: session.status,
-      twoPhase: isTwoPhaseRedemptionEnabled(),
-      spins: session.spinsHistory.map((s: any) => ({
-        id: s.id as string,
-        prizeId: s.prizeId as string,
-        order: s.order as number,
-        weightSnapshot: s.weightSnapshot as number,
-        createdAt: s.createdAt as Date,
-        tokenId: s.tokenId || null,
-        token: s.tokenId && tokenMap[s.tokenId] ? {
-          revealedAt: tokenMap[s.tokenId].revealedAt,
-          deliveredAt: tokenMap[s.tokenId].deliveredAt,
-          redeemedAt: tokenMap[s.tokenId].redeemedAt,
-        } : null,
-      })),
-      snapshot,
-      remaining,
-      finished,
-      maxSpins: session.maxSpins,
-      createdAt: session.createdAt,
-      finishedAt: session.finishedAt,
-    });
+    sessionId: session.id,
+    batchId: session.batchId,
+    mode: session.mode,
+    status: session.status,
+    twoPhase: isTwoPhaseRedemptionEnabled(),
+    spins: session.spinsHistory.map((s: any) => ({
+      id: s.id as string,
+      prizeId: s.prizeId as string,
+      order: s.order as number,
+      weightSnapshot: s.weightSnapshot as number,
+      createdAt: s.createdAt as Date,
+      tokenId: s.tokenId || null,
+      token:
+        s.tokenId && tokenMap[s.tokenId]
+          ? {
+              revealedAt: tokenMap[s.tokenId].revealedAt,
+              deliveredAt: tokenMap[s.tokenId].deliveredAt,
+              redeemedAt: tokenMap[s.tokenId].redeemedAt,
+            }
+          : null,
+    })),
+    snapshot,
+    remaining,
+    finished,
+    maxSpins: session.maxSpins,
+    createdAt: session.createdAt,
+    finishedAt: session.finishedAt,
+  });
 }
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;
-  if (!id) return apiError('ID_REQUIRED', 'ID requerido', undefined, 400);
+  if (!id) return apiError("ID_REQUIRED", "ID requerido", undefined, 400);
 
   // Rate limit por IP similar a batch generation
-  const ipHeader = _req.headers.get("x-forwarded-for") || _req.headers.get("x-real-ip") || "unknown";
+  const ipHeader =
+    _req.headers.get("x-forwarded-for") || _req.headers.get("x-real-ip") || "unknown";
   const ip = ipHeader.split(",")[0].trim();
   const rl = checkRateLimit(`rouletteSpin:${ip}`);
   if (!rl.ok) {
@@ -181,36 +267,57 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       retryAfterSeconds: rl.retryAfterSeconds,
       ip,
     });
-    return apiError('RATE_LIMIT', 'Rate limit', { retryAfterSeconds: rl.retryAfterSeconds }, 429, { 'Retry-After': rl.retryAfterSeconds.toString() });
+    return apiError("RATE_LIMIT", "Rate limit", { retryAfterSeconds: rl.retryAfterSeconds }, 429, {
+      "Retry-After": rl.retryAfterSeconds.toString(),
+    });
   }
 
   // Ejecutar dentro de una transacción para asegurar consistencia de orden y estado
   const twoPhase = isTwoPhaseRedemptionEnabled();
+  if (!twoPhase) {
+    const prizeGate = await requirePrizeAuthorization(_req, "tokens");
+    if (prizeGate) return prizeGate;
+  }
 
   try {
-  const result = await prisma.$transaction(async (tx: any) => {
+    const result = await gameTransaction(async (tx) => {
       const session = await tx.rouletteSession.findUnique({
         where: { id },
         include: { spinsHistory: { orderBy: { order: "asc" } } },
       });
-      if (!session) return { status: 404, body: { code: 'NOT_FOUND', message: 'Sesión no encontrada' } } as const;
+      if (!session)
+        return {
+          status: 404,
+          body: { code: "NOT_FOUND", message: "Sesión no encontrada" },
+        } as const;
       if (session.status === "CANCELLED") {
-        return { status: 409, body: { code: 'CANCELLED', message: 'Sesión cancelada' } } as const;
+        return { status: 409, body: { code: "CANCELLED", message: "Sesión cancelada" } } as const;
       }
       if (session.status === "FINISHED") {
-        return { status: 409, body: { code: 'FINISHED', message: 'Sesión finalizada' } } as const;
+        return { status: 409, body: { code: "FINISHED", message: "Sesión finalizada" } } as const;
       }
-  let snapshot: SnapshotMeta;
+      let snapshot: SnapshotMeta;
       try {
         snapshot = JSON.parse(session.meta) as SnapshotMeta;
       } catch {
-        return { status: 500, body: { code: 'BAD_SNAPSHOT', message: 'Snapshot inválido' } } as const;
+        return {
+          status: 500,
+          body: { code: "BAD_SNAPSHOT", message: "Snapshot inválido" },
+        } as const;
       }
       const nextOrder = session.spinsHistory.length + 1;
-  if ((snapshot as any).mode === 'BY_PRIZE' && (snapshot as any).prizes) {
-        const remainingMap = new Map<string, { prizeId: string; label: string; color: string | null; remaining: number }>();
+      if ((snapshot as any).mode === "BY_PRIZE" && (snapshot as any).prizes) {
+        const remainingMap = new Map<
+          string,
+          { prizeId: string; label: string; color: string | null; remaining: number }
+        >();
         for (const p of (snapshot as any).prizes as SnapshotPrize[]) {
-          remainingMap.set(p.prizeId, { prizeId: p.prizeId, label: p.label, color: p.color, remaining: p.count });
+          remainingMap.set(p.prizeId, {
+            prizeId: p.prizeId,
+            label: p.label,
+            color: p.color,
+            remaining: p.count,
+          });
         }
         for (const spin of session.spinsHistory) {
           const item = remainingMap.get(spin.prizeId);
@@ -220,189 +327,327 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         if (!remainingArr.length) {
           await tx.rouletteSession.update({
             where: { id: session.id },
-            data: { status: session.status === 'ACTIVE' ? 'FINISHED' : session.status, finishedAt: session.finishedAt ?? new Date() },
+            data: {
+              status: session.status === "ACTIVE" ? "FINISHED" : session.status,
+              finishedAt: session.finishedAt ?? new Date(),
+            },
           });
-            return { status: 409, body: { code: 'FINISHED', message: 'Sesión finalizada' } } as const;
+          return { status: 409, body: { code: "FINISHED", message: "Sesión finalizada" } } as const;
         }
         const weighted = remainingArr.map((r) => ({ id: r.prizeId, weight: r.remaining }));
         const chosenPrizeId = pickWeighted(weighted);
         const chosenMeta = remainingArr.find((r) => r.prizeId === chosenPrizeId)!;
         const weightSnapshot = chosenMeta.remaining;
         // Manejar slots virtuales (no consumen token real)
-  const isVirtualRetry = chosenPrizeId === 'virtual:retry';
-  const isVirtualLose = chosenPrizeId === 'virtual:lose';
-  let action: 'RETRY' | 'LOSE' | undefined = undefined;
+        const isVirtualRetry = chosenPrizeId === "virtual:retry";
+        const isVirtualLose = chosenPrizeId === "virtual:lose";
+        let action: "RETRY" | "LOSE" | undefined = undefined;
         let consumedTokenId: string | null = null;
         let revealedAt: Date | null = null;
         if (isVirtualRetry || isVirtualLose) {
-          action = isVirtualRetry ? 'RETRY' : 'LOSE';
+          action = isVirtualRetry ? "RETRY" : "LOSE";
           // Sólo registrar el spin; no tocar tokens
         } else {
-          try {
-            // Seleccionar token disponible del premio
-            const token = await tx.token.findFirst({ where: { batchId: session.batchId, prizeId: chosenPrizeId, disabled: false, OR: twoPhase ? [{ revealedAt: null }] : [{ redeemedAt: null }] }, select: { id: true } });
-            if (token) {
-              if (twoPhase) {
-                revealedAt = new Date();
-                const upd = await tx.token.update({
-                  where: { id: token.id },
-                  data: { revealedAt, assignedPrizeId: chosenPrizeId },
-                  select: { id: true }
-                });
-                consumedTokenId = upd.id;
-              } else {
-                const upd = await tx.token.update({ where: { id: token.id }, data: { redeemedAt: new Date() }, select: { id: true } });
-                consumedTokenId = upd.id;
-              }
-            }
-            // Si el premio es real pero corresponde a keys especiales retry/lose, setear action
-            try {
-              const prize = await tx.prize.findUnique({ where: { id: chosenPrizeId }, select: { key: true } });
-              if (prize?.key === 'retry') action = 'RETRY';
-              else if (prize?.key === 'lose') action = 'LOSE';
-            } catch { /* noop */ }
-          } catch { /* noop */ }
+          const token = await tx.token.findFirst({
+            where: await sessionClaimWhere(tx, session.batchId, chosenPrizeId),
+            select: { id: true },
+          });
+          if (!token)
+            throw new PrizeGameError(
+              "NO_TOKENS",
+              "No quedan tokens disponibles para este resultado"
+            );
+          const claim = await claimSessionToken(
+            tx,
+            token.id,
+            twoPhase,
+            getPrizeActor(_req)?.userId
+          );
+          consumedTokenId = token.id;
+          revealedAt = claim.revealedAt;
+          if (claim.action !== "PRIZE") action = claim.action;
         }
-        await tx.rouletteSpin.create({ data: { sessionId: session.id, prizeId: chosenPrizeId, order: nextOrder, weightSnapshot, tokenId: consumedTokenId } });
+        await tx.rouletteSpin.create({
+          data: {
+            sessionId: session.id,
+            prizeId: chosenPrizeId,
+            order: nextOrder,
+            weightSnapshot,
+            tokenId: consumedTokenId,
+          },
+        });
         chosenMeta.remaining -= 1;
         const remainingAfter = remainingArr.reduce((a, r) => a + r.remaining, 0);
         const finishedNow = remainingArr.every((r) => r.remaining === 0);
-        await tx.rouletteSession.update({ where: { id: session.id }, data: { spins: { increment: 1 }, status: finishedNow ? 'FINISHED' : 'ACTIVE', finishedAt: finishedNow ? new Date() : session.finishedAt } });
+        await tx.rouletteSession.update({
+          where: { id: session.id },
+          data: {
+            spins: { increment: 1 },
+            status: finishedNow ? "FINISHED" : "ACTIVE",
+            finishedAt: finishedNow ? new Date() : session.finishedAt,
+          },
+        });
         const remainingResponse = remainingArr
           .map((r) => ({ prizeId: r.prizeId, count: r.remaining, label: r.label, color: r.color }))
           .filter((r) => r.count > 0);
         const deferredLogs: Array<{ type: string; message: string; metadata: any }> = [
-          { type: 'ROULETTE_SPIN', message: 'Spin ruleta', metadata: { sessionId: session.id, prizeId: chosenPrizeId, order: nextOrder, remainingTotal: remainingAfter, finished: finishedNow, phase: twoPhase ? 'REVEALED' : 'LEGACY_REDEEM', tokenId: consumedTokenId } },
+          {
+            type: "ROULETTE_SPIN",
+            message: "Spin ruleta",
+            metadata: {
+              sessionId: session.id,
+              prizeId: chosenPrizeId,
+              order: nextOrder,
+              remainingTotal: remainingAfter,
+              finished: finishedNow,
+              phase: twoPhase ? "REVEALED" : "LEGACY_REDEEM",
+              tokenId: consumedTokenId,
+            },
+          },
         ];
         if (twoPhase && consumedTokenId && revealedAt) {
           deferredLogs.push({
-            type: 'TOKEN_REVEALED',
-            message: 'Token prize revealed',
+            type: "TOKEN_REVEALED",
+            message: "Token prize revealed",
             metadata: {
               sessionId: session.id,
               tokenId: consumedTokenId,
               prizeId: chosenPrizeId,
               assignedPrizeId: chosenPrizeId,
               order: nextOrder,
-              revealedAt
-            }
+              revealedAt,
+            },
           });
         }
         if (finishedNow) {
           // Calcular distribución real vs esperada al finalizar
           const distribution = computeDistribution(snapshot, session.spinsHistory, chosenPrizeId);
-          deferredLogs.push({ type: 'ROULETTE_FINISH', message: 'Ruleta finalizada', metadata: { sessionId: session.id, totalSpins: nextOrder, distribution } });
+          deferredLogs.push({
+            type: "ROULETTE_FINISH",
+            message: "Ruleta finalizada",
+            metadata: { sessionId: session.id, totalSpins: nextOrder, distribution },
+          });
         }
         if (twoPhase && !isVirtualRetry && !isVirtualLose) {
           return {
             status: 200,
             body: {
-              phase: 'REVEALED',
+              phase: "REVEALED",
               tokenId: consumedTokenId,
               prize: { prizeId: chosenPrizeId, label: chosenMeta.label, color: chosenMeta.color },
               // Backwards-compatible legacy field expected by some callers/tests
-              chosen: { prizeId: chosenPrizeId, label: chosenMeta.label, color: chosenMeta.color, tokenId: consumedTokenId },
+              chosen: {
+                prizeId: chosenPrizeId,
+                label: chosenMeta.label,
+                color: chosenMeta.color,
+                tokenId: consumedTokenId,
+              },
               order: nextOrder,
               finished: finishedNow,
               remaining: remainingResponse,
               timestamps: { revealedAt },
               _logs: deferredLogs,
               action,
-            }
+            },
           } as const;
         }
-        return { status: 200, body: { chosen: { prizeId: chosenPrizeId, label: chosenMeta.label, color: chosenMeta.color, tokenId: consumedTokenId }, order: nextOrder, finished: finishedNow, remaining: remainingResponse, _logs: deferredLogs, action } } as const;
-      } else if ((snapshot as any).mode === 'BY_TOKEN' && (snapshot as any).tokens) {
+        return {
+          status: 200,
+          body: {
+            chosen: {
+              prizeId: chosenPrizeId,
+              label: chosenMeta.label,
+              color: chosenMeta.color,
+              tokenId: consumedTokenId,
+            },
+            order: nextOrder,
+            finished: finishedNow,
+            remaining: remainingResponse,
+            _logs: deferredLogs,
+            action,
+          },
+        } as const;
+      } else if ((snapshot as any).mode === "BY_TOKEN" && (snapshot as any).tokens) {
         const tokensAll = (snapshot as any).tokens as SnapshotToken[];
         const consumed = session.spinsHistory.length; // tokens consumidos = spins previos
         if (consumed >= tokensAll.length) {
-          await tx.rouletteSession.update({ where: { id: session.id }, data: { status: 'FINISHED', finishedAt: session.finishedAt ?? new Date() } });
-          return { status: 409, body: { code: 'FINISHED', message: 'Sesión finalizada' } } as const;
+          await tx.rouletteSession.update({
+            where: { id: session.id },
+            data: { status: "FINISHED", finishedAt: session.finishedAt ?? new Date() },
+          });
+          return { status: 409, body: { code: "FINISHED", message: "Sesión finalizada" } } as const;
         }
-        const remainingTokens = tokensAll.slice(consumed); // tokens aún disponibles
+        const consumedIds = new Set(
+          session.spinsHistory.map((spin) => spin.tokenId).filter(Boolean)
+        );
+        const remainingTokens = tokensAll.filter((token) => !consumedIds.has(token.tokenId));
+        if (!remainingTokens.length) throw new PrizeGameError("FINISHED", "Sesión finalizada");
         const chosenIndex = Math.floor(Math.random() * remainingTokens.length);
         const chosenToken = remainingTokens[chosenIndex];
         // weightSnapshot = número de tokens restantes del mismo premio antes de extraer
-        const prizeRemainingBefore = remainingTokens.filter(t => t.prizeId === chosenToken.prizeId).length;
+        const prizeRemainingBefore = remainingTokens.filter(
+          (t) => t.prizeId === chosenToken.prizeId
+        ).length;
         let revealedAt: Date | null = null;
-        if (twoPhase) {
-          try {
-            revealedAt = new Date();
-            await tx.token.update({ where: { id: chosenToken.tokenId, revealedAt: null }, data: { revealedAt, assignedPrizeId: chosenToken.prizeId } });
-          } catch { /* carrera inofensiva */ }
-        } else {
-          try {
-            await tx.token.update({ where: { id: chosenToken.tokenId, redeemedAt: null }, data: { redeemedAt: new Date() } });
-          } catch { /* carrera inofensiva */ }
-        }
-  await tx.rouletteSpin.create({ data: { sessionId: session.id, prizeId: chosenToken.prizeId, order: nextOrder, weightSnapshot: prizeRemainingBefore, tokenId: chosenToken.tokenId } });
-        const finishedNow = consumed + 1 === tokensAll.length;
-        await tx.rouletteSession.update({ where: { id: session.id }, data: { spins: { increment: 1 }, status: finishedNow ? 'FINISHED' : 'ACTIVE', finishedAt: finishedNow ? new Date() : session.finishedAt } });
+        const claim = await claimSessionToken(
+          tx,
+          chosenToken.tokenId,
+          twoPhase,
+          getPrizeActor(_req)?.userId
+        );
+        revealedAt = claim.revealedAt;
+        await tx.rouletteSpin.create({
+          data: {
+            sessionId: session.id,
+            prizeId: chosenToken.prizeId,
+            order: nextOrder,
+            weightSnapshot: prizeRemainingBefore,
+            tokenId: chosenToken.tokenId,
+          },
+        });
+        const finishedNow = remainingTokens.length === 1;
+        await tx.rouletteSession.update({
+          where: { id: session.id },
+          data: {
+            spins: { increment: 1 },
+            status: finishedNow ? "FINISHED" : "ACTIVE",
+            finishedAt: finishedNow ? new Date() : session.finishedAt,
+          },
+        });
         // Recalcular remaining agrupado tras extracción: tokensAll.slice(consumed+1)
-        const afterTokens = tokensAll.slice(consumed + 1);
-        const remainingGrouped = new Map<string, { prizeId: string; label: string; color: string | null; count: number }>();
+        const afterTokens = remainingTokens.filter(
+          (token) => token.tokenId !== chosenToken.tokenId
+        );
+        const remainingGrouped = new Map<
+          string,
+          { prizeId: string; label: string; color: string | null; count: number }
+        >();
         for (const t of afterTokens) {
-          if (!remainingGrouped.has(t.prizeId)) remainingGrouped.set(t.prizeId, { prizeId: t.prizeId, label: t.label, color: t.color, count: 0 });
+          if (!remainingGrouped.has(t.prizeId))
+            remainingGrouped.set(t.prizeId, {
+              prizeId: t.prizeId,
+              label: t.label,
+              color: t.color,
+              count: 0,
+            });
           remainingGrouped.get(t.prizeId)!.count++;
         }
-        const remainingResponse = Array.from(remainingGrouped.values()).map(r => ({ prizeId: r.prizeId, count: r.count, label: r.label, color: r.color })).filter(r => r.count > 0);
+        const remainingResponse = Array.from(remainingGrouped.values())
+          .map((r) => ({ prizeId: r.prizeId, count: r.count, label: r.label, color: r.color }))
+          .filter((r) => r.count > 0);
         const deferredLogs: Array<{ type: string; message: string; metadata: any }> = [
-          { type: 'ROULETTE_SPIN', message: 'Spin ruleta (BY_TOKEN)', metadata: { sessionId: session.id, prizeId: chosenToken.prizeId, order: nextOrder, remainingTotal: afterTokens.length, finished: finishedNow, phase: twoPhase ? 'REVEALED' : 'LEGACY_REDEEM', tokenId: chosenToken.tokenId } },
+          {
+            type: "ROULETTE_SPIN",
+            message: "Spin ruleta (BY_TOKEN)",
+            metadata: {
+              sessionId: session.id,
+              prizeId: chosenToken.prizeId,
+              order: nextOrder,
+              remainingTotal: afterTokens.length,
+              finished: finishedNow,
+              phase: twoPhase ? "REVEALED" : "LEGACY_REDEEM",
+              tokenId: chosenToken.tokenId,
+            },
+          },
         ];
         if (twoPhase && revealedAt) {
           deferredLogs.push({
-            type: 'TOKEN_REVEALED',
-            message: 'Token prize revealed (BY_TOKEN)',
+            type: "TOKEN_REVEALED",
+            message: "Token prize revealed (BY_TOKEN)",
             metadata: {
               sessionId: session.id,
               tokenId: chosenToken.tokenId,
               prizeId: chosenToken.prizeId,
               assignedPrizeId: chosenToken.prizeId,
               order: nextOrder,
-              revealedAt
-            }
+              revealedAt,
+            },
           });
         }
         if (finishedNow) {
-          const distribution = computeDistribution(snapshot, session.spinsHistory, chosenToken.prizeId);
-          deferredLogs.push({ type: 'ROULETTE_FINISH', message: 'Ruleta finalizada', metadata: { sessionId: session.id, totalSpins: nextOrder, distribution } });
+          const distribution = computeDistribution(
+            snapshot,
+            session.spinsHistory,
+            chosenToken.prizeId
+          );
+          deferredLogs.push({
+            type: "ROULETTE_FINISH",
+            message: "Ruleta finalizada",
+            metadata: { sessionId: session.id, totalSpins: nextOrder, distribution },
+          });
         }
         if (twoPhase) {
           return {
             status: 200,
             body: {
-              phase: 'REVEALED',
+              phase: "REVEALED",
               tokenId: chosenToken.tokenId,
-              prize: { prizeId: chosenToken.prizeId, label: chosenToken.label, color: chosenToken.color },
+              prize: {
+                prizeId: chosenToken.prizeId,
+                label: chosenToken.label,
+                color: chosenToken.color,
+              },
               // Backwards-compatible legacy field expected by some callers/tests
-              chosen: { prizeId: chosenToken.prizeId, label: chosenToken.label, color: chosenToken.color, tokenId: chosenToken.tokenId },
+              chosen: {
+                prizeId: chosenToken.prizeId,
+                label: chosenToken.label,
+                color: chosenToken.color,
+                tokenId: chosenToken.tokenId,
+              },
               order: nextOrder,
               finished: finishedNow,
               remaining: remainingResponse,
               timestamps: { revealedAt },
               _logs: deferredLogs,
-            }
+            },
           } as const;
         }
-        return { status: 200, body: { chosen: { prizeId: chosenToken.prizeId, label: chosenToken.label, color: chosenToken.color, tokenId: chosenToken.tokenId }, order: nextOrder, finished: finishedNow, remaining: remainingResponse, _logs: deferredLogs } } as const;
+        return {
+          status: 200,
+          body: {
+            chosen: {
+              prizeId: chosenToken.prizeId,
+              label: chosenToken.label,
+              color: chosenToken.color,
+              tokenId: chosenToken.tokenId,
+            },
+            order: nextOrder,
+            finished: finishedNow,
+            remaining: remainingResponse,
+            _logs: deferredLogs,
+          },
+        } as const;
       } else {
-        return { status: 500, body: { code: 'UNKNOWN_MODE', message: 'Modo desconocido' } } as const;
+        return {
+          status: 500,
+          body: { code: "UNKNOWN_MODE", message: "Modo desconocido" },
+        } as const;
       }
     });
     if (result.status === 200 && (result.body as any)._logs) {
-      const logs = (result.body as any)._logs as Array<{ type: string; message: string; metadata: any }>;
+      const logs = (result.body as any)._logs as Array<{
+        type: string;
+        message: string;
+        metadata: any;
+      }>;
       // Ejecutar en paralelo sin await para no retrasar respuesta (best-effort)
-      Promise.allSettled(logs.map(l => logEvent(l.type, l.message, l.metadata))).catch(() => {});
+      Promise.allSettled(logs.map((l) => logEvent(l.type, l.message, l.metadata))).catch(() => {});
       delete (result.body as any)._logs;
     }
-    if ('code' in result.body || 'error' in result.body) {
+    if ("code" in result.body || "error" in result.body) {
       const code = (result.body as any).code || (result.body as any).error;
-      return apiError(code, (result.body as any).message || code, (result.body as any).details, result.status);
+      return apiError(
+        code,
+        (result.body as any).message || code,
+        (result.body as any).details,
+        result.status
+      );
     }
     return apiOk(result.body, result.status);
   } catch (e: any) {
+    if (e instanceof PrizeGameError) return gameFailure(e);
     // eslint-disable-next-line no-console
     console.error("[ROULETTE_SPIN_ERROR]", e);
-    return apiError('SPIN_FAILED', 'Spin fallido', undefined, 500);
+    return apiError("SPIN_FAILED", "Spin fallido", undefined, 500);
   }
 }

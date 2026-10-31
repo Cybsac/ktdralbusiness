@@ -1,3 +1,5 @@
+import { requirePrizeAuthorization } from '@/lib/prize-authorization/service';
+import { requireExchangeWorkspace } from '@/lib/prize-authorization/exchange-access';
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -38,6 +40,8 @@ function checkSubmitRateLimit(key: string): boolean {
  * }
  */
 export async function POST(req: NextRequest) {
+  const workspaceGate = await requireExchangeWorkspace(req);
+  if (workspaceGate) return workspaceGate;
   try {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
       || req.headers.get('x-real-ip')
@@ -47,6 +51,8 @@ export async function POST(req: NextRequest) {
       return apiError('TOO_MANY_REQUESTS', 'Demasiadas solicitudes. Intenta de nuevo más tarde.', undefined, 429);
     }
 
+    const prizeGate = await requirePrizeAuthorization(req, 'exchange');
+    if (prizeGate) return prizeGate;
     const body = await req.json();
     const {
       batchId,
@@ -244,6 +250,8 @@ export async function POST(req: NextRequest) {
  * Public — get exchange info / available batches
  */
 export async function GET(req: NextRequest) {
+  const workspaceGate = await requireExchangeWorkspace(req);
+  if (workspaceGate) return workspaceGate;
   try {
     const url = new URL(req.url);
     const batchId = url.searchParams.get('batchId');

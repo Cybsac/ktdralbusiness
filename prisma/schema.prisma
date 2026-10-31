@@ -15,6 +15,8 @@ model Prize {
   description    String?
   stock          Int?
   active         Boolean   @default(true)
+  gameEnabled    Boolean   @default(true)
+  staticEnabled  Boolean   @default(true)
   emittedTotal   Int       @default(0)
   lastEmittedAt  DateTime?
   isReusable     Boolean   @default(false)
@@ -22,6 +24,15 @@ model Prize {
   updatedAt      DateTime  @updatedAt
   assignedTokens Token[]   @relation("AssignedPrize")
   tokens         Token[]
+  gameCatalogItems GamePrizeCatalogItem[]
+}
+
+model GamePrizeCatalogItem {
+  prizeId String @id
+  stock Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  prize Prize @relation(fields:[prizeId],references:[id],onDelete:Cascade)
 }
 
 model ReusablePrize {
@@ -106,6 +117,7 @@ model Batch {
   isReusable       Boolean           @default(false)
   actionType       String?           // 'prize' | 'trivia' | 'phrase' | 'challenge' | 'raffle' | 'message' | 'feedback'
   actionPayload    String?           // JSON with content per actionType
+  issuance         GameIssuance?
   rouletteSessions RouletteSession[]
   tokens           Token[]
 
@@ -152,6 +164,45 @@ model Token {
   @@index([validFrom])
   @@index([pairedNextTokenId])
   @@index([batchId, revealedAt, redeemedAt, disabled, expiresAt])
+}
+
+model PrizeAuthorizationConfig {
+  id        String   @id @default("default")
+  policy    Json
+  secret    String
+  revision  Int      @default(1)
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+model PrizeAuthorizationAttempt {
+  key      String   @id
+  attempts Int
+  resetAt  DateTime
+
+  @@index([resetAt])
+}
+
+model PrizeAuthorizationCredential {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  enabled   Boolean  @default(true)
+  secret    String
+  revision  Int      @default(1)
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      PrizeAuthorizationCode?
+}
+
+model PrizeAuthorizationCode {
+  credentialId      String   @id
+  codeHash          String   @unique
+  period            String
+  configRevision    Int
+  credentialRevision Int
+  nonce             Int
+  credential        PrizeAuthorizationCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
 }
 
 model SystemConfig {
@@ -323,6 +374,7 @@ model Scan {
 }
 
 model User {
+  prizeAuthorizationCredential PrizeAuthorizationCredential?
   id                        String                 @id @default(cuid())
   username                  String                 @unique
   passwordHash              String
@@ -359,18 +411,22 @@ model CommitmentAssignment {
   id              String            @id @default(cuid())
   userId          String
   questionSetId   String
+  revisionId      String?
+  revision        InternalNewsRevision? @relation(fields: [revisionId], references: [id], onDelete: Restrict)
   requiredVersion Int               @default(1)
   status          String            @default("PENDING") // PENDING, COMPLETED, SKIPPED
   includeTrivia   Boolean           @default(false)
   mandatory       Boolean           @default(true)
   assignedAt      DateTime          @default(now())
   completedAt     DateTime?
-  
+
   user            User              @relation(fields: [userId], references: [id])
   questionSet     TriviaQuestionSet @relation(fields: [questionSetId], references: [id])
 
   @@index([userId])
   @@index([status])
+  @@index([revisionId])
+
 }
 
 model Customer {
@@ -1267,6 +1323,11 @@ model TriviaQuestionSet {
   commitmentAssignments CommitmentAssignment[]
 
   @@index([active])
+  audience              String                 @default("PUBLIC")
+  contentVersion        Int                    @default(1)
+  revisions             InternalNewsRevision[]
+  @@index([audience, active])
+
 }
 
 
@@ -2382,4 +2443,24 @@ model RecurringTaskInstance {
   @@index([scheduledFor])
   @@index([status])
   @@index([taskId])
+}
+
+model InternalNewsRevision {
+  id           String @id @default(cuid())
+  questionSetId String
+  version      Int
+  snapshot     Json
+  createdAt    DateTime @default(now())
+  questionSet  TriviaQuestionSet @relation(fields: [questionSetId], references: [id], onDelete: Restrict)
+  assignments  CommitmentAssignment[]
+  @@unique([questionSetId, version])
+}
+
+model GameIssuance {
+  key String @id
+  requestHash String
+  batchId String? @unique
+  snapshot Json
+  createdAt DateTime @default(now())
+  batch Batch? @relation(fields:[batchId],references:[id],onDelete:SetNull)
 }

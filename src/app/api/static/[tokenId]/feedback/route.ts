@@ -1,3 +1,4 @@
+import { FEEDBACK_LIMITS } from "@/components/token-actions/types";
 import { prisma } from '@/lib/prisma';
 import { apiError, apiOk } from '@/lib/apiError';
 
@@ -15,7 +16,7 @@ export async function POST(req: Request, { params }: { params: { tokenId: string
   const text = typeof body.text === 'string' ? body.text.trim() : '';
   if (!text || text.length < 1) return apiError('EMPTY', 'Texto vacío', undefined, 400);
   // Limit length server-side
-  const safeText = text.slice(0, 2000);
+  const safeText = text.slice(0, FEEDBACK_LIMITS.storageMaxLength);
 
   try {
     await prisma.token.update({

@@ -1,4 +1,6 @@
 "use client";
+import { PrizeDeliveryAction } from "@/components/prize-authorization/PrizeDeliveryAction";
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -17,11 +19,9 @@ export default function Mundial2026RedeemPanel(props: {
   const [redeeming, setRedeeming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const primaryActionClass =
-    "inline-flex items-center justify-center rounded-full border border-sky-300/45 bg-[linear-gradient(135deg,_rgba(56,189,248,0.96),_rgba(14,165,233,0.82))] px-6 py-3 text-center text-sm font-black tracking-[0.02em] text-slate-950 shadow-[0_14px_32px_rgba(14,165,233,0.3)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_38px_rgba(14,165,233,0.36)] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none sm:text-base";
 
   const canRedeem = useMemo(() => {
-    return !!props.role && !!props.assignedPrizeLabel && props.predictionStatus === "WON" && props.claimStatus === "AVAILABLE";
+    return !!props.assignedPrizeLabel && props.predictionStatus === "WON" && props.claimStatus === "AVAILABLE";
   }, [props.assignedPrizeLabel, props.claimStatus, props.predictionStatus, props.role]);
 
   async function handleRedeem() {
@@ -30,7 +30,7 @@ export default function Mundial2026RedeemPanel(props: {
     setMessage(null);
 
     try {
-      const response = await fetch("/api/system/mundial2026/redeem", {
+      const response = await prizeAuthorizedFetch("/api/system/mundial2026/redeem", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -57,22 +57,10 @@ export default function Mundial2026RedeemPanel(props: {
 
   return (
     <div className="text-left">
-      {!props.role ? (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
-          Inicia sesión con un perfil operativo para canjear este premio desde aquí.
-        </div>
-      ) : (
-        <>
+      <>
           {canRedeem ? (
             <div>
-              <button
-                className={`${primaryActionClass} w-full`}
-                type="button"
-                onClick={() => void handleRedeem()}
-                disabled={redeeming}
-              >
-                {redeeming ? "Registrando canje..." : "Canjear premio"}
-              </button>
+              <PrizeDeliveryAction onClick={() => void handleRedeem()} disabled={redeeming} busy={redeeming} />
             </div>
           ) : (
             <div className="rounded-2xl border border-amber-300/20 bg-amber-300/8 p-4 text-sm leading-relaxed text-amber-100">
@@ -93,7 +81,6 @@ export default function Mundial2026RedeemPanel(props: {
           {message ? <div className="alert alert-success mt-4">{message}</div> : null}
           {error ? <div className="alert alert-danger mt-4">{error}</div> : null}
         </>
-      )}
     </div>
   );
 }

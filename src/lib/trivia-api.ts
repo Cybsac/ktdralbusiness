@@ -1,3 +1,4 @@
+import { NEWS_POLICY } from "@/lib/internal-news/contracts";
 /**
  * Helpers de API específicos para trivia
  * Aislados del sistema principal de API helpers
@@ -224,7 +225,7 @@ export async function validateTriviaStaffAccess(request: Request): Promise<boole
   if (!session) return false;
 
   // Verificar que el rol sea ADMIN, COORDINATOR o STAFF
-  return ['ADMIN', 'COORDINATOR', 'STAFF'].includes(session.role);
+  return (NEWS_POLICY.contentRoles as readonly string[]).includes(session.role);
 }
 
 /**

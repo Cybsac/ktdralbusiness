@@ -1,3 +1,4 @@
+import { requireExchangeWorkspace } from '@/lib/prize-authorization/exchange-access';
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -11,6 +12,8 @@ import { apiError } from '@/lib/apiError';
  * Returns: { correct, points, completed, totalPoints, nextQuestion? }
  */
 export async function POST(req: NextRequest) {
+  const workspaceGate = await requireExchangeWorkspace(req);
+  if (workspaceGate) return workspaceGate;
   try {
     const body = await req.json();
     const { sessionId, questionId, answerId } = body;

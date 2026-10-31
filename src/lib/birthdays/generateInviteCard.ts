@@ -10,10 +10,8 @@ function formatFecha(iso: string) {
   try {
     let d = new Date(iso);
     if (isNaN(d.getTime())) return '';
-    // Ajustar a Lima (UTC-5)
-    d = new Date(d.getTime() + 5 * 60 * 60 * 1000);
-    const dia = d.getUTCDate().toString().padStart(2,'0');
-    const mes = d.toLocaleDateString('es-PE',{ month:'long', timeZone: 'America/Lima' }).toLowerCase();
+    const dia = d.toLocaleDateString('es-PE', { day: '2-digit', timeZone: 'America/Lima' });
+    const mes = d.toLocaleDateString('es-PE', { month: 'long', timeZone: 'America/Lima' }).toLowerCase();
     return `${dia} ${mes}`;
   } catch { return ''; }
 }

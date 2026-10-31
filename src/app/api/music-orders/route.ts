@@ -13,7 +13,7 @@ import {
   isContentBlocked,
   detectSuspiciousPatterns,
 } from "@/lib/music-rate-limit";
-import { emitSocketEvent } from "../../../../lib/socket";
+import { emitSocketEvent } from "@/lib/socket";
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
 
 const TIMEZONE = "America/Lima";

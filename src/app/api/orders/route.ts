@@ -3,26 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
 import { getSessionCookieFromRequest, verifySessionCookie } from "@/lib/auth";
 
-// Función para emitir eventos de socket desde APIs
-function emitSocketEvent(event: string, data: any, rooms?: string[]) {
-  try {
-    const io = (global as any).io;
-    if (io) {
-      if (rooms && rooms.length > 0) {
-        rooms.forEach(room => {
-          io.to(room).emit(event, data);
-        });
-      } else {
-        io.emit(event, data);
-      }
-      console.log(`📡 Evento '${event}' emitido:`, data);
-    } else {
-      console.warn("⚠️ Socket.IO no está disponible para emitir eventos");
-    }
-  } catch (error) {
-    console.error("❌ Error al emitir evento de socket:", error);
-  }
-}
+import { emitSocketEvent } from "@/lib/socket";
 
 // Función específica para emitir nuevos pedidos
 function emitNewOrder(orderData: any) {

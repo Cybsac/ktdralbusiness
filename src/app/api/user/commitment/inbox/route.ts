@@ -1,51 +1,59 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifyUserSessionCookie } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
+import { NextResponse } from "next/server";
 
-export const dynamic = 'force-dynamic';
-
-export async function GET() {
+import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
+import { inboxQuerySchema } from "@/lib/internal-news/contracts";
+import { NewsError } from "@/lib/internal-news/core";
+import { newsFailure } from "@/lib/internal-news/http";
+import { assignedContent } from "@/lib/internal-news/revisions";
+import { prisma } from "@/lib/prisma";
+export const dynamic = "force-dynamic";
+export async function GET(req: Request) {
   try {
-    const raw = cookies().get('user_session')?.value;
-    const session = await verifyUserSessionCookie(raw);
-    if (!session) {
-      return NextResponse.json({ ok: false, code: 'UNAUTHORIZED' }, { status: 401 });
-    }
-
-    const assignments = await prisma.commitmentAssignment.findMany({
-      where: { userId: session.userId },
-      include: {
-        questionSet: {
-          select: {
-            id: true,
-            name: true,
-            regulationContent: true,
-          },
-        },
-      },
-      orderBy: { assignedAt: 'desc' },
+    const session = await verifyUserSessionCookie(getUserSessionCookieFromRequest(req));
+    if (!session) return NextResponse.json({ ok: false, code: "UNAUTHORIZED" }, { status: 401 });
+    const search = new URL(req.url).searchParams;
+    const { page, limit } = inboxQuerySchema.parse({
+      page: search.get("page") || undefined,
+      limit: search.get("limit") || undefined,
     });
-
-    const items = assignments.map((a) => {
-      // Strip HTML for preview
-      const raw = a.questionSet.regulationContent || '';
-      const text = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const skip = (page - 1) * limit;
+    if (!Number.isSafeInteger(skip)) throw new NewsError("INVALID_PAGE", "Página inválida");
+    const where = { userId: session.userId };
+    const [rows, total, pendingCount] = await Promise.all([
+      prisma.commitmentAssignment.findMany({
+        where,
+        include: { revision: true },
+        orderBy: [{ assignedAt: "desc" }, { id: "desc" }],
+        skip,
+        take: limit,
+      }),
+      prisma.commitmentAssignment.count({ where }),
+      prisma.commitmentAssignment.count({ where: { ...where, status: "PENDING" } }),
+    ]);
+    const items = rows.map((a) => {
+      const content = assignedContent(a);
+      const text = (content.regulationContent || "")
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
       return {
         id: a.id,
-        title: a.questionSet.name,
+        title: content.name,
         status: a.status,
-        mandatory: (a as any).mandatory ?? true,
+        mandatory: a.mandatory,
+        includeTrivia: a.includeTrivia,
+        revision: a.requiredVersion,
         assignedAt: a.assignedAt.toISOString(),
         completedAt: a.completedAt?.toISOString() || null,
-        preview: text.length > 120 ? text.slice(0, 120) + '…' : text,
-        content: a.questionSet.regulationContent,
+        preview: text.length > 120 ? text.slice(0, 120) + "…" : text,
+        content: content.regulationContent,
       };
     });
-
-    return NextResponse.json({ ok: true, items });
+    return NextResponse.json(
+      { ok: true, items, total, pendingCount, page, limit, hasMore: skip + items.length < total },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
   } catch (error) {
-    console.error('[COMMITMENT_INBOX_ERROR]', error);
-    return NextResponse.json({ ok: false, code: 'INTERNAL_ERROR' }, { status: 500 });
+    return newsFailure(error);
   }
 }

@@ -4,7 +4,8 @@ import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ALLOWED_AREAS } from '@/lib/areas';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { io, Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
+import { acquireSocket, releaseSocket, subscribeSocketChannel } from '@/lib/socket-client';
 import { DateTime } from 'luxon';
 
 type Task = { id: string; label: string; completed?: boolean; sortOrder: number; priority?: number; startDay?: string | null; endDay?: string | null; area?: string | null; completedToday?: number; sumValueToday?: number; measureEnabled?: boolean; targetValue?: number | null; unitLabel?: string | null };
@@ -447,19 +448,15 @@ export function AdminTasksPage() {
 
   // WebSocket connection for real-time updates
   useEffect(() => {
-    const socketInstance = io({
-      transports: ['websocket', 'polling'],
-    });
-
-    socketInstance.on('connect', () => {
-      console.log('Connected to WebSocket for tasks');
-      socketInstance.emit('join-admin-tasks');
-      console.log('Joined admin-tasks room');
-    });
+    const socketInstance = acquireSocket();
+    const leaveTasks = subscribeSocketChannel(socketInstance, 'tasks');
+    const onConnect = () => { void loadRef.current(); };
+    socketInstance.on('connect', onConnect);
+    if (socketInstance.connected) onConnect();
 
     let debounceTimer: NodeJS.Timeout | null = null;
 
-    socketInstance.on('task-status-updated', (data: any) => {
+    const onTaskUpdate = (data: any) => {
       console.log('Task status updated:', data);
       // If no day is specified (global update) or day matches current view
       if (!data.day || data.day === selectedDayRef.current) {
@@ -470,17 +467,17 @@ export function AdminTasksPage() {
           loadRef.current();
         }, 500);
       }
-    });
-
-    socketInstance.on('disconnect', () => {
-      console.log('Disconnected from WebSocket');
-    });
+    };
+    socketInstance.on('task-status-updated', onTaskUpdate);
 
     setSocket(socketInstance);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      socketInstance.disconnect();
+      leaveTasks();
+      socketInstance.off('connect', onConnect);
+      socketInstance.off('task-status-updated', onTaskUpdate);
+      releaseSocket(socketInstance);
     };
   }, []); // Empty dependency array = stable connection
 

@@ -1,5 +1,8 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
+import { PrizeDeliveryAction } from "@/components/prize-authorization/PrizeDeliveryAction";
+import { generateQrPngDataUrl } from '@/lib/qr';
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
+import React, { useEffect, useState } from "react";
 import { DateTime } from "luxon";
 import Link from 'next/link';
 
@@ -123,7 +126,7 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tokenData, setTokenData] = useState<TokenData | null>(null);
-  // Detectar modo staff por query param o por API
+  // Session detection is cosmetic; authorization is always resolved by the server.
   const [isStaff, setIsStaff] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -131,15 +134,10 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
 
   useEffect(() => {
     async function checkStaff() {
-      let staffParam = false;
-      if (typeof window !== 'undefined') {
-        const urlParams = new URLSearchParams(window.location.search);
-        staffParam = urlParams.get('staff') === '1';
-      }
       try {
         const res = await fetch('/api/static/session');
         const data = await res.json();
-        const newIsStaff = staffParam || data.isStaff === true || data.isAdmin === true || data.role === 'ADMIN' || data.role === 'STAFF';
+        const newIsStaff = data.canDeliverWithoutOtp === true;
         const newIsAdmin = data.isAdmin === true;
         const newIsLoggedIn = data.ok === true;
         setIsStaff(newIsStaff);
@@ -147,7 +145,7 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
         setIsLoggedIn(newIsLoggedIn);
       } catch (error) {
         // Si no hay sesión válida, es usuario público
-        setIsStaff(staffParam);
+        setIsStaff(false);
         setIsAdmin(false);
         setIsLoggedIn(false);
       } finally {
@@ -192,8 +190,8 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
     if (typeof window !== 'undefined' && sessionResolved && !isStaff && !isAdmin) {
       try {
         const fullUrl = window.location.href;
-        // Usamos un servicio público de generación de QR (no persistente)
-        setQrSrc(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(fullUrl)}`);
+        // Generate locally; no QR service receives the token URL.
+        generateQrPngDataUrl(fullUrl).then(setQrSrc).catch(() => setQrSrc(''));
       } catch (e) {
         // silence
       }
@@ -202,37 +200,23 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
     }
   }, [tokenId, sessionResolved, isStaff, isAdmin]);
 
-  const [redeeming, setRedeeming] = useState(false);
-  const [redeemError, setRedeemError] = useState<string | null>(null);
-  const [redeemSuccess, setRedeemSuccess] = useState(false);
-  const [autoRedeemAttempted, setAutoRedeemAttempted] = useState(false);
-
   async function handleMarkDelivered() {
     setMarkingDelivery(true);
     setDeliveryError(null);
     try {
-      const res = await fetch(`/api/admin/reusable-tokens/${tokenId}/deliver`, {
+      const res = await prizeAuthorizedFetch(`/api/admin/reusable-tokens/${tokenId}/deliver`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) {
-        if (res.status === 409) {
-          // Token ya entregado, mostrar modal de confirmación
-          setShowDeliveryModal(true);
-          setTimeout(() => {
-            window.location.href = '/u';
-          }, 2000);
-          return;
-        }
-        throw new Error(data.error || 'Error al marcar entrega');
+        throw new Error(data.message || data.error || 'Error al marcar entrega');
       }
       // Entrega exitosa, mostrar modal de confirmación
       setShowDeliveryModal(true);
-      setTimeout(() => {
-        window.location.href = '/u';
-      }, 2000);
+      const refreshed = await fetch(`/api/reusable/${tokenId}`);
+      if (refreshed.ok) setTokenData((await refreshed.json()).token);
     } catch (err: any) {
       setDeliveryError(err.message || 'Error desconocido');
     } finally {
@@ -240,36 +224,7 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
     }
   }
 
-  const handleRedeem = useCallback(async () => {
-    setRedeeming(true);
-    setRedeemError(null);
-    try {
-      const res = await fetch(`/api/reusable/${tokenId}/redeem`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al redimir token');
-      setRedeemSuccess(true);
-      // Recargar datos del token
-      const response = await fetch(`/api/reusable/${tokenId}`);
-      const newData = await response.json();
-      if (response.ok) {
-        setTokenData(newData.token);
-      }
-      // Limpiar URL
-      if (typeof window !== 'undefined') {
-        window.history.replaceState({}, '', window.location.pathname);
-      }
-    } catch (err: any) {
-      setRedeemError(err.message || 'Error desconocido');
-    } finally {
-      setRedeeming(false);
-    }
-  }, [tokenId, setRedeeming, setRedeemError, setRedeemSuccess, setTokenData]);
 
-  // Calculations moved up to avoid hook ordering issues
   const now = DateTime.now().setZone('America/Lima');
   let isExpired = false;
   let isDisabled = false;
@@ -301,15 +256,8 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
     formattedExpiry = DateTime.fromJSDate(new Date(tokenData.expiresAt)).setZone('America/Lima').toLocaleString(DateTime.DATETIME_SHORT, { locale: 'es-ES' });
   }
 
-  const isOperationalView = sessionResolved && (isStaff || isAdmin);
+  const isOperationalView = sessionResolved && isLoggedIn;
 
-  // Handle redeem query param
-  useEffect(() => {
-    if (!autoRedeemAttempted && searchParams.redeem === 'true' && tokenData && canRedeem && isLoggedIn && !isStaff) {
-      handleRedeem();
-      setAutoRedeemAttempted(true);
-    }
-  }, [searchParams.redeem, tokenData, canRedeem, isLoggedIn, isStaff, handleRedeem, autoRedeemAttempted]);
 
   if (loading) {
     return (
@@ -446,13 +394,13 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
         </div>
 
         {/* Main Card */}
-        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col items-center text-center relative overflow-hidden group">
+        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-4 sm:p-8 shadow-2xl flex flex-col items-center text-center relative overflow-hidden group">
             {/* Card shine effect */}
             <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
             <div className="mb-4 sm:mb-6 relative">
                 <div className="absolute inset-0 bg-[#FF4D2E] blur-2xl opacity-20 rounded-full" />
-                <h1 className="relative text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-sm">
+                <h1 className="relative break-words text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-sm">
                   {isOperationalView ? (
                     <>TOKEN<br/><span className="text-[#FF4D2E]">VERIFICADO</span></>
                   ) : (
@@ -467,14 +415,14 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
                 <p className="text-white/80 text-sm sm:text-base leading-relaxed mb-4 text-center">
                   ¡Felicidades! Acércate a la barra, muestra este código QR y canjea tu token.
                 </p>
-                <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-2xl mb-6 sm:mb-8 transform transition-transform hover:scale-105 duration-300 border-4 border-[#FF4D2E]/30">
+                <div className="bg-white max-w-full p-3 sm:p-5 rounded-2xl shadow-2xl mb-6 sm:mb-8 transform transition-transform hover:scale-105 duration-300 border-4 border-[#FF4D2E]/30">
                     <img
                         src={qrSrc}
                         alt="QR Canje"
-                        className="w-44 h-44 sm:w-52 sm:h-52 lg:w-60 lg:h-60 object-contain mx-auto"
+                        className="w-44 max-w-full h-auto aspect-square sm:w-52 lg:w-60 object-contain mx-auto"
                     />
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-black/10">
-                        <div className="text-black/70 text-[10px] sm:text-xs font-bold uppercase tracking-widest">📲 Escanear en barra</div>
+                    <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-black/10">
+                        <div className="text-black/70 text-[10px] sm:text-xs font-bold uppercase tracking-wide sm:tracking-widest">📲 Escanear en barra</div>
                         <button
                             onClick={async () => {
                                 try {
@@ -549,80 +497,17 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
                 </div>
             )}
 
-            {/* Redeem Button - Only show if logged in and can redeem and not staff */}
-            {canRedeem && isLoggedIn && !isOperationalView && (
-                <div className="w-full mt-3 sm:mt-4">
-                    <button
-                        onClick={handleRedeem}
-                        disabled={redeeming}
-                        className={`w-full font-bold py-3 sm:py-4 px-4 sm:px-6 rounded-xl shadow-lg transition-all duration-200 flex items-center justify-center gap-2 text-sm sm:text-base ${
-                            redeeming
-                                ? 'bg-gray-600 cursor-not-allowed'
-                                : 'bg-[#FF4D2E] hover:bg-[#FF6542] active:scale-[0.98] text-white'
-                        }`}
-                    >
-                        {redeeming ? (
-                            <>
-                                <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span>Procesando...</span>
-                            </>
-                        ) : (
-                            <>
-                                <span>🎁</span>
-                                <span>Canjear Premio</span>
-                            </>
-                        )}
-                    </button>
-                    {redeemError && (
-                        <div className="mt-2 sm:mt-3 p-2 sm:p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-200 text-xs text-left">
-                            ⚠️ {redeemError}
-                        </div>
-                    )}
-                    {redeemSuccess && (
-                        <div className="mt-2 sm:mt-3 p-2 sm:p-3 bg-green-500/20 border border-green-500/30 rounded-lg text-green-200 text-xs text-left">
-                        🎉 ¡Premio canjeado! Usos restantes: {(tokenData.maxUses || 1) - tokenData.usedCount - 1}
-                        </div>
-                    )}
-                </div>
-            )}
-
             {/* Staff Actions */}
-            {isOperationalView && (
+            {sessionResolved && (
                 <div className="w-full mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-white/10">
                     {tokenData.usedCount >= maxUses ? (
                         <div className="w-full py-3 sm:py-4 rounded-xl bg-gray-600/50 border border-gray-600/30 text-gray-300 text-center font-medium text-sm sm:text-base cursor-not-allowed">
                             🚫 Token completamente usado ({tokenData.usedCount}/{maxUses})
                         </div>
                     ) : (
-                        <button
-                        onClick={handleMarkDelivered}
-                        disabled={markingDelivery}
-                        className={`w-full py-3 sm:py-4 rounded-xl font-bold text-base sm:text-lg shadow-lg transition-all duration-200 flex items-center justify-center gap-2 ${
-                            markingDelivery
-                            ? 'bg-gray-600 cursor-not-allowed opacity-50'
-                            : 'bg-[#FF4D2E] hover:bg-[#FF6542] active:scale-[0.98] text-white'
-                        }`}
-                        >
-                        {markingDelivery ? (
-                            <>
-                                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span>Procesando...</span>
-                            </>
-                        ) : (
-                            <>
-                                <span>✅</span>
-                                <span>Marcar como Entregado</span>
-                            </>
-                        )}
-                        </button>
+                        <PrizeDeliveryAction authenticated={isOperationalView} onClick={handleMarkDelivered} disabled={markingDelivery || !canRedeem} busy={markingDelivery} />
                     )}
-                    {tokenData.deliveredAt && (
+                    {isOperationalView && tokenData.deliveredAt && (
                         <div className="w-full mt-3 p-2 bg-green-600/10 border border-green-600/20 rounded-lg text-green-300 text-center text-xs">
                             Última entrega: {new Date(tokenData.deliveredAt).toLocaleString('es-ES', {
                                 year: 'numeric',
@@ -671,20 +556,14 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
 
       {/* Modal de confirmación de entrega */}
       {showDeliveryModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center overflow-y-auto p-4">
+          <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 sm:p-8 max-w-sm max-h-[calc(100dvh_-_2rem)] overflow-y-auto w-full break-words text-center shadow-2xl">
             <div className="text-4xl sm:text-5xl mb-4">✅</div>
             <h2 className="text-xl sm:text-2xl font-bold text-white mb-2">¡Entrega Registrada!</h2>
             <p className="text-white/80 text-sm sm:text-base mb-4">
               La entrega del token ha sido registrada exitosamente.
             </p>
-            <div className="flex items-center justify-center gap-2 text-white/60 text-sm">
-              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span>Redirigiendo...</span>
-            </div>
+            <button className="btn w-full" onClick={() => setShowDeliveryModal(false)}>Cerrar</button>
           </div>
         </div>
       )}

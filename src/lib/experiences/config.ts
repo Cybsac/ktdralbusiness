@@ -19,7 +19,7 @@ const EXPERIENCE_UI: Record<TokenExperienceType, ExperienceUiConfig> = {
     flowLabel: "Flujo de la ruleta",
     instruction: "Presiona GIRAR para comenzar y espera el resultado en pantalla.",
     spinErrorFallback: "Error al girar la ruleta",
-    disabledMessage: "Aún no soltamos la ruleta. Se enciende a las 6:00 PM. Quédate cerca.",
+    disabledMessage: "La ruleta está desactivada temporalmente. Consulta al personal.",
     dailyMetricLabel: "Giros del día",
   },
   scratch_card: {

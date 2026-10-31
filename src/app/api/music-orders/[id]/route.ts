@@ -5,7 +5,7 @@ import {
   updateMusicOrderStatusSchema, 
   flagMusicOrderSchema 
 } from "@/lib/validations/music-order";
-import { emitSocketEvent } from "../../../../../lib/socket";
+import { emitSocketEvent } from "@/lib/socket";
 
 const TIMEZONE = "America/Lima";
 

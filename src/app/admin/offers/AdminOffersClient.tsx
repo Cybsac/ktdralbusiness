@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Edit, Trash2, Eye, RefreshCw, X, AlertTriangle, Calendar, Clock, DollarSign, Package } from 'lucide-react';
 import { DateTime } from 'luxon';
-import { useStaffSocket } from '@/hooks/useSocket';
 
 interface Offer {
   id: string;
@@ -89,7 +88,6 @@ export function OffersAdminPage() {
     endTime: ''
   });
 
-  const socket = useStaffSocket();
 
   useEffect(() => {
     fetchOffers();

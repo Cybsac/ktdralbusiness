@@ -1,3 +1,4 @@
+import { requireExchangeWorkspace } from '@/lib/prize-authorization/exchange-access';
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -31,6 +32,8 @@ function checkUploadRateLimit(ip: string): boolean {
  *   - batchId: optional batch id (to look up policy)
  */
 export async function POST(req: NextRequest) {
+  const workspaceGate = await requireExchangeWorkspace(req);
+  if (workspaceGate) return workspaceGate;
   try {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
       || req.headers.get('x-real-ip')

@@ -1,16 +1,12 @@
+import { requirePrizeAuthorization, prizeDeliveryAudit } from '@/lib/prize-authorization/service';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
 import { QRUtils } from '@/lib/qrUtils';
 
 export async function POST(request: NextRequest) {
+  const prizeGate = await requirePrizeAuthorization(request, 'offers');
+  if (prizeGate) return prizeGate;
   try {
-    // Verificar sesión de staff/admin
-    const raw = getSessionCookieFromRequest(request);
-    const session = await verifySessionCookie(raw);
-    const ok = requireRole(session, ['ADMIN', 'STAFF']);
-    if (!ok.ok) return NextResponse.json({ ok: false, code: ok.error || 'UNAUTHORIZED' }, { status: 401 });
-
     const { qrData } = await request.json();
 
     if (!qrData) {
@@ -67,12 +63,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Actualizar estado de la compra a CONFIRMED
-    await prisma.offerPurchase.update({
-      where: { id: purchase.id },
-      data: {
-        status: 'CONFIRMED',
-        paymentStatus: 'completed'
-      }
+    await prisma.$transaction(async tx => {
+      const changed = await tx.offerPurchase.updateMany({ where: { id: purchase.id, status: purchase.status }, data: { status: 'CONFIRMED', paymentStatus: 'completed' } });
+      if (!changed.count) throw new Error('ALREADY_DELIVERED');
+      await tx.eventLog.create({ data: prizeDeliveryAudit(request, 'offers', purchase.id) });
     });
 
     return NextResponse.json({
@@ -87,6 +81,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'ALREADY_DELIVERED') return NextResponse.json({ message: 'La oferta ya fue entregada.' }, { status: 409 });
     console.error('Error validating QR:', error);
     return NextResponse.json(
       { error: 'Error interno del servidor' },

@@ -6,9 +6,8 @@ const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
-const { initSocketIO } = require('./lib/socket.ts');
-
 app.prepare().then(() => {
+  const { initSocketIO } = require('./src/lib/socket.ts');
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
     handle(req, res, parsedUrl);

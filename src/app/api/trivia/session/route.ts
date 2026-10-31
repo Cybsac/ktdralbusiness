@@ -52,7 +52,7 @@ export const GET = withTriviaErrorHandler(async (req: Request) => {
     }
   });
 
-  if (!session) {
+  if (!session || session.questionSet.audience !== "PUBLIC") {
     return createTriviaErrorResponse('SESSION_EXPIRED', 'Sesión no encontrada', 404);
   }
 
@@ -150,7 +150,7 @@ async function handleStartSession(data: any, req: Request) {
 
   // Verificar que el question set existe y está activo
   const questionSet = await prisma.triviaQuestionSet.findUnique({
-    where: { id: questionSetId, active: true }
+    where: { id: questionSetId, active: true, audience:"PUBLIC" }
   });
 
   if (!questionSet) {
@@ -242,7 +242,7 @@ async function handleAnswerQuestion(data: any, req: Request) {
     }
   });
 
-  if (!session) {
+  if (!session || session.questionSet.audience !== "PUBLIC") {
     return createTriviaErrorResponse('SESSION_EXPIRED', 'Sesión no encontrada', 404);
   }
 

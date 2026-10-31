@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 async function getPrizesWithStats() {
   // Excluir premios del sistema de ruleta (retry, lose)
   const prizes = await prisma.prize.findMany({
-    where: { key: { notIn: ['retry', 'lose'] } },
+    where: { staticEnabled: true, key: { notIn: ['retry', 'lose'] } },
     orderBy: { createdAt: "asc" },
     select: {
       id: true,

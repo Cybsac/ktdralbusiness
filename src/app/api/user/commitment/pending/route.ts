@@ -1,65 +1,35 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifyUserSessionCookie } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 
+import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
+import { newsFailure } from "@/lib/internal-news/http";
+import { assignedContent, publicNewsContent } from "@/lib/internal-news/revisions";
+import { prisma } from "@/lib/prisma";
+export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
-    const raw = cookies().get('user_session')?.value;
-    const session = await verifyUserSessionCookie(raw);
-    
-    if (!session) {
-      return NextResponse.json({ ok: false, code: 'UNAUTHORIZED' }, { status: 401 });
-    }
-
-    const url = new URL(req.url);
-    const viewRegulation = url.searchParams.get('view-regulation') === '1';
-
-    // view-regulation: devuelve UNA asignación cualquiera (para re-lectura)
-    if (viewRegulation) {
-      const assignment = await prisma.commitmentAssignment.findFirst({
-        where: { userId: session.userId },
-        include: {
-          questionSet: {
-            include: {
-              questions: {
-                where: { active: true },
-                include: { answers: true }
-              }
-            }
-          }
-        },
-        orderBy: { assignedAt: 'desc' }
-      });
-      return NextResponse.json({ ok: true, assignment, assignments: assignment ? [assignment] : [] });
-    }
-
-    // Normal: devolver TODAS las asignaciones obligatorias pendientes (cola)
-    const assignments = await prisma.commitmentAssignment.findMany({
+    const session = await verifyUserSessionCookie(getUserSessionCookieFromRequest(req));
+    if (!session) return NextResponse.json({ ok: false, code: "UNAUTHORIZED" }, { status: 401 });
+    const search = new URL(req.url).searchParams;
+    const id = search.get("assignmentId");
+    const reread = search.get("view-regulation") === "1";
+    const rows = await prisma.commitmentAssignment.findMany({
       where: {
         userId: session.userId,
-        status: 'PENDING',
-        mandatory: true
+        ...(id ? { id } : reread ? {} : { status: "PENDING", mandatory: true }),
       },
-      include: {
-        questionSet: {
-          include: {
-            questions: {
-              where: { active: true },
-              include: { answers: true }
-            }
-          }
-        }
-      },
-      orderBy: { assignedAt: 'asc' } // oldest first = chronological queue
+      include: { revision: true },
+      orderBy: { assignedAt: reread ? "desc" : "asc" },
+      ...(reread ? { take: 1 } : {}),
     });
-
-    // Backwards-compatible: also return single `assignment` (first in queue)
-    const assignment = assignments.length > 0 ? assignments[0] : null;
-
-    return NextResponse.json({ ok: true, assignment, assignments });
-  } catch (error: any) {
-    console.error('[COMMITMENT_ASSIGNMENT_GET_ERROR]', error);
-    return NextResponse.json({ ok: false, code: 'INTERNAL_ERROR' }, { status: 500 });
+    const assignments = rows.map(({ revision, ...row }) => ({
+      ...row,
+      questionSet: publicNewsContent(assignedContent({ revision })),
+    }));
+    return NextResponse.json(
+      { ok: true, assignment: assignments[0] ?? null, assignments },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
+  } catch (error) {
+    return newsFailure(error);
   }
 }

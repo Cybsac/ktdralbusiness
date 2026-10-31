@@ -363,7 +363,7 @@ function MenuPageContent() {
 
   useEffect(() => {
     if (socket) {
-      socket.on("order-status-update", (orderData) => {
+      const onSocketOrderStatusUpdate = (orderData: any) => {
         console.log("📦 Actualización de pedido:", orderData);
         setOrderStatus(`Estado: ${orderData.status}`);
 
@@ -374,14 +374,10 @@ function MenuPageContent() {
             icon: "/icon-192x192.png",
           });
         }
-      });
+      };
+      socket.on("order-status-update", onSocketOrderStatusUpdate);
+      return () => { socket.off("order-status-update", onSocketOrderStatusUpdate); };
     }
-
-    return () => {
-      if (socket) {
-        socket.off("order-status-update");
-      }
-    };
   }, [socket]);
 
   const loadLocationData = async () => {
@@ -602,25 +598,6 @@ function MenuPageContent() {
       if (response.ok) {
         const result = await response.json();
         setLastOrderId(result.order.id);
-
-        // Emitir evento de nuevo pedido via socket
-        if (socket) {
-          let locationName = "";
-          const selectedTable = tables.find(t => t.id === tableId);
-          if (selectedTable) {
-            locationName = selectedTable.name || `${selectedTable.type} ${selectedTable.number}`;
-          }
-
-          socket.emit("new-order", {
-            orderId: result.order.id,
-            tableId: tableId,
-            tableName: locationName,
-            items: cart,
-            total: getTotalPrice(),
-            status: "pendiente",
-            timestamp: new Date().toISOString(),
-          });
-        }
 
         // Limpiar carrito y mostrar modal de éxito
         setCart([]);

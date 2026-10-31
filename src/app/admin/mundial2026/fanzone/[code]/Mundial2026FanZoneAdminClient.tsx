@@ -1,7 +1,8 @@
 "use client";
+import { PrizeDeliveryAction } from "@/components/prize-authorization/PrizeDeliveryAction";
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 
 import { useState } from "react";
-import { CheckCircle2 } from "lucide-react";
 
 type AdminFanZoneTicket = {
   id: string;
@@ -36,7 +37,7 @@ export function Mundial2026FanZoneAdminClient({ ticket: initialTicket }: { ticke
     setError(null);
     setMessage(null);
     try {
-      const response = await fetch(`/api/admin/custom-qrs/${encodeURIComponent(ticket.id)}/redeem`, {
+      const response = await prizeAuthorizedFetch(`/api/admin/custom-qrs/${encodeURIComponent(ticket.id)}/redeem`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -60,7 +61,7 @@ export function Mundial2026FanZoneAdminClient({ ticket: initialTicket }: { ticke
   }
 
   return (
-    <div className="mt-4 flex flex-col items-center text-center sm:mt-6">
+    <div className="mt-4 flex flex-col items-center text-center break-words sm:mt-6">
       {message ? (
         <div className="mb-3 w-full rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100 sm:mb-4">
           {message}
@@ -105,7 +106,7 @@ export function Mundial2026FanZoneAdminClient({ ticket: initialTicket }: { ticke
         </div>
       </div>
 
-      <div className="mt-4 inline-flex max-w-full rounded-full border border-blue-400/25 bg-blue-400/10 px-4 py-2 text-center text-xs text-blue-200 sm:text-sm">
+      <div className="mt-4 inline-flex max-w-full rounded-full border border-blue-400/25 bg-blue-400/10 px-4 py-2 text-center break-words text-xs text-blue-200 sm:text-sm">
         Expira: {ticket.expiresAtLabel}
       </div>
 
@@ -114,21 +115,13 @@ export function Mundial2026FanZoneAdminClient({ ticket: initialTicket }: { ticke
           <div className="mt-5 h-px w-full bg-white/10 sm:mt-6" />
 
           <div className="mt-5 flex w-full justify-center sm:mt-6">
-            <button
-              type="button"
-              onClick={validateRedeem}
-              disabled={busy || isExhausted}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FF4D2E] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#ff6542] disabled:cursor-not-allowed disabled:opacity-60 sm:max-w-md"
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              {busy ? "Procesando..." : isExhausted ? "Canje completado" : "Marcar como Entregado"}
-            </button>
+            <PrizeDeliveryAction onClick={validateRedeem} disabled={busy || isExhausted} busy={busy} />
           </div>
         </>
       ) : null}
 
       {!isPublicView ? (
-        <div className="mt-5 space-y-1 text-center sm:mt-6">
+        <div className="mt-5 space-y-1 text-center break-words sm:mt-6">
           <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-mono tracking-[0.18em] text-white/45">
             ID: {ticket.code}
           </div>

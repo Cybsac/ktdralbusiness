@@ -1,28 +1,26 @@
-import { createHmac } from "crypto";
-// Use require to avoid TS type mismatch issues with Buffer vs ArrayBufferView in some ambient typings.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { timingSafeEqual } = require('crypto') as { timingSafeEqual: (a: Buffer, b: Buffer) => boolean };
+import { createHmac, timingSafeEqual } from "crypto";
 
 // Current active signature version (bump when rotating secrets for new tokens)
 export const CURRENT_SIGNATURE_VERSION = Number(process.env.CURRENT_SIGNATURE_VERSION || 1);
 
 // Map multi-version secrets. Supports variables in either form:
 //   TOKEN_SECRET_V1, TOKEN_SECRET_V2 ... (preferred) OR TOKEN_SECRET_1, TOKEN_SECRET_2
-// Falls back to legacy TOKEN_SECRET if no versioned var is present for CURRENT_SIGNATURE_VERSION.
+// The legacy TOKEN_SECRET belongs to V1 only; rotating requires an explicit versioned secret.
 // In production you should always provide versioned env vars to enable safe rotation.
 const buildSecretMap = (): Record<number, string> => {
   const map: Record<number, string> = {};
-  for (let v = 1; v <= 8; v++) { // support up to 8 historical versions without code change
+  const versions = new Set(
+    Object.keys(process.env).flatMap((key) => {
+      const match = /^TOKEN_SECRET_(?:V)?(\d+)$/.exec(key);
+      return match ? [Number(match[1])] : [];
+    })
+  );
+  for (const v of versions) {
     const val = process.env[`TOKEN_SECRET_V${v}`] || process.env[`TOKEN_SECRET_${v}`];
-    if (val && val.trim()) map[v] = val.trim();
+    if (val?.trim()) map[v] = val.trim();
   }
   // Backward compatibility: if no explicit V1 provided but legacy TOKEN_SECRET exists, bind it to version 1
   if (!map[1] && process.env.TOKEN_SECRET) {
-    map[1] = process.env.TOKEN_SECRET;
-  }
-  // Additional fallback: if still no V1 but we're in production and CURRENT_SIGNATURE_VERSION is 1,
-  // try to use any TOKEN_SECRET as V1 (for Railway compatibility)
-  if (!map[1] && process.env.TOKEN_SECRET && CURRENT_SIGNATURE_VERSION === 1) {
     map[1] = process.env.TOKEN_SECRET;
   }
   return map;
@@ -39,36 +37,32 @@ function getSecretForVersion(version: number): string | null {
 // However during `next build` (phase-production-build) secrets often aren't injected. To avoid hard build
 // failures we detect build phase and fallback to an ephemeral secret with a warning. At runtime container
 // start ( when NEXT_PHASE is not phase-production-build ) the absence will still throw.
-const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build'
-  || process.env.BUILD_PHASE === '1'
-  || process.env.BUILDING === '1'
-  || process.env.__NEXT_PRIVATE_BUILD_PHASE === 'true';
+const isBuildPhase =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.BUILD_PHASE === "1" ||
+  process.env.BUILDING === "1" ||
+  process.env.__NEXT_PRIVATE_BUILD_PHASE === "true";
 
-if (typeof window === 'undefined' && process.env.NODE_ENV !== 'test') {
+if (typeof window === "undefined" && process.env.NODE_ENV !== "test") {
   let curSecret = getSecretForVersion(CURRENT_SIGNATURE_VERSION);
   if (!curSecret) {
     if (isBuildPhase) {
       // eslint-disable-next-line no-console
-      console.warn(`[signing] Missing TOKEN_SECRET_V${CURRENT_SIGNATURE_VERSION} during build phase. Using ephemeral build secret. Ensure real secret is set at runtime.`);
-      curSecret = 'build_ephemeral_secret';
+      console.warn(
+        `[signing] Missing TOKEN_SECRET_V${CURRENT_SIGNATURE_VERSION} during build phase. Using ephemeral build secret. Ensure real secret is set at runtime.`
+      );
+      curSecret = "build_ephemeral_secret";
       // Mutate map so subsequent sign operations (if any) are deterministic during build analysis.
       SECRET_MAP[CURRENT_SIGNATURE_VERSION] = curSecret;
-    } else if (process.env.NODE_ENV === 'development') {
-      curSecret = 'dev_secret';
+    } else if (process.env.NODE_ENV === "development") {
+      curSecret = "dev_secret";
       SECRET_MAP[CURRENT_SIGNATURE_VERSION] = curSecret;
       // eslint-disable-next-line no-console
-      console.warn(`[signing] Using development fallback secret for version ${CURRENT_SIGNATURE_VERSION}.`);
+      console.warn(
+        `[signing] Using development fallback secret for version ${CURRENT_SIGNATURE_VERSION}.`
+      );
     } else {
-      // Production fallback: try to use TOKEN_SECRET directly
-      if (process.env.TOKEN_SECRET) {
-        console.warn(`[signing] Missing TOKEN_SECRET_V${CURRENT_SIGNATURE_VERSION}, using TOKEN_SECRET as fallback.`);
-        curSecret = process.env.TOKEN_SECRET;
-        SECRET_MAP[CURRENT_SIGNATURE_VERSION] = curSecret;
-      } else {
-        // eslint-disable-next-line no-console
-        console.error(`[signing] Missing secret for CURRENT_SIGNATURE_VERSION=${CURRENT_SIGNATURE_VERSION}. Define TOKEN_SECRET_V${CURRENT_SIGNATURE_VERSION} or TOKEN_SECRET.`);
-        throw new Error('Missing signing secret for active signature version');
-      }
+      throw new Error("Missing signing secret for active signature version");
     }
   }
 }
@@ -103,10 +97,11 @@ export function verifyTokenSignature(
     const a = Buffer.from(expected);
     const b = Buffer.from(signature);
     if (a.length !== b.length) return false; // already checked, defensive
-  return timingSafeEqual(a, b);
+    return timingSafeEqual(a, b);
   } catch {
     let diff = 0; // fallback manual XOR
-    for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+    for (let i = 0; i < expected.length; i++)
+      diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
     return diff === 0;
   }
 }
@@ -130,8 +125,8 @@ export function signPersonPayload(
 
 export type PersonQrPayload = {
   pid: string; // personId
-  ts: string;  // ISO timestamp of issuance
-  v?: number;  // signature version (defaults to CURRENT_SIGNATURE_VERSION)
+  ts: string; // ISO timestamp of issuance
+  v?: number; // signature version (defaults to CURRENT_SIGNATURE_VERSION)
   sig: string; // base64url HMAC
 };
 
@@ -147,10 +142,12 @@ export function verifyPersonPayload(
   try {
     const a = Buffer.from(expected);
     const b = Buffer.from(payload.sig);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: false, code: "INVALID_SIGNATURE" } as const;
+    if (a.length !== b.length || !timingSafeEqual(a, b))
+      return { ok: false, code: "INVALID_SIGNATURE" } as const;
   } catch {
     let diff = 0; // manual fallback
-    for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ payload.sig.charCodeAt(i);
+    for (let i = 0; i < expected.length; i++)
+      diff |= expected.charCodeAt(i) ^ payload.sig.charCodeAt(i);
     if (diff !== 0) return { ok: false, code: "INVALID_SIGNATURE" } as const;
   }
 
@@ -171,3 +168,11 @@ export function verifyPersonPayload(
  *   { pid: string, ts: ISOString, v: number, sig: base64url }
  * Signature is HMAC-SHA256 over `${v}|${pid}|${epochSeconds(ts)}` using TOKEN_SECRET.
  */
+
+export function activeTokenSigningKey() {
+  const version = CURRENT_SIGNATURE_VERSION;
+  if (!Number.isSafeInteger(version) || version < 1) throw new Error("INVALID_SIGNATURE_VERSION");
+  const secret = SECRET_MAP[version];
+  if (!secret) throw new Error("MISSING_SIGNING_SECRET");
+  return { version, secret };
+}

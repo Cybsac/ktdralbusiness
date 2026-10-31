@@ -1,26 +1,26 @@
-import { DateTime as LuxonDT } from 'luxon';
+import { DateTime as LuxonDT } from "luxon";
 
 // Zona horaria de Lima
-const LIMA_TIMEZONE = 'America/Lima';
+const LIMA_TIMEZONE = "America/Lima";
 
 /**
  * Obtiene la fecha/hora actual en zona horaria de Lima
  */
-export function nowInLima(): ReturnType<typeof LuxonDT.now> {
+export function nowInLima(): LuxonDT<boolean> {
   return LuxonDT.now().setZone(LIMA_TIMEZONE);
 }
 
 /**
  * Parsea una fecha ISO string y la convierte a zona horaria de Lima
  */
-export function parseInLima(dateStr: string): ReturnType<typeof LuxonDT.now> {
+export function parseInLima(dateStr: string): LuxonDT<boolean> {
   return LuxonDT.fromISO(dateStr).setZone(LIMA_TIMEZONE);
 }
 
 /**
  * Verifica si un premio es válido en el tiempo actual (zona Lima)
  */
-export function isValidInLima(validFrom: ReturnType<typeof LuxonDT.now>, validUntil: ReturnType<typeof LuxonDT.now>): boolean {
+export function isValidInLima(validFrom: LuxonDT<boolean>, validUntil: LuxonDT<boolean>): boolean {
   const now = nowInLima();
   return now >= validFrom && now <= validUntil;
 }
@@ -37,9 +37,9 @@ export function isPrizeValid(validFromStr: string, validUntilStr: string): boole
 /**
  * Formatea una fecha para mostrar en zona Lima
  */
-export function formatInLima(date: any | string, format: string = 'dd/MM/yyyy HH:mm'): string {
-  const { DateTime } = require('luxon');
-  const dt = typeof date === 'string' ? DateTime.fromISO(date).setZone(LIMA_TIMEZONE) : date;
+export function formatInLima(date: any | string, format: string = "dd/MM/yyyy HH:mm"): string {
+  const { DateTime } = require("luxon");
+  const dt = typeof date === "string" ? DateTime.fromISO(date).setZone(LIMA_TIMEZONE) : date;
   return dt.toFormat(format);
 }
 
@@ -47,7 +47,7 @@ export function formatInLima(date: any | string, format: string = 'dd/MM/yyyy HH
  * Convierte una fecha de Lima a UTC para guardar en BD
  */
 export function limaToUtc(dateStr: string): Date {
-  const { DateTime } = require('luxon');
+  const { DateTime } = require("luxon");
   const dt = DateTime.fromISO(dateStr).setZone(LIMA_TIMEZONE);
   return dt.toUTC().toJSDate();
 }
@@ -55,6 +55,6 @@ export function limaToUtc(dateStr: string): Date {
 /**
  * Convierte una fecha UTC de BD a zona Lima para mostrar
  */
-export function utcToLima(date: Date): ReturnType<typeof LuxonDT.now> {
+export function utcToLima(date: Date): LuxonDT<boolean> {
   return LuxonDT.fromJSDate(date).setZone(LIMA_TIMEZONE);
 }

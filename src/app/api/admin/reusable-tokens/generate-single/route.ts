@@ -1,3 +1,4 @@
+import { getPublicBaseUrl } from "@/lib/config";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
@@ -107,7 +108,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Generate QR URL
-    const baseUrl = process.env.NEXT_PUBLIC_QR_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    const baseUrl = getPublicBaseUrl(req.url);
     const qrUrl = `${baseUrl}/reusable/${token.id}`;
 
     return NextResponse.json({

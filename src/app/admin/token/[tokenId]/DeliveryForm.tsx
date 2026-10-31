@@ -1,4 +1,5 @@
 "use client";
+import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 import React, { useState } from 'react';
 
 export default function DeliveryForm({ tokenId }: { tokenId: string }) {
@@ -9,7 +10,7 @@ export default function DeliveryForm({ tokenId }: { tokenId: string }) {
   async function submit() {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(`/api/token/${tokenId}/deliver`, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ deliveryNote: note || undefined }) });
+      const res = await prizeAuthorizedFetch(`/api/token/${tokenId}/deliver`, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ deliveryNote: note || undefined }) });
       const body = await res.json().catch(()=>({}));
       if (!res.ok) {
         setError(body?.error || 'ERROR');

@@ -1,4 +1,5 @@
 'use client';
+import { PrizeAuthorizationLink } from '@/components/prize-authorization/PrizeAuthorizationLink';
 
 import { useState, useEffect } from 'react';
 
@@ -80,8 +81,6 @@ export default function ReusableTokensAdmin() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [prizeForm, setPrizeForm] = useState({
     label: '',
-    key: '',
-    color: '',
     description: ''
   });
   const [editingPrize, setEditingPrize] = useState<ReusablePrize | null>(null);
@@ -275,15 +274,13 @@ export default function ReusableTokensAdmin() {
   };
 
   const savePrize = async () => {
-    if (!prizeForm.label.trim() || !prizeForm.key.trim()) {
-      alert('Label y key son requeridos');
+    if (!prizeForm.label.trim()) {
+      alert('Nombre del premio requerido');
       return;
     }
 
     const body = {
       label: prizeForm.label.trim(),
-      key: prizeForm.key.trim(),
-      color: prizeForm.color || null,
       description: prizeForm.description?.trim() || null
     };
 
@@ -295,7 +292,7 @@ export default function ReusableTokensAdmin() {
 
     if (res.ok) {
       alert('Premio creado exitosamente');
-      setPrizeForm({ label: '', key: '', color: '', description: '' });
+      setPrizeForm({ label: '', description: '' });
       fetchPrizes();
     } else {
       const error = await res.json();
@@ -307,23 +304,19 @@ export default function ReusableTokensAdmin() {
     setEditingPrize(prize);
     setPrizeForm({
       label: prize.label,
-      key: prize.key,
-      color: prize.color || '',
       description: prize.description || ''
     });
   };
 
   const updatePrize = async () => {
     if (!editingPrize) return;
-    if (!prizeForm.label.trim() || !prizeForm.key.trim()) {
-      alert('Label y key son requeridos');
+    if (!prizeForm.label.trim()) {
+      alert('Nombre del premio requerido');
       return;
     }
 
     const body = {
       label: prizeForm.label.trim(),
-      key: prizeForm.key.trim(),
-      color: prizeForm.color || null,
       description: prizeForm.description?.trim() || null
     };
 
@@ -336,7 +329,7 @@ export default function ReusableTokensAdmin() {
     if (res.ok) {
       alert('Premio actualizado exitosamente');
       setEditingPrize(null);
-      setPrizeForm({ label: '', key: '', color: '', description: '' });
+      setPrizeForm({ label: '', description: '' });
       fetchPrizes();
     } else {
       const error = await res.json();
@@ -367,7 +360,7 @@ export default function ReusableTokensAdmin() {
 
   const cancelEdit = () => {
     setEditingPrize(null);
-    setPrizeForm({ label: '', key: '', color: '', description: '' });
+    setPrizeForm({ label: '', description: '' });
   };
 
   const generateIndividualToken = async () => {
@@ -525,6 +518,7 @@ export default function ReusableTokensAdmin() {
 
   return (
     <div className="space-y-6">
+      <PrizeAuthorizationLink />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Tokens Reusables Individuales</h1>
       </div>
@@ -576,34 +570,15 @@ export default function ReusableTokensAdmin() {
             </div>
             <div className="card-body">
           {/* Formulario para crear premio */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Label *</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nombre del premio *</label>
               <input
                 type="text"
                 className="input w-full"
                 value={prizeForm.label}
                 onChange={e => setPrizeForm({ ...prizeForm, label: e.target.value })}
                 placeholder="Nombre del premio"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Key *</label>
-              <input
-                type="text"
-                className="input w-full"
-                value={prizeForm.key}
-                onChange={e => setPrizeForm({ ...prizeForm, key: e.target.value.toUpperCase() })}
-                placeholder="Identificador único"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Color</label>
-              <input
-                type="color"
-                className="input w-full h-10"
-                value={prizeForm.color}
-                onChange={e => setPrizeForm({ ...prizeForm, color: e.target.value })}
               />
             </div>
             <div className="flex items-end">
@@ -1494,7 +1469,7 @@ export default function ReusableTokensAdmin() {
                             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${r.type === 'deliver' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'}`}>
                               {r.type === 'deliver' ? 'Entrega' : 'Canje'}
                             </span>
-                            {r.userId && <span className="text-xs text-slate-500 dark:text-slate-400">por {r.userId.slice(0, 8)}...</span>}
+                            {r.userId && <span className="text-xs text-slate-500 dark:text-slate-400">por {r.responsibleName || r.userId} {r.authorizationMethod === 'otp' ? '· OTP personal' : r.authorizationMethod === 'session' ? '· Sesión' : ''}</span>}
                           </div>
                           <div className="text-xs text-slate-500 dark:text-slate-400">
                             {new Date(r.createdAt).toLocaleString('es-ES', { timeZone: 'America/Lima' })}

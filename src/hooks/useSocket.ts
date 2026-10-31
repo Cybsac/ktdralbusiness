@@ -1,158 +1,66 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { io, Socket } from "socket.io-client";
+import { useEffect, useState } from "react";
+import type { Socket } from "socket.io-client";
+
+import { acquireSocket, releaseSocket, subscribeSocketChannel } from "@/lib/socket-client";
 
 export function useSocket() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-
   useEffect(() => {
-    // Determinar URL del servidor Socket.IO
-    // En producción usa la misma URL, en desarrollo usa el hostname actual con el puerto
-    const getSocketUrl = () => {
-      if (typeof window === "undefined") return "";
-      
-      // En producción o si estamos en el mismo origen
-      if (process.env.NODE_ENV === "production") {
-        return window.location.origin;
-      }
-      
-      // En desarrollo, usar el host actual (soporta cualquier puerto)
-      return window.location.origin;
-    };
-
-    const socketUrl = getSocketUrl();
-    console.log("🔌 Conectando a Socket.IO:", socketUrl);
-
-    // Conectar al servidor Socket.IO (usa path por defecto /socket.io)
-    const socketInstance = io(socketUrl, {
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
-
-    socketInstance.on("connect", () => {
-      console.log("🔌 Conectado a Socket.IO, ID:", socketInstance.id);
-      setIsConnected(true);
-    });
-
-    socketInstance.on("disconnect", (reason) => {
-      console.log("🔌 Desconectado de Socket.IO:", reason);
-      setIsConnected(false);
-    });
-
-    socketInstance.on("connect_error", (error) => {
-      console.error("🔌 Error de conexión Socket.IO:", error.message);
-    });
-
-    setSocket(socketInstance);
-
+    const connection = acquireSocket();
+    const onConnect = () => setIsConnected(true);
+    const onDisconnect = () => setIsConnected(false);
+    connection.on("connect", onConnect);
+    connection.on("disconnect", onDisconnect);
+    setSocket(connection);
+    setIsConnected(connection.connected);
     return () => {
-      socketInstance.disconnect();
+      connection.off("connect", onConnect);
+      connection.off("disconnect", onDisconnect);
+      releaseSocket(connection);
     };
   }, []);
-
   return { socket, isConnected };
 }
 
-export function useStaffSocket(staffId?: string) {
-  const { socket, isConnected } = useSocket();
-
+function useChannel(
+  channel: import("@/lib/socket-contract").SocketChannel,
+  id?: string,
+  enabled = true
+) {
+  const connection = useSocket();
   useEffect(() => {
-    if (socket && isConnected && staffId) {
-      socket.emit("join-staff", staffId);
-    }
-  }, [socket, isConnected, staffId]);
-
-  return { socket, isConnected };
+    if (connection.socket && enabled) return subscribeSocketChannel(connection.socket, channel, id);
+  }, [connection.socket, channel, id, enabled]);
+  return connection;
 }
-
-// Hook especial para la consola del DJ
+export function useStaffSocket(staffId = "general") {
+  return useChannel("staff", staffId);
+}
 export function useDJSocket() {
-  const { socket, isConnected } = useSocket();
-
-  useEffect(() => {
-    if (socket && isConnected) {
-      socket.emit("join-dj");
-      console.log("🎧 DJ solicitando unirse a sala dj-console");
-    }
-  }, [socket, isConnected]);
-
-  return { socket, isConnected };
+  return useChannel("dj");
 }
-
 export function useCashierSocket() {
-  const { socket, isConnected } = useSocket();
-
-  useEffect(() => {
-    if (socket && isConnected) {
-      socket.emit("join-cashier");
-    }
-  }, [socket, isConnected]);
-
-  return { socket, isConnected };
+  return useChannel("cashier");
 }
-
-export function useWaiterSocket(waiterId?: string) {
-  const { socket, isConnected } = useSocket();
-
-  useEffect(() => {
-    if (socket && isConnected && waiterId) {
-      socket.emit("join-waiter", waiterId);
-    }
-  }, [socket, isConnected, waiterId]);
-
-  return { socket, isConnected };
+export function useWaiterSocket(id?: string) {
+  return useChannel("waiter", id, !!id);
 }
-
+export function useLocationSocket(id?: string) {
+  return useChannel("location", id, !!id);
+}
+export function useServicePointSocket(id?: string) {
+  return useChannel("servicePoint", id, !!id);
+}
+export function useTableSocket(id?: string) {
+  return useChannel("table", id, !!id);
+}
 export function useMenuSocket() {
-  const { socket, isConnected } = useSocket();
-
+  const connection = useChannel("staff", "general");
   useEffect(() => {
-    if (socket && isConnected) {
-      // Unirse a salas relevantes para el menú público
-      socket.emit("join-cashier");
-      socket.emit("join-staff", "general"); // Sala general para staff
-    }
-  }, [socket, isConnected]);
-
-  return { socket, isConnected };
-}
-
-export function useLocationSocket(locationId?: string) {
-  const { socket, isConnected } = useSocket();
-
-  useEffect(() => {
-    if (socket && isConnected && locationId) {
-      socket.emit("join-location", locationId);
-    }
-  }, [socket, isConnected, locationId]);
-
-  return { socket, isConnected };
-}
-
-export function useServicePointSocket(servicePointId?: string) {
-  const { socket, isConnected } = useSocket();
-
-  useEffect(() => {
-    if (socket && isConnected && servicePointId) {
-      socket.emit("join-service-point", servicePointId);
-    }
-  }, [socket, isConnected, servicePointId]);
-
-  return { socket, isConnected };
-}
-
-export function useTableSocket(tableId?: string) {
-  const { socket, isConnected } = useSocket();
-
-  useEffect(() => {
-    if (socket && isConnected && tableId) {
-      socket.emit("join-table", tableId);
-    }
-  }, [socket, isConnected, tableId]);
-
-  return { socket, isConnected };
+    if (connection.socket) return subscribeSocketChannel(connection.socket, "cashier");
+  }, [connection.socket]);
+  return connection;
 }

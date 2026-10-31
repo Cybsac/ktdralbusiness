@@ -1,6 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
+import { NextRequest, NextResponse } from "next/server";
+
+import { getSessionCookieFromRequest, requireRole, verifySessionCookie } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { orphanPrizeWhere } from "@/lib/prize-games/catalog";
 
 // Admin UI oriented endpoints
 // GET  /api/admin/batches/purge -> list recent batches + orphan prizes
@@ -15,12 +17,15 @@ export async function GET(req: NextRequest) {
   try {
     const raw = getSessionCookieFromRequest(req as any);
     const session = await verifySessionCookie(raw);
-    const auth = requireRole(session, ['ADMIN', 'COORDINATOR']);
-    if (!auth.ok) return err('FORBIDDEN', 'ADMIN required', 403);
+    const auth = requireRole(session, ["ADMIN", "COORDINATOR"]);
+    if (!auth.ok) return err("FORBIDDEN", "ADMIN required", 403);
 
-    const limit = Math.min(200, Math.max(1, parseInt((req.nextUrl.searchParams.get('limit') || '50'), 10)));
+    const limit = Math.min(
+      200,
+      Math.max(1, parseInt(req.nextUrl.searchParams.get("limit") || "50", 10))
+    );
     const batches = await prisma.batch.findMany({
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       take: limit,
       select: {
         id: true,
@@ -32,7 +37,9 @@ export async function GET(req: NextRequest) {
 
     const rows = batches.map((b: any) => {
       const redeemed = b.tokens.filter((t: any) => t.redeemedAt || t.deliveredAt).length;
-      const expired = b.tokens.filter((t: any) => !t.redeemedAt && !t.deliveredAt && t.expiresAt < new Date()).length;
+      const expired = b.tokens.filter(
+        (t: any) => !t.redeemedAt && !t.deliveredAt && t.expiresAt < new Date()
+      ).length;
       const active = Math.max(0, b.tokens.length - redeemed - expired);
       return {
         id: b.id,
@@ -47,14 +54,21 @@ export async function GET(req: NextRequest) {
     });
 
     const orphanPrizes = await prisma.prize.findMany({
-      where: { tokens: { none: {} }, assignedTokens: { none: {} } },
-      select: { id: true, key: true, label: true, emittedTotal: true, stock: true, createdAt: true },
-      orderBy: { createdAt: 'desc' },
+      where: orphanPrizeWhere,
+      select: {
+        id: true,
+        key: true,
+        label: true,
+        emittedTotal: true,
+        stock: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
       take: 200,
     });
     return NextResponse.json({ ok: true, batches: rows, orphanPrizes });
   } catch (e: any) {
-    return err('INTERNAL', e?.message || 'internal error', 500);
+    return err("INTERNAL", e?.message || "internal error", 500);
   }
 }
 
@@ -62,63 +76,118 @@ export async function POST(req: NextRequest) {
   try {
     const raw = getSessionCookieFromRequest(req as any);
     const session = await verifySessionCookie(raw);
-    const auth = requireRole(session, ['ADMIN', 'COORDINATOR']);
-    if (!auth.ok) return err('FORBIDDEN', 'ADMIN required', 403);
+    const auth = requireRole(session, ["ADMIN", "COORDINATOR"]);
+    if (!auth.ok) return err("FORBIDDEN", "ADMIN required", 403);
 
     const body = await req.json().catch(() => ({}));
-    const batchIds: string[] = Array.isArray(body.batchIds) ? body.batchIds.filter((x: any) => typeof x === 'string' && x.trim()) : [];
+    const batchIds: string[] = Array.isArray(body.batchIds)
+      ? body.batchIds.filter((x: any) => typeof x === "string" && x.trim())
+      : [];
     const dryRun = !!body?.options?.dryRun;
     const deleteUnusedPrizes = !!body?.options?.deleteUnusedPrizes;
     const purgeOrphansOnly = !!body?.options?.purgeOrphansOnly;
 
     if (purgeOrphansOnly) {
-      const orphanIds = await prisma.prize.findMany({ where: { tokens: { none: {} }, assignedTokens: { none: {} } }, select: { id: true } });
+      const orphanIds = await prisma.prize.findMany({
+        where: orphanPrizeWhere,
+        select: { id: true },
+      });
       const ids = orphanIds.map((o: any) => o.id);
-      if (dryRun) return NextResponse.json({ ok: true, dryRun: true, batchIds: [], summary: { orphanPrizes: ids } });
-      if (!ids.length) return NextResponse.json({ ok: true, batchIds: [], deleted: { orphanPrizes: [] } });
-      await prisma.prize.deleteMany({ where: { id: { in: ids } } });
+      if (dryRun)
+        return NextResponse.json({
+          ok: true,
+          dryRun: true,
+          batchIds: [],
+          summary: { orphanPrizes: ids },
+        });
+      if (!ids.length)
+        return NextResponse.json({ ok: true, batchIds: [], deleted: { orphanPrizes: [] } });
+      await prisma.prize.deleteMany({ where: { ...orphanPrizeWhere, id: { in: ids } } });
       return NextResponse.json({ ok: true, batchIds: [], deleted: { orphanPrizes: ids } });
     }
 
-    if (!batchIds.length) return err('NO_BATCH_IDS', 'Provide batchIds[] or set options.purgeOrphansOnly');
+    if (!batchIds.length)
+      return err("NO_BATCH_IDS", "Provide batchIds[] or set options.purgeOrphansOnly");
 
     // Aggregations
     const redeemed = await prisma.token.groupBy({
-      by: ['batchId'],
-      where: { batchId: { in: batchIds }, OR: [{ redeemedAt: { not: null } }, { deliveredAt: { not: null } }] },
+      by: ["batchId"],
+      where: {
+        batchId: { in: batchIds },
+        OR: [{ redeemedAt: { not: null } }, { deliveredAt: { not: null } }],
+      },
       _count: { _all: true },
     });
-    const tokenCounts = await prisma.token.groupBy({ by: ['batchId'], where: { batchId: { in: batchIds } }, _count: { _all: true } });
-    const rouletteSessions = await prisma.rouletteSession.findMany({ where: { batchId: { in: batchIds } }, select: { id: true } });
-  const spins = await prisma.rouletteSpin.count({ where: { sessionId: { in: rouletteSessions.map((r: any) => r.id) } } });
+    const tokenCounts = await prisma.token.groupBy({
+      by: ["batchId"],
+      where: { batchId: { in: batchIds } },
+      _count: { _all: true },
+    });
+    const rouletteSessions = await prisma.rouletteSession.findMany({
+      where: { batchId: { in: batchIds } },
+      select: { id: true },
+    });
+    const spins = await prisma.rouletteSpin.count({
+      where: { sessionId: { in: rouletteSessions.map((r: any) => r.id) } },
+    });
 
     if (dryRun) {
       const orphanIds = deleteUnusedPrizes
-  ? (await prisma.prize.findMany({ where: { tokens: { none: {} }, assignedTokens: { none: {} } }, select: { id: true } })).map((o: any) => o.id)
+        ? (await prisma.prize.findMany({ where: orphanPrizeWhere, select: { id: true } })).map(
+            (o: any) => o.id
+          )
         : undefined;
-      return NextResponse.json({ ok: true, dryRun: true, batchIds, summary: { tokenCounts, rouletteSessions: rouletteSessions.length, spins, redeemed, orphanPrizes: orphanIds } });
+      return NextResponse.json({
+        ok: true,
+        dryRun: true,
+        batchIds,
+        summary: {
+          tokenCounts,
+          rouletteSessions: rouletteSessions.length,
+          spins,
+          redeemed,
+          orphanPrizes: orphanIds,
+        },
+      });
     }
 
     const deleted = await prisma.$transaction(async (tx: any) => {
       if (rouletteSessions.length) {
-        await tx.rouletteSpin.deleteMany({ where: { sessionId: { in: rouletteSessions.map((r: any) => r.id) } } });
-        await tx.rouletteSession.deleteMany({ where: { id: { in: rouletteSessions.map((r: any) => r.id) } } });
+        await tx.rouletteSpin.deleteMany({
+          where: { sessionId: { in: rouletteSessions.map((r: any) => r.id) } },
+        });
+        await tx.rouletteSession.deleteMany({
+          where: { id: { in: rouletteSessions.map((r: any) => r.id) } },
+        });
       }
       await tx.token.deleteMany({ where: { batchId: { in: batchIds } } });
       await tx.batch.deleteMany({ where: { id: { in: batchIds } } });
       let prizes: string[] = [];
       if (deleteUnusedPrizes) {
-        const orphanIdsTx = await tx.prize.findMany({ where: { tokens: { none: {} }, assignedTokens: { none: {} } }, select: { id: true } });
+        const orphanIdsTx = await tx.prize.findMany({
+          where: orphanPrizeWhere,
+          select: { id: true },
+        });
         if (orphanIdsTx.length) {
           prizes = orphanIdsTx.map((o: any) => o.id);
-          await tx.prize.deleteMany({ where: { id: { in: prizes } } });
+          await tx.prize.deleteMany({ where: { ...orphanPrizeWhere, id: { in: prizes } } });
         }
       }
       return { prizes };
     });
 
-    return NextResponse.json({ ok: true, batchIds, deleted: { tokenCounts, rouletteSessions: rouletteSessions.length, spins, redeemed, prizes: deleted.prizes } });
+    return NextResponse.json({
+      ok: true,
+      batchIds,
+      deleted: {
+        tokenCounts,
+        rouletteSessions: rouletteSessions.length,
+        spins,
+        redeemed,
+        prizes: deleted.prizes,
+      },
+    });
   } catch (e: any) {
-    return err('INTERNAL', e?.message || 'internal error', 500);
+    return err("INTERNAL", e?.message || "internal error", 500);
   }
 }

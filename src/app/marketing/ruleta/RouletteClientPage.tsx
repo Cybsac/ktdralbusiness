@@ -1,27 +1,42 @@
 "use client";
+import { AnimatePresence, motion } from "framer-motion";
+import { useSearchParams } from "next/navigation";
+import React, { useEffect, useRef, useState } from "react";
 
-import React, { useEffect, useState, useRef } from "react";
+import SmartPreloader from "@/components/common/SmartPreloader";
+import ScratchCardExperience from "@/components/experiences/ScratchCardExperience";
+import { PrizeDeliveryAction } from "@/components/prize-authorization/PrizeDeliveryAction";
+import LoseModal from "@/components/roulette/LoseModal";
 import NewRoulette from "@/components/roulette/NewRoulette";
+import RetryContinuation from "@/components/roulette/RetryContinuation";
 import RouletteHeading from "@/components/roulette/RouletteHeading";
 import { RouletteElement } from "@/components/roulette/types";
-import { motion, AnimatePresence } from "framer-motion";
-import RetryOverlay from "@/components/roulette/RetryOverlay";
-import LoseModal from "@/components/roulette/LoseModal";
-import SmartPreloader from "@/components/common/SmartPreloader";
-import { perfMark, perfMeasure, perfSummarize, perfCheckBudget } from "@/lib/perf";
 import CanvasConfetti from "@/components/visual/CanvasConfetti";
+import { useRouletteSounds } from "@/hooks/useRouletteSounds";
+import { getExperienceUi } from "@/lib/experiences/config";
+import { perfCheckBudget, perfMark, perfMeasure, perfSummarize } from "@/lib/perf";
+import {
+  deliverGamePrize,
+  GameRequestError,
+  loadPrizeGame,
+  revealGameResult,
+} from "@/lib/prize-games/client";
+import type { GameAction, GameContinuation } from "@/lib/prize-games/contracts";
 import { ThemeName } from "@/lib/themes/types";
 import { useRouletteTheme } from "@/lib/themes/useRouletteTheme";
-import { useRouletteSounds } from "@/hooks/useRouletteSounds";
-import { useSearchParams } from "next/navigation";
+
 import layoutStyles from "./rouletteLayout.module.css";
-import ScratchCardExperience from "@/components/experiences/ScratchCardExperience";
-import { getExperienceUi } from "@/lib/experiences/config";
 
 // Confetti ahora usando canvas para menos costo en DOM
-const Confetti = ({ active, lowMotion = false, colors }: { active: boolean; lowMotion?: boolean; colors?: string[] }) => (
-  <CanvasConfetti active={active && !lowMotion} lowMotion={lowMotion} colors={colors} />
-);
+const Confetti = ({
+  active,
+  lowMotion = false,
+  colors,
+}: {
+  active: boolean;
+  lowMotion?: boolean;
+  colors?: string[];
+}) => <CanvasConfetti active={active && !lowMotion} lowMotion={lowMotion} colors={colors} />;
 
 // Función helper para obtener clases CSS del tema
 const getThemeClass = (themeConfig: any) => {
@@ -60,10 +75,15 @@ function getVisibleGuideInsights(
 ) {
   if (insights.length === 0) return [];
   const total = Math.min(visibleCount, insights.length);
-  return Array.from({ length: total }, (_, index) => insights[(startIndex + index) % insights.length]);
+  return Array.from(
+    { length: total },
+    (_, index) => insights[(startIndex + index) % insights.length]
+  );
 }
 
-function getPhaseUi(phase: "READY" | "SPINNING" | "REVEALED_MODAL" | "REVEALED_PANEL" | "DELIVERED") {
+function getPhaseUi(
+  phase: "READY" | "SPINNING" | "REVEALED_MODAL" | "REVEALED_PANEL" | "DELIVERED"
+) {
   if (phase === "SPINNING") {
     return { activeStep: 2 };
   }
@@ -76,7 +96,13 @@ function getPhaseUi(phase: "READY" | "SPINNING" | "REVEALED_MODAL" | "REVEALED_P
 function GuideInsightIcon({ icon }: { icon: RouletteSidebarInsight["icon"] | "placeholder" }) {
   if (icon === "spark") {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
         <path d="m12 3 1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3Z" />
         <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15Z" />
         <path d="M5 14l.7 1.6L7.3 16l-1.6.7L5 18.3l-.7-1.6L2.7 16l1.6-.4L5 14Z" />
@@ -85,7 +111,13 @@ function GuideInsightIcon({ icon }: { icon: RouletteSidebarInsight["icon"] | "pl
   }
   if (icon === "check") {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
         <circle cx="12" cy="12" r="8" />
         <path d="m8.5 12.4 2.1 2.1 4.9-5.3" />
       </svg>
@@ -93,7 +125,13 @@ function GuideInsightIcon({ icon }: { icon: RouletteSidebarInsight["icon"] | "pl
   }
   if (icon === "trophy") {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
         <path d="M8 4h8v3a4 4 0 0 1-8 0V4Z" />
         <path d="M10 14h4" />
         <path d="M9 18h6" />
@@ -105,7 +143,13 @@ function GuideInsightIcon({ icon }: { icon: RouletteSidebarInsight["icon"] | "pl
   }
   if (icon === "gift") {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
         <path d="M12 8v11" />
         <path d="M5 10h14" />
         <path d="M7 10h10v9a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-9Z" />
@@ -115,7 +159,13 @@ function GuideInsightIcon({ icon }: { icon: RouletteSidebarInsight["icon"] | "pl
   }
   if (icon === "clock") {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
         <circle cx="12" cy="12" r="8" />
         <path d="M12 7v5l3 2" />
       </svg>
@@ -123,14 +173,26 @@ function GuideInsightIcon({ icon }: { icon: RouletteSidebarInsight["icon"] | "pl
   }
   if (icon === "bolt") {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
         <path d="M13 2 6 13h5l-1 9 8-12h-5l1-8Z" />
       </svg>
     );
   }
   if (icon === "chart") {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
         <path d="M5 19V9" />
         <path d="M12 19V5" />
         <path d="M19 19v-7" />
@@ -148,15 +210,6 @@ function GuideInsightIcon({ icon }: { icon: RouletteSidebarInsight["icon"] | "pl
   );
 }
 
-function CheckCircleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="m8.5 12 2.3 2.3 4.7-5" />
-    </svg>
-  );
-}
-
 function CopyIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true">
@@ -169,6 +222,7 @@ function CopyIcon() {
 }
 
 interface TokenShape {
+  timeZone?: string;
   id: string;
   expiresAt: string;
   redeemedAt: string | null;
@@ -179,13 +233,10 @@ interface TokenShape {
   batchId?: string;
   experienceType?: "roulette" | "scratch_card";
   reservedByRetry?: boolean;
+  action?: GameAction;
+  availability?: string;
+  continuation?: GameContinuation | null;
   prize: { id: string; key: string; label: string; color: string | null; active: boolean };
-  realToken?: {
-    id: string;
-    revealedAt?: string | null;
-    deliveredAt?: string | null;
-    redeemedAt?: string | null;
-  };
 }
 
 interface RouletteClientPageProps {
@@ -194,28 +245,29 @@ interface RouletteClientPageProps {
 
 /** Configuración centralizada de tiempos y tuning del cliente de ruleta */
 const ROULETTE_CONFIG = {
-  fetchTimeoutMs: 8000,              // abort fetch si el backend tarda demasiado
-  minLoaderMs: 900,                  // tiempo mínimo de loader visible
-  loadBudgetMs: 2500,                // presupuesto orientativo de carga total
-  dailySpinsFetchTimeoutMs: 5000,    // timeout del fetch no-crítico de spins diarios
+  fetchTimeoutMs: 8000, // abort fetch si el backend tarda demasiado
+  minLoaderMs: 900, // tiempo mínimo de loader visible
+  loadBudgetMs: 2500, // presupuesto orientativo de carga total
+  dailySpinsFetchTimeoutMs: 5000, // timeout del fetch no-crítico de spins diarios
   sidebarFetchTimeoutMs: 5000,
   sidebarRefreshMs: 30000,
   guideRotationMs: 12000,
-  perfSampleRate: 0.15,              // tasa de muestreo para perfSummarize
+  perfSampleRate: 0.15, // tasa de muestreo para perfSummarize
   spinDurationMs: { normal: 6000, lowMotion: 3500 },
-  spinBudgetMs:   { normal: 6200, lowMotion: 3600 }, // margen para perfCheckBudget
-  soundStartDelayMs: 300,            // delay antes de iniciar sonidos de giro
-  softSwitchDelayMs: 500,            // delay de transición suave tras retry
-  prizeModalDelayMs: 1500,           // delay antes de mostrar el modal de premio
-  retryPollingTimeMs: 30000,         // tiempo máximo de polling en RetryOverlay
-  smallViewportWidth: 380,           // ancho mínimo para heurística de low motion
-  smallViewportHeight: 680,          // alto mínimo para heurística de low motion
+  spinBudgetMs: { normal: 6200, lowMotion: 3600 }, // margen para perfCheckBudget
+  soundStartDelayMs: 300, // delay antes de iniciar sonidos de giro
+  softSwitchDelayMs: 500, // delay de transición suave tras retry
+  prizeModalDelayMs: 1500, // delay antes de mostrar el modal de premio
+  smallViewportWidth: 380, // ancho mínimo para heurística de low motion
+  smallViewportHeight: 680, // alto mínimo para heurística de low motion
 } as const;
 
-export default function RouletteClientPage({ theme: propTheme = "default" }: RouletteClientPageProps) {
+export default function RouletteClientPage({
+  theme: propTheme = "default",
+}: RouletteClientPageProps) {
   const searchParams = useSearchParams();
   const [isHydrated, setIsHydrated] = useState(false);
-  const tokenId = isHydrated ? (searchParams?.get('tokenId') || "") : "";
+  const tokenId = isHydrated ? searchParams?.get("tokenId") || "" : "";
   // Usar el hook de tema para obtener la configuración
   const { theme: contextTheme, config } = useRouletteTheme();
   const theme = propTheme || contextTheme;
@@ -235,6 +287,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
   // Bandera para transición suave (no mostrar overlay) - ahora ref para evitar re-ejecuciones
   const softSwitchRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [token, setToken] = useState<TokenShape | null>(null);
   const isScratchExperience = token?.experienceType === "scratch_card";
   const [elements, setElements] = useState<RouletteElement[]>([]);
@@ -250,11 +303,15 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
   const [retryOverlayOpen, setRetryOverlayOpen] = useState(false);
   // Suprime la UI de "premio revelado" cuando el resultado es RETRY
   const [suppressRevealed, setSuppressRevealed] = useState(false);
-  // Suprime el loader durante la transición RETRY (entre overlay y auto-spin)
+  // Suprime el loader durante la transición a la continuación de RETRY.
   const [suppressLoader, setSuppressLoader] = useState(false);
+  const suppressLoaderRef = useRef(suppressLoader);
+  suppressLoaderRef.current = suppressLoader;
+  const paletteRef = useRef(themeConfig?.roulette?.segments?.palette);
+  paletteRef.current = themeConfig?.roulette?.segments?.palette;
   // Bandera para transición de retry, para suprimir errores
   const [isRetryTransition, setIsRetryTransition] = useState(false);
-  const prizeModalTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const prizeModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [spinCounter, setSpinCounter] = useState<number | null>(null);
   const [prizeLinkCopied, setPrizeLinkCopied] = useState(false);
   const [guideInsights, setGuideInsights] = useState<RouletteSidebarInsight[]>([]);
@@ -291,11 +348,16 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
           : null;
       const deviceMem = (navigator as any)?.deviceMemory || 0; // heurística (no estándar en todos los navs)
       const smallViewport =
-        typeof window !== "undefined" && (window.innerWidth < ROULETTE_CONFIG.smallViewportWidth || window.innerHeight < ROULETTE_CONFIG.smallViewportHeight);
+        typeof window !== "undefined" &&
+        (window.innerWidth < ROULETTE_CONFIG.smallViewportWidth ||
+          window.innerHeight < ROULETTE_CONFIG.smallViewportHeight);
       const isLow = (!!mq && mq.matches) || (deviceMem > 0 && deviceMem <= 2) || smallViewport;
       setLowMotion(!!isLow);
-    } catch {}
+    } catch {
+      /* Optional presentation or response parsing failed; existing fallback remains. */
+    }
     let abort = false;
+    const loadController = new AbortController();
     (async () => {
       try {
         const res = await fetch(`/api/system/tokens/spins?day=${getLocalDayIso()}`, {
@@ -312,6 +374,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     })();
     return () => {
       abort = true;
+      loadController.abort();
     };
   }, []);
 
@@ -327,11 +390,15 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
         if (!res.ok) return;
         const data = await res.json().catch(() => null);
         const nextInsights = Array.isArray(data?.summary?.insights)
-          ? ([...data.summary.insights] as RouletteSidebarInsight[]).sort((left, right) => left.sortOrder - right.sortOrder)
+          ? ([...data.summary.insights] as RouletteSidebarInsight[]).sort(
+              (left, right) => left.sortOrder - right.sortOrder
+            )
           : [];
         if (!cancelled) {
           setGuideInsights(nextInsights);
-          setGuideRotationIndex((current) => (nextInsights.length > 0 ? current % nextInsights.length : 0));
+          setGuideRotationIndex((current) =>
+            nextInsights.length > 0 ? current % nextInsights.length : 0
+          );
         }
       } catch (sidebarError) {
         console.warn("Failed to load sidebar insights:", sidebarError);
@@ -375,14 +442,16 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
   useEffect(() => {
     if (!token) return;
     if (suppressRevealed) return; // no mostrar panel si estamos en transición de RETRY
-    const isReserved = !!token.reservedByRetry;
-    // Si el token es un bi-token y tiene realToken, revisa el estado del real
-    const realTokenUsed = isReserved && token.realToken && (token.realToken.revealedAt || token.realToken.deliveredAt || token.realToken.redeemedAt);
-    if (isReserved && realTokenUsed) {
-      // No mostrar panel de premio revelado, solo el mensaje especial
-      setPhase("READY");
-      setPrizeIndex(null);
-      setPrizeWon(null);
+    if (
+      token.revealedAt &&
+      token.action === "RETRY" &&
+      token.continuation &&
+      token.continuation.state !== "UNAVAILABLE" &&
+      phase === "READY"
+    ) {
+      setFunctionalTokenId(token.continuation.tokenId);
+      setRetryOverlayOpen(true);
+      setSuppressRevealed(true);
       return;
     }
     if (token.deliveredAt || token.redeemedAt) {
@@ -396,11 +465,11 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
         if (idx >= 0) {
           setPrizeIndex(idx);
           setPrizeWon(elements[idx]);
-          setPhase("REVEALED_PANEL"); // tras recarga no abrimos modal para no confundir usuario
+          setPhase(token.action === "LOSE" ? "REVEALED_MODAL" : "REVEALED_PANEL");
         }
       }
     }
-  }, [token, elements, suppressRevealed]);
+  }, [token, elements, suppressRevealed, phase]);
 
   useEffect(() => {
     // Si el prop cambia (navegación externa), sincroniza estado base
@@ -417,8 +486,9 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     // Reset UI sólo para carga dura; en suave mantenemos UI y cambiamos al final
     if (!softSwitchRef.current) {
       // No mostrar loader si estamos en transición RETRY
-      if (!suppressLoader) setLoading(true);
+      if (!suppressLoaderRef.current) setLoading(true);
       setError(null);
+      setErrorCode(null);
       setToken(null);
       setElements([]);
       setPhase("READY");
@@ -429,55 +499,22 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
       setDeliverError(null);
     } else {
       setError(null);
+      setErrorCode(null);
     }
 
     let abort = false;
-    const minPromise = new Promise<void>((resolve) => setTimeout(resolve, ROULETTE_CONFIG.minLoaderMs));
+    const loadController = new AbortController();
+    const minPromise = new Promise<void>((resolve) =>
+      setTimeout(resolve, ROULETTE_CONFIG.minLoaderMs)
+    );
 
     (async function loadToken() {
       perfMark("load_start");
       try {
-        // Control de timeout
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), ROULETTE_CONFIG.fetchTimeoutMs);
-
-        const doFetch = async () => {
-          const response = await fetch(`/api/tokens/${activeTokenId}/roulette-data`, {
-            signal: controller.signal,
-            cache: "no-store",
-          });
-          const raw = await response.text();
-          if (!response.ok) {
-            // Intenta parsear JSON desde el texto una sola vez
-            let msg = "";
-            try {
-              const j = JSON.parse(raw || "{}");
-              msg = j.message || j.error || "";
-            } catch {}
-            if (response.status === 404) throw new Error("Token no encontrado");
-            if (response.status === 403)
-              throw new Error(
-                "El sistema de tokens está temporalmente desactivado. Por favor, inténtalo más tarde."
-              );
-            throw new Error(msg || `Error ${response.status}${raw ? `: ${raw}` : ""}`);
-          }
-          return raw ? JSON.parse(raw) : {};
-        };
-
-        let data: any;
+        const timer = setTimeout(() => loadController.abort(), ROULETTE_CONFIG.fetchTimeoutMs);
+        let data;
         try {
-          data = await doFetch();
-        } catch (e: any) {
-          // Reintento rápido una vez si no fue un abort por timeout
-          if (e?.name !== "AbortError") {
-            try {
-              data = await doFetch();
-            } catch (e2) {
-              throw e; // propaga el error original
-            }
-          } else {
-            throw new Error("Tiempo de espera agotado al cargar la ruleta.");
-          }
+          data = await loadPrizeGame(activeTokenId, loadController.signal);
         } finally {
           clearTimeout(timer);
         }
@@ -487,9 +524,12 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
         const applyData = () => {
           setToken(data.token);
           if (data.elements && Array.isArray(data.elements)) {
-            const rouletteElements = data.elements.map((e: any, index: number) => ({
+            const rouletteElements = data.elements.map((e, index: number) => ({
               label: e.label,
-              color: e.color || (themeConfig?.roulette?.segments?.palette?.[index % (themeConfig?.roulette?.segments?.palette?.length || 8)] || '#CCCCCC'),
+              color:
+                e.color ||
+                paletteRef.current?.[index % (paletteRef.current?.length || 1)] ||
+                "#CCCCCC",
               prizeId: e.prizeId,
               key: e.key,
             }));
@@ -499,24 +539,25 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
         const isSoft = softSwitchRef.current;
         if (isSoft) {
           applyData();
-          // Listo para auto-giro tras soft load - DESACTIVADO para segundo giro
+          // La continuación conserva un segundo juego manual.
           setPhase("READY");
-          // El cierre del overlay ahora se gestiona por un efecto cuando la ruleta está lista (elements>=2)
+          // Finalizar la transición cuando se cargan los datos de la continuación.
         } else {
           applyData();
         }
       } catch (err) {
         if (!abort) {
+          setErrorCode(err instanceof GameRequestError ? err.code || null : null);
           console.error("Error cargando datos:", err);
           // Check if it's a network/server error
-          const isServerError = err instanceof Error && (
-            err.message.includes('502') || 
-            err.message.includes('503') || 
-            err.message.includes('504') ||
-            err.message.includes('Application failed to respond') ||
-            err.message.includes('Tiempo de espera agotado')
-          );
-          
+          const isServerError =
+            err instanceof Error &&
+            (err.message.includes("502") ||
+              err.message.includes("503") ||
+              err.message.includes("504") ||
+              err.message.includes("Application failed to respond") ||
+              err.message.includes("Tiempo de espera agotado"));
+
           if (isServerError && !softSwitchRef.current) {
             // Do not keep the loader open with a no-op state update. A value
             // set to itself does not rerun this effect and caused an endless
@@ -541,13 +582,15 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
           // Presupuesto de carga
           perfCheckBudget("load_total", ROULETTE_CONFIG.loadBudgetMs, "load");
           // Log summary occasionally
-          if (typeof window !== "undefined" && Math.random() < ROULETTE_CONFIG.perfSampleRate) perfSummarize();
+          if (typeof window !== "undefined" && Math.random() < ROULETTE_CONFIG.perfSampleRate)
+            perfSummarize();
         }
       }
     })();
 
     return () => {
       abort = true;
+      loadController.abort();
     };
   }, [activeTokenId]);
 
@@ -563,15 +606,15 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     setTimeout(() => {
       if (!isScratchExperience) sounds.playSpinStart();
       // Iniciar loop infinito con desaceleración basada en la duración visual
-      const spinDuration = lowMotion ? ROULETTE_CONFIG.spinDurationMs.lowMotion : ROULETTE_CONFIG.spinDurationMs.normal;
+      const spinDuration = lowMotion
+        ? ROULETTE_CONFIG.spinDurationMs.lowMotion
+        : ROULETTE_CONFIG.spinDurationMs.normal;
       if (!isScratchExperience) void sounds.playSpinLoop({ expectedDurationMs: spinDuration });
     }, ROULETTE_CONFIG.soundStartDelayMs);
 
     // Audio ya inicializado en useEffect
     try {
-  const response = await fetch(`/api/token/${activeTokenId}/reveal`, { method: "POST" });
-      if (!response.ok) throw new Error(`Error ${response.status}: ${await response.text()}`);
-      const data = await response.json();
+      const data = await revealGameResult(activeTokenId, experienceUi.spinErrorFallback);
       // Guardamos revealedAt pero dejamos que la animación termine (onSpinEnd)
       setToken((t) =>
         t ? { ...t, revealedAt: data?.timestamps?.revealedAt || new Date().toISOString() } : t
@@ -581,11 +624,9 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
       setPrizeIndex(winIndex);
       const chosen = elements[winIndex];
       // Si el backend indica RETRY, guardamos nextTokenId para transición suave
-      if (data?.action === 'RETRY' && data?.nextTokenId) {
-        setNextTokenId(data.nextTokenId);
+      if (data?.action === "RETRY" && data?.nextTokenId) {
         setFunctionalTokenId(data.nextTokenId); // El token funcional es el nextTokenId
       } else {
-        setNextTokenId(null);
         setFunctionalTokenId(null);
       }
       if (token?.experienceType === "scratch_card") {
@@ -593,6 +634,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
       }
       // La animación del componente NewRoulette usará prizeIndex y disparará handleSpinEnd
     } catch (err) {
+      setErrorCode(err instanceof GameRequestError ? err.code || null : null);
       console.error("Error al girar:", err);
       setError(err instanceof Error ? err.message : experienceUi.spinErrorFallback);
       setPhase("READY");
@@ -604,13 +646,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     setDeliverError(null);
     setDelivering(true);
     try {
-      const res = await fetch(`/api/token/${activeTokenId}/deliver`, { method: "POST" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg = body?.error || body?.message || `Error ${res.status}`;
-        setDeliverError(msg);
-        return;
-      }
+      const body = await deliverGamePrize(activeTokenId);
       // Update local token state to reflect delivery (mirror redeemedAt)
       setToken((t) =>
         t
@@ -632,7 +668,10 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
 
   const handleCopyPrizeLink = async () => {
     if (typeof window === "undefined") return;
-    const prizeUrl = new URL(`/marketing/ruleta?tokenId=${encodeURIComponent(activeTokenId)}`, window.location.origin).toString();
+    const prizeUrl = new URL(
+      `/marketing/ruleta?tokenId=${encodeURIComponent(activeTokenId)}`,
+      window.location.origin
+    ).toString();
     try {
       await navigator.clipboard.writeText(prizeUrl);
       setPrizeLinkCopied(true);
@@ -642,21 +681,19 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     }
   };
 
-  const [nextTokenId, setNextTokenId] = useState<string|null>(null);
   // Token funcional que se habilita después de reveal de retry
-  const [functionalTokenId, setFunctionalTokenId] = useState<string|null>(null);
+  const [functionalTokenId, setFunctionalTokenId] = useState<string | null>(null);
 
   // Callback cuando el token funcional está listo
   const handleFunctionalTokenReady = () => {
-
     // Cleanup agresivo antes de la transición
     setToken(null); // Forzar recarga completa de token
     setElements([]); // Limpiar elementos anteriores
     setPrizeWon(null);
     setPrizeIndex(null);
-    setPhase('READY');
+    setPhase("READY");
 
-    // El overlay se cerrará automáticamente y comenzará la transición
+    // El usuario continúa hacia su token funcional sin consultar en bucle
     setTimeout(() => {
       try {
         const newUrl = `/marketing/ruleta?tokenId=${encodeURIComponent(functionalTokenId!)}`;
@@ -669,7 +706,6 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
       setActiveTokenId(functionalTokenId!);
       // Limpiar estados de retry completamente
       setFunctionalTokenId(null);
-      setNextTokenId(null);
       setIsRetryTransition(false);
       setRetryOverlayOpen(false);
       setSuppressRevealed(false);
@@ -679,20 +715,24 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     perfMark("spin_end");
     perfMeasure("spin_duration", "spin_start", "spin_end");
     // Presupuesto de animación (varía por lowMotion)
-    perfCheckBudget("spin_duration", lowMotion ? ROULETTE_CONFIG.spinBudgetMs.lowMotion : ROULETTE_CONFIG.spinBudgetMs.normal, "spin");
+    perfCheckBudget(
+      "spin_duration",
+      lowMotion ? ROULETTE_CONFIG.spinBudgetMs.lowMotion : ROULETTE_CONFIG.spinBudgetMs.normal,
+      "spin"
+    );
 
     // Detener sonidos de giro y reproducir sonido de parada (sincronizado internamente)
     if (!isScratchExperience) void sounds.playSpinStop();
 
-    // Si hay RETRY, mostramos overlay con polling para esperar token funcional
-    const retryTokenId = retryTokenOverride || nextTokenId;
+    // La continuación ya fue reservada por el servidor; el usuario decide cuándo continuar.
+    const retryTokenId = retryTokenOverride || functionalTokenId;
     if (retryTokenId) {
       // Cancelar cualquier timeout de modal anterior
       if (prizeModalTimeoutRef.current) {
         clearTimeout(prizeModalTimeoutRef.current);
         prizeModalTimeoutRef.current = null;
       }
-      // Mostrar overlay con polling que esperará a que el token esté listo
+      // Mostrar la continuación confirmada sin consultar la base en bucle.
       setIsRetryTransition(true);
       setRetryOverlayOpen(true);
       setSuppressRevealed(true);
@@ -702,8 +742,8 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
       setShowConfetti(false);
       setPrizeIndex(null);
       setPrizeWon(null); // Asegurar que no haya premio mostrado
-      setPhase('READY');
-      // La transición se hará automáticamente cuando el polling detecte que el token esté listo
+      setPhase("READY");
+      // La transición se inicia al pulsar Continuar.
       return;
     }
     setPrizeWon(prize);
@@ -712,7 +752,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     setSpinCounter((c) => (c == null ? null : c + 1));
 
     // Reproducir sonido de victoria o derrota según el premio
-    if (!isScratchExperience && prize.key === 'lose') {
+    if (!isScratchExperience && prize.key === "lose") {
       sounds.playLose();
     } else if (!isScratchExperience) {
       sounds.playWin();
@@ -749,15 +789,27 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     };
   }, [sounds]);
 
-  if (retryOverlayOpen) {
+  if (
+    token?.revealedAt &&
+    token.action === "RETRY" &&
+    token.continuation?.state === "UNAVAILABLE" &&
+    !retryOverlayOpen
+  ) {
     return (
-      <RetryOverlay
-        open={true}
-        functionalTokenId={functionalTokenId}
-        onFunctionalTokenReady={handleFunctionalTokenReady}
-        maxPollingTime={ROULETTE_CONFIG.retryPollingTimeMs}
-      />
+      <div className="mx-auto max-w-md px-4 py-16 text-center text-white">
+        <h2 className="text-xl font-bold">Reintento pendiente</h2>
+        <p className="mt-3">
+          {token.continuation.message ||
+            "Consulta al personal para recuperar tu siguiente oportunidad."}
+        </p>
+        <p className="mt-3 text-sm text-white/60">
+          Conserva este enlace para volver a consultarlo.
+        </p>
+      </div>
     );
+  }
+  if (retryOverlayOpen) {
+    return <RetryContinuation onContinue={handleFunctionalTokenReady} />;
   }
   if (loading && !suppressLoader && !retryOverlayOpen) {
     return (
@@ -773,23 +825,21 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
   }
 
   if (error) {
-    // Clasificación de errores: priorizar TWO_PHASE_DISABLED para no confundir con "desactivado"
-    const isTwoPhaseDisabledError = error.includes("TWO_PHASE_DISABLED");
-    const isTokensDisabledError =
-      (!isTwoPhaseDisabledError && (error.includes("El sistema de tokens está temporalmente desactivado") || error.includes("fuera de servicio"))) || false;
+    const isTwoPhaseDisabledError = errorCode === "TWO_PHASE_DISABLED";
+    const isTokensDisabledError = errorCode === "SYSTEM_OFF";
 
     const boxTone = isTwoPhaseDisabledError
       ? {
           box: "bg-indigo-500/10 border-indigo-500/30",
           title: "text-indigo-300",
-          heading: "Modo de 1 fase activo",
-            msg: "Este entorno no tiene habilitado el flujo de 2 fases (reveal → deliver). Activa TWO_PHASE_REDEMPTION=1 y reinicia el servidor para probar la experiencia.",
+          heading: "Juego no disponible",
+          msg: "Esta experiencia no está disponible en este momento. Consulta al personal.",
         }
       : isTokensDisabledError
         ? {
             box: "bg-amber-500/10 border-amber-500/30",
             title: "text-amber-300",
-            heading: "Cargando el drop",
+            heading: "Juego no disponible",
             msg: experienceUi.disabledMessage,
           }
         : {
@@ -835,20 +885,20 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
   const transitionGuardActive = retryOverlayOpen || suppressLoader || softSwitchRef.current;
   const allowRestrictedScreens = !transitionGuardActive && phase === "READY";
 
-  if (allowRestrictedScreens && token?.disabled) {
+  if (allowRestrictedScreens && token?.disabled && token.availability !== "EXPIRED") {
     let availableText: string | null = null;
     try {
       if (token.availableFrom) {
         const d = new Date(token.availableFrom);
-        // Formato determinista DD/MM/AAAA para evitar diferencias de locale entre server y cliente
-        // Usamos 'es-ES' fijo para que SSR y CSR produzcan exactamente el mismo string.
-        // (Locales implícitos pueden variar y causar hydration mismatch.)
-        const day = String(d.getDate()).padStart(2, "0");
-        const month = String(d.getMonth() + 1).padStart(2, "0");
-        const year = d.getFullYear();
-        availableText = `${day}/${month}/${year}`;
+        availableText = d.toLocaleString("es-PE", {
+          ...(token.timeZone ? { timeZone: token.timeZone } : {}),
+          dateStyle: "short",
+          timeStyle: "short",
+        });
       }
-    } catch {}
+    } catch {
+      /* Optional presentation or response parsing failed; existing fallback remains. */
+    }
     return (
       <div className={`text-center py-16 max-w-md mx-auto ${getThemeClass(themeConfig)}`}>
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-6">
@@ -860,7 +910,11 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
                 <span className="font-semibold">{availableText}</span>.
               </>
             ) : (
-              <>Este token no está activo o ha sido deshabilitado.</>
+              <>
+                {token.reservedByRetry
+                  ? "Este QR está reservado para un reintento. Primero utiliza el QR de nuevo intento."
+                  : "Este token no está activo o ha sido deshabilitado."}
+              </>
             )}
           </p>
         </div>
@@ -868,7 +922,10 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     );
   }
 
-  const isExpired = isHydrated && token?.expiresAt && new Date(token.expiresAt) < new Date();
+  const isExpired =
+    isHydrated &&
+    (token?.availability === "EXPIRED" ||
+      (token?.expiresAt && new Date(token.expiresAt) <= new Date()));
 
   if (allowRestrictedScreens && isExpired) {
     return (
@@ -881,25 +938,37 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
     );
   }
 
-  // Si el token es un bi-token (retry) y el real ya fue revelado/entregado/redimido, suprime el panel de premio revelado
-  const isReserved = !!token?.reservedByRetry;
-  const realTokenUsed = isReserved && token?.realToken && (token.realToken.revealedAt || token.realToken.deliveredAt || token.realToken.redeemedAt);
-  const showRevealedPanel = !retryOverlayOpen && !suppressRevealed && (phase === "REVEALED_PANEL" || (token?.revealedAt && phase === "READY")) && !(isReserved && realTokenUsed) && !(prizeWon && prizeWon.key === 'lose');
-
-  // Render principal
-
-  // UI especial para tokens reservados (bi-token), cuando no hay ruleta disponible o ya fue usado
-  const shouldShowReservedPanel = (isReserved && (token?.disabled || elements.length < 2) && !retryOverlayOpen && phase === 'READY') || (isReserved && realTokenUsed);
+  const showRevealedPanel =
+    !retryOverlayOpen &&
+    !suppressRevealed &&
+    (phase === "REVEALED_PANEL" || (token?.revealedAt && phase === "READY")) &&
+    prizeWon?.key !== "lose" &&
+    token?.action !== "RETRY";
   const phaseUi = getPhaseUi(phase);
-  const visibleGuideInsights = getVisibleGuideInsights(guideInsights, GUIDE_SLOT_COUNT, guideRotationIndex);
-  const guideSlots = Array.from({ length: GUIDE_SLOT_COUNT }, (_, index) => visibleGuideInsights[index] ?? null);
+  const visibleGuideInsights = getVisibleGuideInsights(
+    guideInsights,
+    GUIDE_SLOT_COUNT,
+    guideRotationIndex
+  );
+  const guideSlots = Array.from(
+    { length: GUIDE_SLOT_COUNT },
+    (_, index) => visibleGuideInsights[index] ?? null
+  );
   const mobileSliderItems = [
     ...guideInsights.map((i) => ({ id: i.id, icon: i.icon, title: i.title, value: i.value })),
     ...(spinCounter != null
-      ? [{ id: '__spins__', icon: undefined as undefined, title: 'Giros hoy', value: spinCounterFormatter.format(spinCounter) }]
+      ? [
+          {
+            id: "__spins__",
+            icon: undefined as undefined,
+            title: "Giros hoy",
+            value: spinCounterFormatter.format(spinCounter),
+          },
+        ]
       : []),
   ];
-  const safeMobileIndex = mobileSliderItems.length > 0 ? mobileSliderIndex % mobileSliderItems.length : 0;
+  const safeMobileIndex =
+    mobileSliderItems.length > 0 ? mobileSliderIndex % mobileSliderItems.length : 0;
 
   return (
     <div
@@ -908,7 +977,7 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
       style={{ opacity: retryOverlayOpen ? 0 : 1 }}
       data-roulette-theme={theme || undefined}
     >
-      {!retryOverlayOpen && !shouldShowReservedPanel && (
+      {!retryOverlayOpen && (
         <div className={layoutStyles.heroShell}>
           <div className={layoutStyles.heroFrame}>
             <div className={layoutStyles.heroInner}>
@@ -926,10 +995,14 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
                       <div
                         className={`${layoutStyles.stepChip} ${active ? layoutStyles.stepChipActive : ""}`.trim()}
                       >
-                        <span className={layoutStyles.stepIndex}>{String(stepNumber).padStart(2, "0")}</span>
+                        <span className={layoutStyles.stepIndex}>
+                          {String(stepNumber).padStart(2, "0")}
+                        </span>
                         <span className={layoutStyles.stepLabel}>{step}</span>
                       </div>
-                      {index < experienceUi.steps.length - 1 && <span className={layoutStyles.stepDivider} aria-hidden="true" />}
+                      {index < experienceUi.steps.length - 1 && (
+                        <span className={layoutStyles.stepDivider} aria-hidden="true" />
+                      )}
                     </React.Fragment>
                   );
                 })}
@@ -945,390 +1018,332 @@ export default function RouletteClientPage({ theme: propTheme = "default" }: Rou
         colors={themeConfig?.global?.background?.confettiColors}
       />
 
-      {/* Estado: Token reservado (bi-token) */}
-      {shouldShowReservedPanel && (
-        <div className="px-4">
-          <div className="mx-auto max-w-md text-center py-10 sm:py-12">
-            <div
-              className="rounded-2xl p-6 sm:p-7 border shadow-2xl"
-              style={{
-                background: 'linear-gradient(135deg, rgba(14,16,22,0.85), rgba(10,12,18,0.85))',
-                borderColor: 'rgba(255,255,255,0.12)'
-              }}
-            >
-              <div className="flex items-center justify-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-violet-500 to-indigo-400 animate-pulse" />
-                <div className="text-white/90 text-base sm:text-lg font-semibold tracking-wide">Token reservado</div>
-              </div>
-              {realTokenUsed ? (
-                <>
-                  <p className="mt-3 text-white/70 text-sm sm:text-base leading-relaxed">
-                    Este <span className="text-white/90">Nuevo intento</span> ya fue utilizado porque el premio real fue revelado o entregado. No es posible volver a usarlo.
-                  </p>
-                  <div className="mt-5">
-                    <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs border border-white/10 text-white/70">
-                      <span className="inline-block w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-                      Retry usado
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="mt-3 text-white/70 text-sm sm:text-base leading-relaxed">
-                    Este QR está apartado para un <span className="text-white/90">Nuevo intento</span>. No participa de la ruleta ni se imprime por separado.
-                  </p>
-                  <p className="mt-2 text-white/60 text-xs sm:text-sm">
-                    Si acabas de obtener <span className="text-white/80">Retry</span>, el staff usará este código automáticamente cuando corresponda.
-                  </p>
-                  <div className="mt-5">
-                    <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs border border-white/10 text-white/70">
-                      <span className="inline-block w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-                      Reservado (bi-token)
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Ruleta solo en READY / SPINNING */}
-      {(phase === "READY" || phase === "SPINNING") && !shouldShowReservedPanel && (
+      {(phase === "READY" || phase === "SPINNING") && (
         <>
-        <div className={layoutStyles.stageShell}>
-          <div className={layoutStyles.stageCard}>
-            <div className={layoutStyles.stageBackdrop} aria-hidden="true" />
-            <div className={layoutStyles.stageGrid}>
-              <aside className={layoutStyles.guidePanel} aria-label="En vivo">
-                <div className={layoutStyles.guideEyebrow}>En vivo</div>
-                <div className={layoutStyles.guideStack}>
-                  {guideSlots.map((insight, index) => {
-                    const slotNumber = String(index + 1).padStart(2, "0");
-                    return (
-                    <div key={insight?.id ?? slotNumber} className={layoutStyles.guideStep}>
-                      <div className={layoutStyles.guideIndex}>
-                        <GuideInsightIcon icon={insight?.icon ?? "placeholder"} />
+          <div className={layoutStyles.stageShell}>
+            <div className={layoutStyles.stageCard}>
+              <div className={layoutStyles.stageBackdrop} aria-hidden="true" />
+              <div className={layoutStyles.stageGrid}>
+                <aside className={layoutStyles.guidePanel} aria-label="En vivo">
+                  <div className={layoutStyles.guideEyebrow}>En vivo</div>
+                  <div className={layoutStyles.guideStack}>
+                    {guideSlots.map((insight, index) => {
+                      const slotNumber = String(index + 1).padStart(2, "0");
+                      return (
+                        <div key={insight?.id ?? slotNumber} className={layoutStyles.guideStep}>
+                          <div className={layoutStyles.guideIndex}>
+                            <GuideInsightIcon icon={insight?.icon ?? "placeholder"} />
+                          </div>
+                          <div>
+                            <div className={layoutStyles.guideTitle}>
+                              {insight?.title ?? "Actividad en vivo"}
+                            </div>
+                            {insight ? (
+                              <>
+                                <div className={layoutStyles.guideInsightValue}>
+                                  {insight.value}
+                                </div>
+                                <div className={layoutStyles.guideText}>{insight.detail}</div>
+                              </>
+                            ) : (
+                              <div className={layoutStyles.guideText}>
+                                Cargando actividad en vivo...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {spinCounter != null && (
+                    <div className={layoutStyles.metricCard}>
+                      <div className={layoutStyles.metricLabel}>
+                        {experienceUi.dailyMetricLabel}
                       </div>
-                      <div>
-                        <div className={layoutStyles.guideTitle}>{insight?.title ?? "Actividad en vivo"}</div>
-                        {insight ? (
-                          <>
-                            <div className={layoutStyles.guideInsightValue}>{insight.value}</div>
-                            <div className={layoutStyles.guideText}>{insight.detail}</div>
-                          </>
-                        ) : (
-                          <div className={layoutStyles.guideText}>Cargando actividad en vivo...</div>
-                        )}
+                      <div className={layoutStyles.metricValue}>
+                        {spinCounterFormatter.format(spinCounter)}
                       </div>
                     </div>
-                    );
-                  })}
-                </div>
-                {spinCounter != null && (
-                  <div className={layoutStyles.metricCard}>
-                    <div className={layoutStyles.metricLabel}>{experienceUi.dailyMetricLabel}</div>
-                    <div className={layoutStyles.metricValue}>{spinCounterFormatter.format(spinCounter)}</div>
-                  </div>
-                )}
-              </aside>
+                  )}
+                </aside>
 
-              <div className={layoutStyles.wheelPanel}>
-                <div className={layoutStyles.wheelStage}>
-                  {token?.experienceType === "scratch_card" ? (
-                    <ScratchCardExperience
-                      prizeLabel={token.prize.label}
-                      disabled={phase !== "READY"}
-                      revealing={phase === "SPINNING"}
-                      revealed={phase !== "READY" && phase !== "SPINNING"}
-                      onReveal={handleSpin}
-                    />
-                  ) : (
-                    <NewRoulette
-                      elements={elements}
-                      onSpin={handleSpin}
-                      onSpinEnd={handleSpinEnd}
-                      spinning={phase === "SPINNING"}
-                      prizeIndex={prizeIndex}
-                      variant="inline"
-                      lowMotion={lowMotion}
-                      theme={theme}
-                    />
+                <div className={layoutStyles.wheelPanel}>
+                  <div className={layoutStyles.wheelStage}>
+                    {token?.experienceType === "scratch_card" ? (
+                      <ScratchCardExperience
+                        prizeLabel={token.prize.label}
+                        disabled={phase !== "READY"}
+                        revealing={phase === "SPINNING"}
+                        revealed={phase !== "READY" && phase !== "SPINNING"}
+                        onReveal={handleSpin}
+                      />
+                    ) : (
+                      <NewRoulette
+                        elements={elements}
+                        onSpin={handleSpin}
+                        onSpinEnd={handleSpinEnd}
+                        spinning={phase === "SPINNING"}
+                        prizeIndex={prizeIndex}
+                        variant="inline"
+                        lowMotion={lowMotion}
+                        theme={theme}
+                      />
+                    )}
+                  </div>
+                  {token?.experienceType !== "scratch_card" && (
+                    <div className={layoutStyles.spinCue}>{experienceUi.instruction}</div>
                   )}
                 </div>
-                {token?.experienceType !== "scratch_card" && (
-                  <div className={layoutStyles.spinCue}>{experienceUi.instruction}</div>
-                )}
               </div>
             </div>
           </div>
 
-        </div>
-
-        {/* Insights en móvil: slider automático (el guidePanel cubre los mismos datos en desktop) */}
-        {mobileSliderItems.length > 0 && (
-          <div className={layoutStyles.mobileInsightsRail}>
-            <div
-              className={layoutStyles.mobileInsightsTrack}
-              style={{ transform: `translateX(-${safeMobileIndex * 100}%)` }}
-            >
-              {mobileSliderItems.map((item) => (
-                <div key={item.id} className={layoutStyles.mobileInsightBubble}>
-                  <div className={layoutStyles.mobileInsightCard}>
-                    {item.icon != null && (
-                      <div className={layoutStyles.mobileInsightIcon}>
-                        <GuideInsightIcon icon={item.icon} />
+          {/* Insights en móvil: slider automático (el guidePanel cubre los mismos datos en desktop) */}
+          {mobileSliderItems.length > 0 && (
+            <div className={layoutStyles.mobileInsightsRail}>
+              <div
+                className={layoutStyles.mobileInsightsTrack}
+                style={{ transform: `translateX(-${safeMobileIndex * 100}%)` }}
+              >
+                {mobileSliderItems.map((item) => (
+                  <div key={item.id} className={layoutStyles.mobileInsightBubble}>
+                    <div className={layoutStyles.mobileInsightCard}>
+                      {item.icon != null && (
+                        <div className={layoutStyles.mobileInsightIcon}>
+                          <GuideInsightIcon icon={item.icon} />
+                        </div>
+                      )}
+                      <div className={layoutStyles.mobileInsightContent}>
+                        <div className={layoutStyles.mobileInsightLabel}>{item.title}</div>
+                        <div className={layoutStyles.mobileInsightValue}>{item.value}</div>
                       </div>
-                    )}
-                    <div className={layoutStyles.mobileInsightContent}>
-                      <div className={layoutStyles.mobileInsightLabel}>{item.title}</div>
-                      <div className={layoutStyles.mobileInsightValue}>{item.value}</div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-            {mobileSliderItems.length > 1 && (
-              <div className={layoutStyles.mobileSliderDots}>
-                {mobileSliderItems.map((_, i) => (
-                  <div
-                    key={i}
-                    className={
-                      i === safeMobileIndex
-                        ? layoutStyles.mobileSliderDotActive
-                        : layoutStyles.mobileSliderDot
-                    }
-                  />
                 ))}
               </div>
-            )}
-          </div>
-        )}
+              {mobileSliderItems.length > 1 && (
+                <div className={layoutStyles.mobileSliderDots}>
+                  {mobileSliderItems.map((_, i) => (
+                    <div
+                      key={i}
+                      className={
+                        i === safeMobileIndex
+                          ? layoutStyles.mobileSliderDotActive
+                          : layoutStyles.mobileSliderDot
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
       {/* Panel permanente tras cerrar modal */}
-  {showRevealedPanel && prizeWon && (
+      {showRevealedPanel && prizeWon && (
         <div className={layoutStyles.revealedShell}>
           <div className={layoutStyles.revealedCard}>
             <div className={layoutStyles.revealedInner}>
               <div className={layoutStyles.revealedKicker}>Premio revelado</div>
               <p className={layoutStyles.revealedLead}>
-                Muestralo en barra para canjearlo. Nuestro staff confirmara la entrega en tu pantalla.
+                Muestralo en barra para canjearlo. Nuestro staff confirmara la entrega en tu
+                pantalla.
               </p>
               <div className={layoutStyles.revealedPrizeCard}>
                 <div className={layoutStyles.revealedPrize}>{prizeWon.label}</div>
               </div>
               <div className={layoutStyles.revealedActions}>
-                <button
-                  className={layoutStyles.staffButton}
+                <PrizeDeliveryAction
                   onClick={confirmDeliver}
                   disabled={delivering}
-                  title="Para uso del STAFF"
-                >
-                  <span className={layoutStyles.actionIcon}><CheckCircleIcon /></span>
-                  {delivering ? "Confirmando..." : "Marcar entregado (staff)"}
-                </button>
+                  busy={delivering}
+                />
                 <button
                   className={layoutStyles.secondaryAction}
                   onClick={handleCopyPrizeLink}
                   type="button"
                 >
-                  <span className={layoutStyles.actionIcon}><CopyIcon /></span>
+                  <span className={layoutStyles.actionIcon}>
+                    <CopyIcon />
+                  </span>
                   {prizeLinkCopied ? "Enlace copiado" : "Copiar acceso del premio"}
                 </button>
               </div>
-              {deliverError && (
-                <div className={layoutStyles.revealedError}>{deliverError}</div>
-              )}
+              {deliverError && <div className={layoutStyles.revealedError}>{deliverError}</div>}
             </div>
           </div>
         </div>
       )}
 
-  {/* Modal con el premio ganado - usando AnimatePresence para animaciones de salida */}
-  <AnimatePresence>
-            {/* Overlay minimal para RETRY */}
-            {retryOverlayOpen && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[9999] flex items-center justify-center"
-                aria-modal="true"
-                role="dialog"
-              >
-                <div className="absolute inset-0" style={{ background: 'rgba(6,7,10,0.92)', backdropFilter: 'blur(8px)' }} />
-                <motion.div
-                  initial={{ scale: 0.92, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.98, opacity: 0 }}
-                  transition={{ type: 'spring', stiffness: 220, damping: 20 }}
-                  className="relative z-10 rounded-2xl px-5 py-4 sm:px-6 sm:py-5 shadow-2xl"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(20,20,28,0.95), rgba(18,18,24,0.95))',
-                    border: '1px solid rgba(255,255,255,0.12)'
-                  }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#5B86E5] to-[#36D1DC] animate-pulse" />
-                    <div className="text-white/90 text-sm sm:text-base font-medium">Nuevo intento</div>
-                  </div>
-                  <div className="mt-1 text-white/60 text-xs sm:text-sm">Preparando tu siguiente giro…</div>
-                </motion.div>
-              </motion.div>
-            )}
-  {prizeWon && phase === "REVEALED_MODAL" && prizeWon.key !== 'lose' && !(isReserved && realTokenUsed) && !isRetryTransition && !functionalTokenId && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.3 } }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          >
+      {/* Modal con el premio ganado - usando AnimatePresence para animaciones de salida */}
+      <AnimatePresence>
+        {prizeWon &&
+          phase === "REVEALED_MODAL" &&
+          prizeWon.key !== "lose" &&
+          !isRetryTransition &&
+          !functionalTokenId && (
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0, transition: { duration: 0.5, delay: 0.2 } }}
-              className="absolute inset-0 bg-black/75 backdrop-blur-md"
-              onClick={() => {
-                setPhase("REVEALED_PANEL");
-                setShowConfetti(false);
-              }}
-            ></motion.div>
-
-            <motion.div
-              initial={{ y: 30, opacity: 0, scale: 0.9 }}
-              animate={{ y: 0, opacity: 1, scale: 1 }}
-              exit={{ y: 30, opacity: 0, scale: 0.9, transition: { duration: 0.4 } }}
-              className="relative z-10 rounded-xl p-6 sm:p-8 max-w-md w-full border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden"
-              style={{
-                background: themeConfig?.global?.modal?.background || "linear-gradient(180deg, #0E0606, #07070C)",
-                boxShadow: themeConfig?.global?.modal?.boxShadow || "0 12px 32px -10px rgba(255,77,46,0.6)",
-              }}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.3 } }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
             >
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="absolute top-3 right-3"
+                exit={{ opacity: 0, transition: { duration: 0.5, delay: 0.2 } }}
+                className="absolute inset-0 bg-black/75 backdrop-blur-md"
+                onClick={() => {
+                  setPhase("REVEALED_PANEL");
+                  setShowConfetti(false);
+                }}
+              ></motion.div>
+
+              <motion.div
+                initial={{ y: 30, opacity: 0, scale: 0.9 }}
+                animate={{ y: 0, opacity: 1, scale: 1 }}
+                exit={{ y: 30, opacity: 0, scale: 0.9, transition: { duration: 0.4 } }}
+                className="relative z-10 rounded-xl p-6 sm:p-8 max-w-md w-full border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden"
+                style={{
+                  background:
+                    themeConfig?.global?.modal?.background ||
+                    "linear-gradient(180deg, #0E0606, #07070C)",
+                  boxShadow:
+                    themeConfig?.global?.modal?.boxShadow ||
+                    "0 12px 32px -10px rgba(255,77,46,0.6)",
+                }}
               >
-                <button
-                  onClick={() => {
-                    setPhase("REVEALED_PANEL");
-                    setShowConfetti(false);
-                  }}
-                  className="bg-white/10 hover:bg-white/20 rounded-full p-2 text-white/80 hover:text-white transition-colors"
-                  aria-label="Cerrar"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M18 6L6 18M6 6l12 12" />
-                  </svg>
-                </button>
-              </motion.div>
-
-              <div className="text-center">
                 <motion.div
-                  initial={{ scale: 0.2, y: -20, rotateZ: -20 }}
-                  animate={{ scale: 1, y: 0, rotateZ: 0 }}
-                  transition={{
-                    type: "spring",
-                    damping: 8,
-                    stiffness: 100,
-                    delay: 0.1,
-                  }}
-                  className="text-5xl sm:text-7xl mb-4 sm:mb-6 inline-block"
-                >
-                  🎉
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.3, duration: 0.5 }}
-                  className="mb-2"
-                >
-                  <motion.h2
-                    initial={{ y: 10 }}
-                    animate={{ y: 0 }}
-                    transition={{ type: "spring", damping: 12 }}
-                    className="text-2xl sm:text-3xl font-bold mb-1"
-                  >
-                    ¡Bien hecho!
-                  </motion.h2>
-                  <motion.div className={`w-16 h-1 mx-auto rounded-full ${themeConfig?.global?.modal?.accentGradient || 'bg-gradient-to-r from-[#FF4D2E] to-[#FF7A3C]'}`} />
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5, type: "spring" }}
-                  className="my-6"
-                >
-                  <motion.p
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.55 }}
-                    className="text-sm sm:text-base text-white/70 mb-1"
-                  >
-                    Has desbloqueado:
-                  </motion.p>
-                  <motion.p
-                    className={`text-2xl sm:text-4xl font-extrabold text-transparent bg-clip-text my-2 px-2 sm:px-4 break-words ${themeConfig?.global?.modal?.accentGradient || 'bg-gradient-to-r from-[#FF4D2E] to-[#FF7A3C]'}`}
-                    animate={{
-                      backgroundPosition: ["0% center", "100% center", "0% center"],
-                    }}
-                    transition={{
-                      duration: 5,
-                      repeat: Infinity,
-                      ease: "linear",
-                    }}
-                    style={{
-                      backgroundSize: "200% 100%",
-                    }}
-                  >
-                    {prizeWon.label}
-                  </motion.p>
-                </motion.div>
-
-                <motion.p
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  transition={{ delay: 0.7 }}
-                  className="text-white/80 mb-6 sm:mb-8 text-base sm:text-lg px-1 sm:px-2 leading-relaxed"
+                  className="absolute top-3 right-3"
                 >
-                  Muestra esta pantalla en la barra y disfruta tu premio.
-                </motion.p>
+                  <button
+                    onClick={() => {
+                      setPhase("REVEALED_PANEL");
+                      setShowConfetti(false);
+                    }}
+                    className="bg-white/10 hover:bg-white/20 rounded-full p-2 text-white/80 hover:text-white transition-colors"
+                    aria-label="Cerrar"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </motion.div>
 
-                <motion.button
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.9 }}
-                  className={`px-6 sm:px-10 py-3 sm:py-4 rounded-full font-bold transition-all shadow-lg hover:shadow-xl text-base sm:text-lg ${themeConfig?.global?.buttons?.primary || 'bg-gradient-to-r from-[#FF4D2E] to-[#FF7A3C] hover:from-[#ff5e44] hover:to-[#ff8a54] text-white'}`}
-                  onClick={() => {
-                    setPhase("REVEALED_PANEL");
-                    setShowConfetti(false);
-                  }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  ¡A rumbear!
-                </motion.button>
-                {/* Staff delivery button removed from modal per request */}
-              </div>
+                <div className="text-center">
+                  <motion.div
+                    initial={{ scale: 0.2, y: -20, rotateZ: -20 }}
+                    animate={{ scale: 1, y: 0, rotateZ: 0 }}
+                    transition={{
+                      type: "spring",
+                      damping: 8,
+                      stiffness: 100,
+                      delay: 0.1,
+                    }}
+                    className="text-5xl sm:text-7xl mb-4 sm:mb-6 inline-block"
+                  >
+                    🎉
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.3, duration: 0.5 }}
+                    className="mb-2"
+                  >
+                    <motion.h2
+                      initial={{ y: 10 }}
+                      animate={{ y: 0 }}
+                      transition={{ type: "spring", damping: 12 }}
+                      className="text-2xl sm:text-3xl font-bold mb-1"
+                    >
+                      ¡Bien hecho!
+                    </motion.h2>
+                    <motion.div
+                      className={`w-16 h-1 mx-auto rounded-full ${themeConfig?.global?.modal?.accentGradient || "bg-gradient-to-r from-[#FF4D2E] to-[#FF7A3C]"}`}
+                    />
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5, type: "spring" }}
+                    className="my-6"
+                  >
+                    <motion.p
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.55 }}
+                      className="text-sm sm:text-base text-white/70 mb-1"
+                    >
+                      Has desbloqueado:
+                    </motion.p>
+                    <motion.p
+                      className={`text-2xl sm:text-4xl font-extrabold text-transparent bg-clip-text my-2 px-2 sm:px-4 break-words ${themeConfig?.global?.modal?.accentGradient || "bg-gradient-to-r from-[#FF4D2E] to-[#FF7A3C]"}`}
+                      animate={{
+                        backgroundPosition: ["0% center", "100% center", "0% center"],
+                      }}
+                      transition={{
+                        duration: 5,
+                        repeat: Infinity,
+                        ease: "linear",
+                      }}
+                      style={{
+                        backgroundSize: "200% 100%",
+                      }}
+                    >
+                      {prizeWon.label}
+                    </motion.p>
+                  </motion.div>
+
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.7 }}
+                    className="text-white/80 mb-6 sm:mb-8 text-base sm:text-lg px-1 sm:px-2 leading-relaxed"
+                  >
+                    Muestra esta pantalla en la barra y disfruta tu premio.
+                  </motion.p>
+
+                  <motion.button
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.9 }}
+                    className={`px-6 sm:px-10 py-3 sm:py-4 rounded-full font-bold transition-all shadow-lg hover:shadow-xl text-base sm:text-lg ${themeConfig?.global?.buttons?.primary || "bg-gradient-to-r from-[#FF4D2E] to-[#FF7A3C] hover:from-[#ff5e44] hover:to-[#ff8a54] text-white"}`}
+                    onClick={() => {
+                      setPhase("REVEALED_PANEL");
+                      setShowConfetti(false);
+                    }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    ¡A rumbear!
+                  </motion.button>
+                  {/* Staff delivery button removed from modal per request */}
+                </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
+          )}
       </AnimatePresence>
 
       {/* Modal específico para lose/piña */}
-      {prizeWon && phase === "REVEALED_MODAL" && prizeWon.key === 'lose' && !isRetryTransition && !functionalTokenId && <LoseModal open={true} />}
+      {prizeWon &&
+        phase === "REVEALED_MODAL" &&
+        prizeWon.key === "lose" &&
+        !isRetryTransition &&
+        !functionalTokenId && <LoseModal open={true} />}
     </div>
   );
 }

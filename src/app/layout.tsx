@@ -1,3 +1,4 @@
+import { PrizeAuthorizationPrompt } from '@/components/prize-authorization/PrizeAuthorizationPrompt';
 import React from "react";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
@@ -55,6 +56,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
           </ThemeProvider>
         </CustomerAuthProvider>
+        <PrizeAuthorizationPrompt />
         <DynamicTitle />
         <script
           dangerouslySetInnerHTML={{

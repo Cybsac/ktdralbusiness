@@ -1,3 +1,4 @@
+import { requirePrizeAuthorization, getPrizeActor } from '@/lib/prize-authorization/service';
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
 import { apiError, apiOk } from "@/lib/apiError";
 import { redeemMundial2026Prediction, validateMundial2026Prediction } from "@/lib/mundial2026/operations";
@@ -8,12 +9,6 @@ export const revalidate = 0;
 
 export async function POST(req: Request) {
   try {
-    const raw = getUserSessionCookieFromRequest(req);
-    const session = await verifyUserSessionCookie(raw);
-    if (!session) {
-      return apiError("UNAUTHORIZED", "Sesión inválida", {}, 401);
-    }
-
     const json = (await req.json()) as {
       action?: string;
       scanInput?: string;
@@ -27,6 +22,9 @@ export async function POST(req: Request) {
     }
 
     if (json.action === "redeem") {
+      const prizeGate = await requirePrizeAuthorization(req, 'mundial');
+      if (prizeGate) return prizeGate;
+      const session = getPrizeActor(req);
       const result = await redeemMundial2026Prediction({
         scanInput: json.scanInput,
         userId: session.userId,
@@ -37,6 +35,8 @@ export async function POST(req: Request) {
       return apiOk(result);
     }
 
+    const session = await verifyUserSessionCookie(getUserSessionCookieFromRequest(req));
+    if (!session) return apiError('UNAUTHORIZED', 'Sesión requerida para la consulta interna.', undefined, 401);
     const result = await validateMundial2026Prediction({
       scanInput: json.scanInput,
       userId: session.userId,

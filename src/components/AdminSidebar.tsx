@@ -1,136 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { getNavigationGroups } from "@/components/admin/navigation/catalog";
+import { NAVIGATION_ICONS as ICONS } from "@/components/admin/navigation/icons";
+import { getActiveNavigationHref } from "@/components/admin/navigation/matching";
+import { NavigationCategoryDivider } from "@/components/admin/navigation/NavigationCategoryDivider";
+import { useNavigationExpansion } from "@/components/admin/navigation/useNavigationExpansion";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { cn } from "@/lib/utils";
-import ThemeToggle from "@/components/theme/ThemeToggle";
-
-// Icon constants to reduce duplication
-const ICONS = {
-  roulette: (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  ),
-  rouletteSmall: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  ),
-  users: (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-    </svg>
-  ),
-  usersSmall: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-    </svg>
-  ),
-  chart: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
-    </svg>
-  ),
-  check: (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-    </svg>
-  ),
-  checkSmall: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-    </svg>
-  ),
-  box: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-    </svg>
-  ),
-  film: (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2m-9 0h10m-9 0V1m10 3V1m0 3l1 1v16a2 2 0 01-2 2H6a2 2 0 01-2-2V5l1-1z" />
-    </svg>
-  ),
-  filmSmall: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2m-9 0h10m-9 0V1m10 3V1m0 3l1 1v16a2 2 0 01-2 2H6a2 2 0 01-2-2V5l1-1z" />
-    </svg>
-  ),
-  book: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-    </svg>
-  ),
-  tag: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-    </svg>
-  ),
-  cake: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 15.546c-.523 0-1.046.151-1.5.454a2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.701 2.701 0 00-1.5-.454M9 6v2m3-2v2m3-2v2M9 3h.01M12 3h.01M15 3h.01M21 21v-7a2 2 0 00-2-2H5a2 2 0 00-2 2v7h18zm-3-9v-2a2 2 0 00-2-2H8a2 2 0 00-2 2v2.01" />
-    </svg>
-  ),
-  settings: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  ),
-  star: (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-      <path d="M12 2l2.09 6.26L20.97 9l-5.18 3.76L17.82 20 12 15.9 6.18 20l2.03-7.24L3.03 9l6.88-.74L12 2z" />
-    </svg>
-  ),
-  starSmall: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 2l2.09 6.26L20.97 9l-5.18 3.76L17.82 20 12 15.9 6.18 20l2.03-7.24L3.03 9l6.88-.74L12 2z" />
-    </svg>
-  ),
-  clock: (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  ),
-  music: (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M9 19V6l12-2v13" />
-      <circle cx="6" cy="19" r="3" />
-      <circle cx="18" cy="16" r="3" />
-    </svg>
-  ),
-  gift: (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-    </svg>
-  ),
-  qr: (
-    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M12 15h4.01M12 21h4.01M16 12v4.01M16 15v4.01M20 12v4.01M20 15v4.01M12 4h4.01M16 7h4.01M20 7h4.01M12 7h4.01M12 4v3m4-3v3m4-3v3" />
-    </svg>
-  )
-};
-
-interface SidebarItem {
-  href: string;
-  label: string;
-  icon?: React.ReactNode;
-  badge?: string;
-  children?: SidebarItem[];
-}
-
-interface SidebarGroup {
-  title: string;
-  icon: React.ReactNode;
-  items: SidebarItem[];
-}
 
 interface AdminSidebarProps {
   isCollapsed?: boolean;
   onToggle?: () => void;
-  basePath?: 'admin' | 'u';
+  basePath?: "admin" | "u";
   userInfo?: {
     role: string;
     displayName: string;
@@ -141,370 +26,77 @@ interface AdminSidebarProps {
   } | null;
 }
 
-export function AdminSidebar({ isCollapsed = false, onToggle, basePath = 'admin', userInfo }: AdminSidebarProps) {
+export function AdminSidebar({
+  isCollapsed = false,
+  onToggle,
+  basePath = "admin",
+  userInfo,
+}: AdminSidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["PULSERAS DIARIAS"]));
+  const searchParams = useSearchParams();
+  const groups = useMemo(
+    () => getNavigationGroups(basePath, userInfo?.role),
+    [basePath, userInfo?.role]
+  );
+  const activeHref = getActiveNavigationHref(
+    groups,
+    pathname || "",
+    searchParams?.toString() || ""
+  );
+  const { expanded, toggle } = useNavigationExpansion(groups, activeHref, basePath);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const navRef = useRef<HTMLElement>(null);
-  const scrollPosRef = useRef<number>(0);
-  const isNavigatingRef = useRef(false);
-
-  // Configuración dinámica basada en basePath
-  const getSidebarGroups = (basePath: 'admin' | 'u', userRole?: string): SidebarGroup[] => {
-    const pathPrefix = basePath === 'admin' ? '/admin' : '/u';
-
-    return [
-      ...(basePath === 'admin' ? [{
-        title: "ESTADÍSTICAS GLOBALES",
-        icon: ICONS.chart,
-        items: [
-          { href: `${pathPrefix}/statics`, label: "Estadísticas Globales", icon: ICONS.chart }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "REGLAMENTO",
-        icon: ICONS.book,
-        items: [
-          { href: `${pathPrefix}/regulations`, label: "Reglamento Interno", icon: ICONS.book }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "NOTICIAS INTERNAS",
-        icon: ICONS.book,
-        items: [
-          { href: `${pathPrefix}/internalnews`, label: "Noticias", icon: ICONS.book }
-        ]
-      }] : []),
-      ...(basePath === 'admin' || ['ADMIN', 'COORDINATOR'].includes(userRole || '') ? [{
-        title: "RESUMEN DE JORNADA",
-        icon: ICONS.checkSmall,
-        items: [
-          { href: `${pathPrefix}/daily-evaluation`, label: "Resumen de Jornada", icon: ICONS.checkSmall },
-          { href: `${pathPrefix}/weekly-evaluation`, label: "Resumen Semanal", icon: ICONS.chart },
-          { href: `${pathPrefix}/evolucion`, label: "Evolución", icon: ICONS.chart }
-        ]
-      }] : []),
-      {
-        title: "PULSERAS DIARIAS",
-        icon: ICONS.roulette,
-        items: basePath === 'admin' ? [
-          { href: `${pathPrefix}/tokens`, label: "Panel de Control", icon: ICONS.chart },
-          { href: `${pathPrefix}/prizes`, label: "Premios", icon: ICONS.starSmall },
-          { href: `${pathPrefix}/roulettebatches`, label: "Lotes", icon: ICONS.box },
-          { href: `${pathPrefix}/printroulette`, label: "Imprimir Pulseras", icon: ICONS.checkSmall },
-          { href: `${pathPrefix}/themes`, label: "Temas", icon: ICONS.starSmall },
-          { href: `${pathPrefix}/roulettebatches/purge`, label: "Purge", icon: ICONS.check }
-        ] : [
-          { href: `${pathPrefix}/tokens`, label: "Panel de Control", icon: ICONS.chart }
-        ]
-      },
-      ...(basePath === 'admin' ? [{
-        title: "PULSERAS VIP",
-        icon: ICONS.box,
-        items: [
-          { href: `${pathPrefix}/prizesstatics`, label: "Premios", icon: ICONS.starSmall },
-          { href: `${pathPrefix}/static-batches`, label: "Lotes", icon: ICONS.box },
-          { href: `${pathPrefix}/static-batches/metrics`, label: "Métricas", icon: ICONS.chart },
-          { href: `${pathPrefix}/printstatics`, label: "Imprimir Pulseras", icon: ICONS.checkSmall }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "TOKENS REUTILIZABLES",
-        icon: ICONS.qr,
-        items: [
-          { href: `${pathPrefix}/reusable-tokens`, label: "Gestión de Tokens", icon: ICONS.qr },
-          { href: `${pathPrefix}/reusable-tokens/purge`, label: "Purge", icon: ICONS.check }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "SORTEOS QR",
-        icon: ICONS.qr,
-        items: [
-          { href: `${pathPrefix}/sorteos-qr?tab=batches`, label: "Lotes", icon: ICONS.qr },
-          { href: `${pathPrefix}/sorteos-qr?tab=policies`, label: "Políticas", icon: ICONS.checkSmall },
-          { href: `${pathPrefix}/sorteos-qr/purge`, label: "Purge", icon: ICONS.box },
-          { href: `${pathPrefix}/sorteos-qr?tab=stats`, label: "Estadísticas", icon: ICONS.chart },
-          { href: "/qr-generator", label: "Generador Público", icon: ICONS.starSmall }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "DINÁMICAS PÚBLICAS",
-        icon: ICONS.qr,
-        items: [
-          { href: `${pathPrefix}/intercambiocliente`, label: "Intercambios", icon: ICONS.qr },
-          { href: `${pathPrefix}/intercambiocliente?tab=lotes`, label: "Lotes", icon: ICONS.box },
-          { href: `${pathPrefix}/intercambiocliente?tab=politicas`, label: "Políticas", icon: ICONS.checkSmall },
-          { href: `${pathPrefix}/intercambiocliente?tab=stats`, label: "Estadísticas", icon: ICONS.chart },
-          { href: "/intercambio", label: "Página Pública", icon: ICONS.starSmall }
-        ]
-      }, {
-        title: "MUNDIAL 2026",
-        icon: ICONS.starSmall,
-        items: [
-          { href: `${pathPrefix}/mundial2026`, label: "Premios y liquidación", icon: ICONS.starSmall },
-          { href: `${pathPrefix}/mundial2026/data`, label: "Data", icon: ICONS.usersSmall },
-          { href: `${pathPrefix}/mundial/insights`, label: "Insights", icon: ICONS.chart },
-          { href: "/mundial2026", label: "Página pública", icon: ICONS.qr }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "GESTION DE OFERTAS",
-        icon: ICONS.tag,
-        items: [
-          { href: `${pathPrefix}/offers`, label: "Panel de Ofertas", icon: ICONS.tag },
-          { href: "/marketing#ofertas", label: "Ver en marketing", icon: ICONS.starSmall }
-        ]
-      }] : []),
-      {
-        title: "GESTIÓN DE PERSONAL",
-        icon: ICONS.users,
-        items: basePath === 'admin' ? [
-          { href: `${pathPrefix}/users`, label: "Colaboradores", icon: ICONS.usersSmall },
-          { href: `${pathPrefix}/attendance`, label: "Control de Asistencia", icon: ICONS.chart }
-        ] : [
-          { href: `${pathPrefix}/attendance`, label: "Mi Asistencia", icon: ICONS.chart }
-        ]
-      },
-      ...(basePath === 'admin' ? [{
-        title: "GESTIÓN DE TAREAS",
-        icon: ICONS.check,
-        items: [
-          // Put Brief del día first
-          { href: `${pathPrefix}/day-brief`, label: "Brief del día", icon: ICONS.checkSmall },
-          { href: `${pathPrefix}/tasks`, label: "Tareas", icon: ICONS.checkSmall },
-          { href: `${pathPrefix}/tasks/status`, label: "Métricas por colaborador", icon: ICONS.usersSmall },
-          { href: `${pathPrefix}/tasks/metrics`, label: "Métricas de Tareas", icon: ICONS.chart }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "GESTIÓN DE INVENTARIO",
-        icon: ICONS.box,
-        items: [
-          { href: `${pathPrefix}/inventory/suppliers`, label: "Proveedores", icon: ICONS.box },
-          { href: `${pathPrefix}/inventory/stock`, label: "Control de Stock", icon: ICONS.box },
-          { href: `${pathPrefix}/inventory/alerts`, label: "Alertas", icon: ICONS.checkSmall },
-          { href: `${pathPrefix}/inventory/units`, label: "Unidades", icon: ICONS.box }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "GESTIÓN DE CUMPLEAÑOS",
-        icon: ICONS.cake,
-        items: [
-          { href: `${pathPrefix}/birthdays`, label: "Reservas", icon: ICONS.cake },
-          { href: `${pathPrefix}/birthdays/packs`, label: "Gestión de packs", icon: ICONS.box },
-          { href: `${pathPrefix}/birthdays/referrers`, label: "Referrers", icon: ICONS.users },
-          { href: `${pathPrefix}/birthdays/referrers/metrics`, label: "Métricas", icon: ICONS.chart },
-          { href: `${pathPrefix}/birthdays/special-bottle`, label: "Botella especial", icon: ICONS.settings },
-          { href: `${pathPrefix}/birthdays/purge`, label: "Purge", icon: ICONS.check }
-        ]
-      }] : []),
-
-      ...(basePath === 'admin' ? [{
-        title: "INVITACIONES ESPECIALES",
-        icon: ICONS.star,
-        items: [
-          { href: `${pathPrefix}/generadorinvitaciones`, label: "Eventos", icon: ICONS.starSmall },
-          { href: `${pathPrefix}/generadorinvitaciones/create`, label: "Crear evento", icon: ICONS.checkSmall },
-          { href: `${pathPrefix}/generadorinvitaciones/stats`, label: "Estadísticas", icon: ICONS.chart },
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "GESTIÓN DE SHOWS",
-        icon: ICONS.film,
-        items: [
-          { href: `${pathPrefix}/shows`, label: "Shows", icon: ICONS.filmSmall },
-          { href: "/marketing#shows", label: "Ver en marketing", icon: ICONS.starSmall }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "PEDIDOS MUSICALES",
-        icon: ICONS.music,
-        items: [
-          { href: `${pathPrefix}/music-orders`, label: "Pedidos Musicales", icon: ICONS.music },
-          { href: `${pathPrefix}/dj/console`, label: "Consola DJ", icon: ICONS.settings }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "GESTIÓN DE CLIENTES",
-        icon: ICONS.users,
-        items: [
-          { href: `${pathPrefix}/customers`, label: "Clientes", icon: ICONS.usersSmall },
-          { href: `${pathPrefix}/customers/visits`, label: "Visitas", icon: ICONS.chart },
-          { href: `${pathPrefix}/customers/analytics`, label: "Analíticas", icon: ICONS.chart }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "CONTENIDO VISUAL",
-        icon: ICONS.film,
-        items: [
-          { href: `${pathPrefix}/marketing/gallery`, label: "Galería de Fotos", icon: ICONS.filmSmall },
-          { href: `${pathPrefix}/marketing-controls`, label: "Controles Marketing", icon: ICONS.starSmall }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "PRODUCCIÓN MULTIMEDIA",
-        icon: ICONS.clock,
-        items: [
-          { href: `${pathPrefix}/producciones`, label: "Tablero", icon: ICONS.filmSmall },
-          { href: `${pathPrefix}/producciones?view=list`, label: "Lista", icon: ICONS.checkSmall }
-        ]
-      }] : [{
-        title: "PRODUCCIÓN MULTIMEDIA",
-        icon: ICONS.film,
-        items: [
-          { href: `${pathPrefix}/producciones`, label: "🎬 Producciones", icon: ICONS.filmSmall },
-          { href: "/u/producciones/ideas", label: "💡 Ideas", icon: ICONS.starSmall },
-          { href: "/u/producciones/tareas", label: "🔁 Tareas", icon: ICONS.checkSmall }
-        ]
-      }]),
-      ...(basePath === 'admin' ? [{
-        title: "VENTA DE TICKETS",
-        icon: ICONS.check,
-        items: [
-          { href: `${pathPrefix}/tickets`, label: "Tickets", icon: ICONS.checkSmall }
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "CARTA & PEDIDOS",
-        icon: ICONS.book,
-        items: [
-          { href: `${pathPrefix}/mesas`, label: "Gestión de Mesas", icon: ICONS.checkSmall },
-          { href: `${pathPrefix}/menu`, label: "Gestión de Menú", icon: ICONS.book },
-          { href: `${pathPrefix}/pedidos`, label: "Panel de Pedidos", icon: ICONS.chart },
-          { href: "/menu", label: "Menú Público", icon: ICONS.starSmall }
-        ]
-      }] : []),
-      ...(basePath === 'admin' && userRole === 'ADMIN' ? [{
-        title: "SISTEMA",
-        icon: ICONS.settings,
-        items: [
-          { href: `${pathPrefix}/service-access`, label: "Acceso de la aplicación", icon: ICONS.settings },
-        ]
-      }] : []),
-      ...(basePath === 'admin' ? [{
-        title: "UPGRADE",
-        icon: ICONS.star,
-        items: [
-          { href: "#", label: "Personalización de la App", icon: ICONS.star },
-          { href: "#", label: "Gestión de Trivias", icon: ICONS.checkSmall },
-          { href: "#", label: "Gestión de Fidelidad", icon: ICONS.star },
-          { href: "#", label: "Gestión Wifi", icon: ICONS.qr }
-        ]
-      }] : [])
-    ];
-  };
-
-  const sidebarGroups = getSidebarGroups(basePath, userInfo?.role);
-
-  const toggleGroup = (groupTitle: string) => {
-    const newExpanded = new Set(expandedGroups);
-    if (newExpanded.has(groupTitle)) {
-      newExpanded.delete(groupTitle);
-    } else {
-      newExpanded.add(groupTitle);
-    }
-    setExpandedGroups(newExpanded);
-    // After expanding, scroll the group header into view
-    requestAnimationFrame(() => {
-      const el = document.getElementById(`sidebar-group-${groupTitle.replace(/\s+/g, '-')}`);
-      if (el && navRef.current) {
-        const navRect = navRef.current.getBoundingClientRect();
-        const elRect = el.getBoundingClientRect();
-        // Only scroll if the group header is near the bottom edge of the nav
-        if (elRect.bottom > navRect.bottom - 60) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-      }
+  useEffect(() => {
+    if (isCollapsed) return;
+    const frame = requestAnimationFrame(() => {
+      const active = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!active || !navRef.current) return;
+      const item = active.getBoundingClientRect(),
+        container = navRef.current.getBoundingClientRect();
+      if (item.top < container.top || item.bottom > container.bottom)
+        active.scrollIntoView({ block: "nearest" });
     });
-  };
-
-  const handleGroupClick = (groupTitle: string) => {
-    if (isCollapsed && onToggle) {
-      // If collapsed, expand sidebar first
-      onToggle();
-    }
-    // Then toggle the group
-    toggleGroup(groupTitle);
-  };
-
-  const isItemActive = (href: string) => {
-    if (href === "#") return false;
-    if (!pathname) return false;
-    // Strip query params for comparison (pathname never has them)
-    const hrefPath = href.split('?')[0].split('#')[0];
-    return pathname === hrefPath || pathname.startsWith(hrefPath + "/");
-  };
-
-  const isGroupActive = (group: SidebarGroup) => {
-    return group.items.some(item => isItemActive(item.href));
-  };
-
+    return () => cancelAnimationFrame(frame);
+  }, [activeHref, isCollapsed]);
   const handleLogout = async () => {
     if (isLoggingOut) return;
     setIsLoggingOut(true);
     try {
-      const res = await fetch('/api/auth/logout', { method: "POST" });
+      const res = await fetch("/api/auth/logout", { method: "POST" });
       if (res.ok) {
         // Use window.location for full page reload to re-evaluate server-side layout
-        window.location.href = '/u/login';
+        window.location.href = "/u/login";
       } else {
-        window.location.href = '/u/login';
+        window.location.href = "/u/login";
       }
     } catch {
-      window.location.href = '/u/login';
+      window.location.href = "/u/login";
     } finally {
       setIsLoggingOut(false);
     }
   };
 
-  // Ensure the group for the current route is expanded so the active item is visible/highlighted
-  useEffect(() => {
-    // Save scroll position before any state change
-    if (navRef.current) {
-      scrollPosRef.current = navRef.current.scrollTop;
-      isNavigatingRef.current = true;
-    }
-    const next = new Set(expandedGroups);
-    sidebarGroups.forEach((group) => {
-      if (group.items.some((it) => isItemActive(it.href))) {
-        next.add(group.title);
-      }
-    });
-    // Only update state if something actually changed to avoid unnecessary renders
-    if (next.size !== expandedGroups.size || Array.from(next).some((k) => !expandedGroups.has(k))) {
-      setExpandedGroups(next);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, basePath]);
-
-  // Restore scroll position after re-render caused by navigation
-  useEffect(() => {
-    if (isNavigatingRef.current && navRef.current) {
-      navRef.current.scrollTop = scrollPosRef.current;
-      isNavigatingRef.current = false;
-    }
-  });
-
   return (
-    <div className={cn(
-      "flex flex-col h-screen bg-white dark:bg-slate-900 text-slate-900 dark:text-white transition-all duration-300",
-      isCollapsed ? "w-16" : "w-64"
-    )}>
+    <div
+      className={cn(
+        "flex min-h-0 flex-col h-dvh bg-white dark:bg-slate-900 text-slate-900 dark:text-white transition-all duration-300",
+        isCollapsed ? "w-16" : "w-64"
+      )}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+      <div className="shrink-0 flex items-center justify-between p-3 border-b border-slate-200 dark:border-slate-700">
         {!isCollapsed && (
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+          <div className="min-w-0 flex flex-1 items-center space-x-2">
+            <div className="shrink-0 w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-sm">
-                {userInfo ? userInfo.displayName.charAt(0).toUpperCase() : 'U'}
+                {userInfo ? userInfo.displayName.charAt(0).toUpperCase() : "U"}
               </span>
             </div>
             <div className="flex flex-col min-w-0 flex-1">
               <span className="font-semibold text-sm truncate">
-                {userInfo ? userInfo.displayName : 'Cargando...'}
+                {userInfo ? userInfo.displayName : "Cargando..."}
               </span>
-              {userInfo && userInfo.role !== 'GUEST' && (
+              {userInfo && userInfo.role !== "GUEST" && (
                 <div className="space-y-0.5 mt-1">
                   {userInfo.dni && (
                     <span className="text-xs text-slate-500 dark:text-slate-400 block">
@@ -526,166 +118,141 @@ export function AdminSidebar({ isCollapsed = false, onToggle, basePath = 'admin'
                   )}
                 </div>
               )}
-              {userInfo && userInfo.role === 'GUEST' && (
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {userInfo.role}
-                </span>
+              {userInfo && userInfo.role === "GUEST" && (
+                <span className="text-xs text-slate-500 dark:text-slate-400">{userInfo.role}</span>
               )}
             </div>
           </div>
         )}
         <button
+          type="button"
+          aria-label={isCollapsed ? "Expandir menú" : "Contraer menú"}
+          aria-expanded={!isCollapsed}
           onClick={onToggle}
           className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M4 6h16M4 12h16M4 18h16"
+            />
           </svg>
         </button>
       </div>
 
       {/* Theme Toggle Container */}
-      <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+      <div className="shrink-0 px-3 py-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
         <div className="flex items-center justify-between">
           {!isCollapsed && (
-            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-              Tema
-            </span>
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Tema</span>
           )}
           <ThemeToggle compact={isCollapsed} />
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav ref={navRef} className="flex-1 overflow-y-auto py-4 scroll-smooth">
-        <div className="space-y-2 px-3">
-          {sidebarGroups.map((group) => (
-            <div key={group.title} id={`sidebar-group-${group.title.replace(/\s+/g, '-')}`} className="space-y-1">
-              {/* Group Header */}
-              {group.title === "UPGRADE" ? (
+      <nav
+        aria-label="Navegación de administración"
+        ref={navRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3"
+      >
+        <div className={cn("space-y-2", isCollapsed ? "px-1" : "px-3")}>
+          {groups.map((group, index) => {
+            const open = !isCollapsed && expanded.has(group.id);
+            const active = group.items.some((item) => item.href === activeHref);
+            const upgrade = group.kind === "upgrade";
+            return (
+              <section key={group.id}>
+                {group.category && groups[index - 1]?.category !== group.category && (
+                  <NavigationCategoryDivider
+                    category={group.category}
+                    collapsed={isCollapsed}
+                    first={index === 0}
+                  />
+                )}
                 <button
-                  onClick={() => handleGroupClick(group.title)}
+                  type="button"
+                  aria-label={group.title}
+                  title={isCollapsed ? group.title : undefined}
+                  aria-expanded={open}
+                  aria-controls={`navigation-${basePath}-${group.id}`}
+                  onClick={() => {
+                    if (isCollapsed) onToggle?.();
+                    toggle(group.id, isCollapsed);
+                  }}
                   className={cn(
-                    "w-full flex items-center space-x-2 px-3 py-2 text-xs font-semibold text-amber-600 dark:text-amber-400 bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 rounded-md transition-colors hover:opacity-80",
+                    "flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2",
                     isCollapsed && "justify-center",
-                    isGroupActive(group) && "text-amber-700 dark:text-amber-300"
+                    upgrade
+                      ? "text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                      : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800",
+                    active && "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
                   )}
                 >
-                  <span className="flex-shrink-0">{group.icon}</span>
+                  <span className="shrink-0" aria-hidden="true">
+                    {ICONS[group.icon]}
+                  </span>
                   {!isCollapsed && (
                     <>
-                      <span className="flex-1 text-left">{group.title}</span>
-                      <svg
-                        className={cn(
-                          "w-4 h-4 transition-transform",
-                          expandedGroups.has(group.title) ? "rotate-90" : ""
-                        )}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
+                      <span className="min-w-0 flex-1 break-words">{group.title}</span>
+                      <span
+                        aria-hidden="true"
+                        className={cn("shrink-0 transition-transform", open && "rotate-90")}
                       >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                      </svg>
+                        ›
+                      </span>
                     </>
                   )}
                 </button>
-              ) : (
-                <button
-                  onClick={() => handleGroupClick(group.title)}
-                  className={cn(
-                    "w-full flex items-center space-x-2 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors",
-                    isCollapsed && "justify-center",
-                    isGroupActive(group) && "text-blue-600 dark:text-blue-400 bg-slate-100 dark:bg-slate-800"
-                  )}
+                <div
+                  id={`navigation-${basePath}-${group.id}`}
+                  hidden={!open}
+                  className="ml-3 space-y-1 border-l border-slate-200 pl-2 dark:border-slate-700"
                 >
-                  <span className="flex-shrink-0">{group.icon}</span>
-                  {!isCollapsed && (
-                    <>
-                      <span className="flex-1 text-left">{group.title}</span>
-                      <svg
-                        className={cn(
-                          "w-4 h-4 transition-transform",
-                          expandedGroups.has(group.title) ? "rotate-90" : ""
-                        )}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
+                  {group.items.map((item) =>
+                    item.href === "#" ? (
+                      <span
+                        key={item.label}
+                        aria-disabled="true"
+                        className="block px-2 py-2 text-sm text-slate-400"
                       >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                      </svg>
-                    </>
+                        {item.label}
+                      </span>
+                    ) : (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        aria-current={activeHref === item.href ? "page" : undefined}
+                        className={cn(
+                          "flex min-h-10 items-center gap-2 rounded-md px-2 py-2 text-sm focus-visible:outline focus-visible:outline-2",
+                          activeHref === item.href
+                            ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+                            : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                        )}
+                      >
+                        <span className="shrink-0" aria-hidden="true">
+                          {item.icon && ICONS[item.icon]}
+                        </span>
+                        <span className="min-w-0 flex-1 break-words">{item.label}</span>
+                        {item.badge && <span className="text-xs">{item.badge}</span>}
+                      </Link>
+                    )
                   )}
-                </button>
-              )}
-
-              {/* Group Items */}
-              {!isCollapsed && expandedGroups.has(group.title) && (
-                <div className="ml-4 space-y-1">
-                  {group.items.map((item) => (
-                    <div key={item.href}>
-                      {item.children ? (
-                        <div className="space-y-1">
-                          <div className={cn(
-                            "flex items-center space-x-2 px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors",
-                            isItemActive(item.href) && "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400"
-                          )}>
-                            <span className="flex-shrink-0">{item.icon}</span>
-                            <span className="flex-1">{item.label}</span>
-                            {item.badge && (
-                              <span className="px-2 py-0.5 text-xs bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded">
-                                {item.badge}
-                              </span>
-                            )}
-                          </div>
-                          <div className="ml-4 space-y-1">
-                            {item.children.map((child) => (
-                              <Link
-                                key={child.href}
-                                href={child.href}
-                                className={cn(
-                                  "block px-3 py-1.5 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors",
-                                  isItemActive(child.href) && "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400"
-                                )}
-                                aria-current={isItemActive(child.href) ? "page" : undefined}
-                              >
-                                {child.label}
-                              </Link>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <Link
-                          href={item.href}
-                          className={cn(
-                            "flex items-center space-x-2 px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors",
-                            isItemActive(item.href) && "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400",
-                            item.href === "#" && "opacity-75 cursor-not-allowed bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800"
-                          )}
-                          aria-current={isItemActive(item.href) ? "page" : undefined}
-                        >
-                          <span className="flex-shrink-0">{item.icon}</span>
-                          <span className="flex-1">{item.label}</span>
-                          {item.badge && (
-                            <span className="px-2 py-0.5 text-xs bg-gradient-to-r from-amber-100 to-yellow-100 dark:from-amber-900/40 dark:to-yellow-900/40 text-amber-800 dark:text-amber-200 rounded border border-amber-300 dark:border-amber-700">
-                              {item.badge}
-                            </span>
-                          )}
-                        </Link>
-                      )}
-                    </div>
-                  ))}
                 </div>
-              )}
-            </div>
-          ))}
+              </section>
+            );
+          })}
         </div>
       </nav>
 
       {/* Scanner Button - Prominent and separated */}
-      {basePath === 'admin' && (
+      {basePath === "admin" && (
         <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
           <Link
             href="/admin/scanner"
+            aria-label="Escanear códigos"
+            title={isCollapsed ? "Escanear códigos" : undefined}
             className={cn(
               "w-full flex items-center justify-center space-x-3 px-4 py-3 bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-[1.02]",
               isCollapsed ? "px-3" : ""
@@ -703,7 +270,7 @@ export function AdminSidebar({ isCollapsed = false, onToggle, basePath = 'admin'
       )}
 
       {/* Footer with Logout */}
-      <div className="p-4 border-t border-slate-200 dark:border-slate-700">
+      <div className="shrink-0 p-3 border-t border-slate-200 dark:border-slate-700">
         <button
           onClick={handleLogout}
           disabled={isLoggingOut}
@@ -714,19 +281,21 @@ export function AdminSidebar({ isCollapsed = false, onToggle, basePath = 'admin'
           )}
           aria-label="Cerrar sesión"
         >
-          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          <svg
+            className="w-4 h-4 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+            />
           </svg>
-          {!isCollapsed && (
-            <span>{isLoggingOut ? "Saliendo..." : "Cerrar sesión"}</span>
-          )}
+          {!isCollapsed && <span>{isLoggingOut ? "Saliendo..." : "Cerrar sesión"}</span>}
         </button>
-        {!isCollapsed && (
-          <div className="mt-3 text-xs text-slate-500 dark:text-slate-500">
-            <div>Versión 1.0.0</div>
-            <div className="mt-1">Última actualización: {new Date().toLocaleDateString()}</div>
-          </div>
-        )}
       </div>
     </div>
   );

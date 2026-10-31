@@ -93,17 +93,18 @@ export default function DJConsolePage() {
   // Socket.IO listeners
   useEffect(() => {
     if (socket) {
-      socket.on("new-music-order", (data: any) => {
+      const onSocketNewMusicOrder = (data: any) => {
         console.log("🎵 Nuevo pedido:", data);
         fetchOrders(false);
         // Play notification sound
         const audio = new Audio("/sounds/notification.mp3");
         audio.volume = 0.5;
         audio.play().catch(() => {});
-      });
+      };
+      socket.on("new-music-order", onSocketNewMusicOrder);
 
       return () => {
-        socket.off("new-music-order");
+        socket.off("new-music-order", onSocketNewMusicOrder);
       };
     }
   }, [socket, fetchOrders]);
