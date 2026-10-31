@@ -3,6 +3,7 @@ import type { Server as HttpServer } from "http";
 import type { NextApiResponse } from "next";
 import { Server as ServerIO } from "socket.io";
 
+import { setupStationSocket } from "./socket/station";
 import { setupOffersSocketEvents } from "./socket/offers";
 import { setupPrizeAuthorizationSocket } from "./socket/prize-authorization";
 import { SOCKET_CHANNELS, SOCKET_PATH } from "./socket-contract";
@@ -76,6 +77,7 @@ export function initSocketIO(httpServer: HttpServer): ServerIO {
       });
     }
     setupPrizeAuthorizationSocket(socket);
+    setupStationSocket(socket);
   });
   setupOffersSocketEvents(io);
   return io;

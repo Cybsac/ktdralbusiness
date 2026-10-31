@@ -34,39 +34,37 @@ if [ -d "$DATA_DIR" ]; then
     esac
   fi
 
-  # One-time move existing posters/templates to data if data side is empty
-  if [ -d "$POSTERS_DIR" ] && [ -z "$(ls -A "$DATA_DIR/public/posters" 2>/dev/null)" ] && [ -n "$(ls -A "$POSTERS_DIR" 2>/dev/null)" ]; then
-    echo "[entrypoint] Migrating existing posters to $DATA_DIR/public/posters"
-    cp -r "$POSTERS_DIR/"* "$DATA_DIR/public/posters/" 2>/dev/null || true
-  fi
-  if [ -d "$TEMPLATES_DIR" ] && [ -z "$(ls -A "$DATA_DIR/public/templates" 2>/dev/null)" ] && [ -n "$(ls -A "$TEMPLATES_DIR" 2>/dev/null)" ]; then
-    echo "[entrypoint] Migrating existing templates to $DATA_DIR/public/templates"
-    cp -r "$TEMPLATES_DIR/"* "$DATA_DIR/public/templates/" 2>/dev/null || true
-  fi
+  # Preserve bundled files and volume files before linking; never recursively delete them.
+  link_persistent_assets() {
+    ASSET_DIR="$1"
+    VOLUME_DIR="$2"
+    if [ -L "$ASSET_DIR" ]; then
+      echo "[entrypoint] Existing asset link retained: $ASSET_DIR"
+      return
+    fi
+    if [ -d "$ASSET_DIR" ]; then
+      cp -rn "$ASSET_DIR/." "$VOLUME_DIR/"
+      BACKUP_DIR="${ASSET_DIR}.bundled"
+      if [ -e "$BACKUP_DIR" ]; then
+        echo "[entrypoint] Existing asset backup prevents linking: $BACKUP_DIR" >&2
+        exit 1
+      fi
+      mv "$ASSET_DIR" "$BACKUP_DIR"
+    elif [ -e "$ASSET_DIR" ]; then
+      echo "[entrypoint] Unexpected asset path: $ASSET_DIR" >&2
+      exit 1
+    fi
+    ln -s "$VOLUME_DIR" "$ASSET_DIR"
+  }
+  link_persistent_assets "$POSTERS_DIR" "$DATA_DIR/public/posters"
+  link_persistent_assets "$TEMPLATES_DIR" "$DATA_DIR/public/templates"
 
-  # Link back into /app/public for serving
-  if [ -d "$POSTERS_DIR" ] || [ -L "$POSTERS_DIR" ]; then rm -rf "$POSTERS_DIR"; fi
-  ln -s "$DATA_DIR/public/posters" "$POSTERS_DIR"
-  if [ -d "$TEMPLATES_DIR" ] || [ -L "$TEMPLATES_DIR" ]; then rm -rf "$TEMPLATES_DIR"; fi
-  ln -s "$DATA_DIR/public/templates" "$TEMPLATES_DIR"
 fi
 
-# Auto-migrate schema based on DATABASE_URL (optional). Default disabled unless ALLOW_MIGRATIONS=1
-if [ -n "$DATABASE_URL" ] && [ "$ALLOW_MIGRATIONS" = "1" ]; then
-  if echo "$DATABASE_URL" | grep -qi "^file:"; then
-    echo "[entrypoint] Detected SQLite DATABASE_URL ($DATABASE_URL). Running prisma db push..."
-    npx prisma db push --skip-generate || {
-      echo "[entrypoint] prisma db push failed. Continuing to start app, but database may be unusable.";
-    }
-  elif echo "$DATABASE_URL" | grep -Eqi "^postgres(|ql)://"; then
-    echo "[entrypoint] Detected Postgres DATABASE_URL. Running prisma db push..."
-    npx prisma db push --skip-generate || {
-      echo "[entrypoint] prisma db push failed. Continuing to start app, but database may be unusable.";
-    }
-  else
-    echo "[entrypoint] Unknown DATABASE_URL scheme. Skipping prisma migrations."
-  fi
-  # Seeding is disabled by default. To seed, set ALLOW_SEED=1 and run `npm run seed` manually.
+# Schema changes are applied explicitly with reviewed Prisma migrations before deployment.
+# Never synchronize the database schema automatically during container startup.
+if [ "$ALLOW_MIGRATIONS" = "1" ]; then
+  echo "[entrypoint] Automatic schema synchronization disabled; apply reviewed migrations separately."
 fi
 
 if [ -f "server.js" ]; then

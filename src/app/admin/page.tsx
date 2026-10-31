@@ -43,6 +43,10 @@ export default async function AdminDashboard() {
           </div>
 
           <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
+            <a href='/admin/estacion' className='block p-4 bg-teal-50 dark:bg-teal-900/20 rounded-lg border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/30 transition-colors'>
+              <h3 className='font-semibold text-slate-900 dark:text-slate-100'>Estación de operación</h3>
+              <p className='text-sm text-slate-600 dark:text-slate-400 mt-2'>Abrir la estación táctil y conectar escáneres</p>
+            </a>
             <a href='/admin/welcomeplayers' className='block p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors'>
               <div className='flex items-center mb-2'>
                 <svg className='h-5 w-5 text-amber-600 dark:text-amber-400 mr-2' fill='none' viewBox='0 0 24 24' stroke='currentColor'>

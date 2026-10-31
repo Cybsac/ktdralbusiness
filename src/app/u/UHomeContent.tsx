@@ -461,6 +461,14 @@ export default function UHomeContent({
                     Abrir escáner →
                   </div>
                 </Link>
+                <Link href="/u/estacion" className="block rounded-lg border border-teal-200 bg-white p-4 shadow-sm dark:border-teal-800 dark:bg-slate-800">
+                  <div className="text-lg font-medium">Estación de operación</div>
+                  <p className="text-sm text-gray-600 dark:text-slate-300">Abrir la estación táctil y conectar escáneres.</p>
+                </Link>
+                <Link href="/u/estacion/terminal" className="block rounded-lg border border-teal-200 bg-white p-4 shadow-sm dark:border-teal-800 dark:bg-slate-800">
+                  <div className="text-lg font-medium">Escáner de estación</div>
+                  <p className="text-sm text-gray-600 dark:text-slate-300">Volver a conectar este celular a su estación.</p>
+                </Link>
                 {isCoordinator && (
                   <Link
                     href="/u/welcomeplayers"

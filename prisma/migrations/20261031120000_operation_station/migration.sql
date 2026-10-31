@@ -1,0 +1,10 @@
+CREATE TABLE "OperationStation" ("id" TEXT NOT NULL, "ownerId" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "expiresAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "OperationStation_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "StationInvitation" ("id" TEXT NOT NULL, "stationId" TEXT NOT NULL, "tokenHash" TEXT NOT NULL, "expiresAt" TIMESTAMP(3) NOT NULL, "usedAt" TIMESTAMP(3), CONSTRAINT "StationInvitation_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "StationTerminal" ("id" TEXT NOT NULL, "stationId" TEXT NOT NULL, "userId" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "revokedAt" TIMESTAMP(3), CONSTRAINT "StationTerminal_pkey" PRIMARY KEY ("id"));
+CREATE INDEX "OperationStation_ownerId_expiresAt_idx" ON "OperationStation"("ownerId", "expiresAt");
+CREATE UNIQUE INDEX "StationInvitation_tokenHash_key" ON "StationInvitation"("tokenHash");
+CREATE INDEX "StationInvitation_stationId_idx" ON "StationInvitation"("stationId");
+CREATE INDEX "StationTerminal_stationId_revokedAt_idx" ON "StationTerminal"("stationId", "revokedAt");
+CREATE INDEX "StationTerminal_userId_revokedAt_idx" ON "StationTerminal"("userId", "revokedAt");
+ALTER TABLE "StationInvitation" ADD CONSTRAINT "StationInvitation_stationId_fkey" FOREIGN KEY ("stationId") REFERENCES "OperationStation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "StationTerminal" ADD CONSTRAINT "StationTerminal_stationId_fkey" FOREIGN KEY ("stationId") REFERENCES "OperationStation"("id") ON DELETE CASCADE ON UPDATE CASCADE;

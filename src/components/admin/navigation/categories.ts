@@ -16,6 +16,7 @@ export const NAVIGATION_CATEGORIES = {
   commercial: {
     label: "Operación comercial",
     groups: [
+      "estacion-operacion",
       "pulseras-tokenshow",
       "pulseras-interactivas",
       "tokens-reutilizables",

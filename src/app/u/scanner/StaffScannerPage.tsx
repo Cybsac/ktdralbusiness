@@ -1,4 +1,5 @@
 "use client";
+import { STATION_INVITATION_PREFIX, STATION_PAIR_KEY } from "@/lib/station/contracts";
 import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -226,6 +227,18 @@ export default function StaffScannerPage() {
     if (!text) return;
     if (processingRef.current || inCooldown) return;
     processingRef.current = true;
+
+    if (text.startsWith(STATION_INVITATION_PREFIX)) {
+      const token = text.slice(STATION_INVITATION_PREFIX.length);
+      if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+        setBanner({ variant: "error", message: "QR de estación inválido" });
+        processingRef.current = false;
+        return;
+      }
+      sessionStorage.setItem(STATION_PAIR_KEY, token);
+      window.location.assign('/u/estacion/terminal');
+      return;
+    }
 
     // 1) Detect GLOBAL QR (attendance posters) — this scanner does NOT handle attendance
     if (isGlobalQr(text)) {

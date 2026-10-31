@@ -200,12 +200,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Write the uploaded image to a temporary file so composeTemplateWithQr can read it
-    const arrayBuffer = await file.arrayBuffer();
-    const tmpDir = os.tmpdir();
-    const ext = (file.name?.split('.')?.pop() || 'png').toLowerCase();
-    const tmpPath = path.join(tmpDir, `preview-${randomUUID()}.${ext}`);
-    await writeFile(tmpPath, new Uint8Array(arrayBuffer));
+    if (file.size > 10 * 1024 * 1024) {
+      return apiError('FILE_TOO_LARGE', 'La plantilla es demasiado grande', undefined, 400);
+    }
+    const sharp = (await import('sharp')).default;
+    const templateBuffer = await sharp(Buffer.from(await file.arrayBuffer())).rotate().png().toBuffer();
 
     // Generate example QR
     const exampleQrUrl = 'https://ejemplo.com/qr-de-ejemplo';
@@ -216,9 +215,9 @@ export async function POST(req: NextRequest) {
       color: { dark: '#000000', light: '#FFFFFF' },
     });
 
-    try {
+    {
       const previewImage = await composeTemplateWithQr({
-        templatePath: tmpPath,
+        templateBuffer,
         qrBuffer,
         qrMetadata: qrMeta,
         dpi,
@@ -234,9 +233,6 @@ export async function POST(req: NextRequest) {
           'Expires': '0',
         },
       });
-    } finally {
-      // Best-effort cleanup
-      try { await unlink(tmpPath); } catch {}
     }
   } catch (err: any) {
     console.error('print preview (upload) error', err);

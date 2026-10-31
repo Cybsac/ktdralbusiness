@@ -24,6 +24,14 @@ function dataUrlToBuffer(dataUrl: string): Buffer {
 }
 
 export async function GET(req: Request) {
+  return generatePdf(req);
+}
+
+export async function POST(req: Request) {
+  return generatePdf(req);
+}
+
+async function generatePdf(req: Request) {
   let tempTemplatePath: string | null = null;
 
   try {
@@ -35,14 +43,16 @@ export async function GET(req: Request) {
 
     // Obtener parámetros de la URL
     const url = new URL(req.url);
-    const batchId = url.searchParams.get('batchId');
-    const templateId = url.searchParams.get('templateId');
+    const formData = req.method === 'POST' ? await req.formData() : null;
+    const batchId = formData ? String(formData.get('batchId') || '') : url.searchParams.get('batchId');
+    const templateId = formData ? null : url.searchParams.get('templateId');
+    const file = formData?.get('file');
     
     if (!batchId) {
       return apiError('BATCH_ID_REQUIRED','Falta batchId',undefined,400);
     }
 
-    if (!templateId) {
+    if (!formData && !templateId) {
       return apiError('MISSING_TEMPLATE_ID','Falta templateId',undefined,400);
     }
 
@@ -101,64 +111,75 @@ export async function GET(req: Request) {
       tokenData = tokenData.slice(0, maxTokens);
     }
 
-    // Cargar la plantilla desde la base de datos
-    const template = await prisma.printTemplate.findUnique({ 
-      where: { id: templateId }
-    });
-
-    if (!template) {
-      return apiError('TEMPLATE_NOT_FOUND','Plantilla no encontrada',undefined,404);
-    }
-
-    // Obtener la ruta del archivo de plantilla
-    let templatePath: string;
-
-    if (template.storageUrl) {
-      // Descargar desde Supabase
-      console.log('Descargando plantilla desde Supabase:', template.storageUrl);
-      const response = await fetch(template.storageUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to download template from Supabase: ${response.status}`);
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      tempTemplatePath = path.join(os.tmpdir(), `template-${randomUUID()}.png`);
-      await writeFile(tempTemplatePath, new Uint8Array(arrayBuffer));
-      templatePath = tempTemplatePath;
-    } else if (template.filePath) {
-      // Usar ruta local (compatibilidad)
-      templatePath = path.resolve(process.cwd(), template.filePath.startsWith('public/') ? template.filePath : `public/templates/${template.filePath}`);
-
-      // Verificar que el archivo existe
-      if (!fs.existsSync(templatePath)) {
-        console.error('El archivo de plantilla no existe en la ruta:', templatePath);
-        return apiError('TEMPLATE_FILE_NOT_FOUND','Archivo de plantilla no encontrado',{ path: templatePath },404);
-      }
-    } else {
-      return apiError('TEMPLATE_FILE_NOT_FOUND','No se encontró archivo de plantilla',undefined,404);
-    }
-
-    console.log('Ruta de plantilla a usar:', templatePath);
+    let templatePath: string | undefined;
+    let templateBuffer: Buffer | undefined;
     let dpi = 300;
     let cols = 1;
     let rows = 8;
     let defaultQrMeta = { xMm: 150, yMm: 230, widthMm: 30, rotationDeg: 0 };
+    if (formData) {
+      if (!(file instanceof File) || !file.size) return apiError('FILE_REQUIRED', 'Archivo requerido', undefined, 400);
+      if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return apiError('INVALID_IMAGE_TYPE', 'La plantilla debe ser PNG, JPG o WebP', undefined, 400);
+      if (file.size > 10 * 1024 * 1024) return apiError('FILE_TOO_LARGE', 'La plantilla es demasiado grande', undefined, 400);
+      const sharp = (await import('sharp')).default;
+      templateBuffer = await sharp(Buffer.from(await file.arrayBuffer())).rotate().png({ compressionLevel: 9 }).toBuffer();
+    } else {
+      // Cargar la plantilla desde la base de datos
+      const template = await prisma.printTemplate.findUnique({
+        where: { id: templateId! }
+      });
 
-    // Obtener configuración de metadatos si existen
-    if (template.meta) {
-      try {
-        const metaObj = JSON.parse(template.meta);
-        if (metaObj.dpi) dpi = metaObj.dpi;
-        if (metaObj.cols) cols = metaObj.cols;
-        if (metaObj.rows) rows = metaObj.rows;
-        if (metaObj.qr) defaultQrMeta = metaObj.qr;
-      } catch (e) {
-        console.warn('print template meta parse failed', e);
+      if (!template) {
+        return apiError('TEMPLATE_NOT_FOUND','Plantilla no encontrada',undefined,404);
       }
-    }
 
-    if (!fs.existsSync(templatePath)) {
-      // Archivo físicamente ausente: diferenciamos de TEMPLATE_NOT_FOUND (registro DB)
-      return apiError('TEMPLATE_FILE_NOT_FOUND','Archivo de plantilla no encontrado',{ path: templatePath },404);
+      // Obtener la ruta del archivo de plantilla
+
+
+      if (template.storageUrl) {
+        // Descargar desde Supabase
+        console.log('Descargando plantilla desde Supabase:', template.storageUrl);
+        const response = await fetch(template.storageUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to download template from Supabase: ${response.status}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        tempTemplatePath = path.join(os.tmpdir(), `template-${randomUUID()}.png`);
+        await writeFile(tempTemplatePath, new Uint8Array(arrayBuffer));
+        templatePath = tempTemplatePath;
+      } else if (template.filePath) {
+        // Usar ruta local (compatibilidad)
+        templatePath = path.resolve(process.cwd(), template.filePath.startsWith('public/') ? template.filePath : `public/templates/${template.filePath}`);
+
+        // Verificar que el archivo existe
+        if (!fs.existsSync(templatePath)) {
+          console.error('El archivo de plantilla no existe en la ruta:', templatePath);
+          return apiError('TEMPLATE_FILE_NOT_FOUND','Archivo de plantilla no encontrado',{ path: templatePath },404);
+        }
+      } else {
+        return apiError('TEMPLATE_FILE_NOT_FOUND','No se encontró archivo de plantilla',undefined,404);
+      }
+
+      console.log('Ruta de plantilla a usar:', templatePath);
+
+      // Obtener configuración de metadatos si existen
+      if (template.meta) {
+        try {
+          const metaObj = JSON.parse(template.meta);
+          if (metaObj.dpi) dpi = metaObj.dpi;
+          if (metaObj.cols) cols = metaObj.cols;
+          if (metaObj.rows) rows = metaObj.rows;
+          if (metaObj.qr) defaultQrMeta = metaObj.qr;
+        } catch (e) {
+          console.warn('print template meta parse failed', e);
+        }
+      }
+
+      if (!fs.existsSync(templatePath)) {
+        // Archivo físicamente ausente: diferenciamos de TEMPLATE_NOT_FOUND (registro DB)
+        return apiError('TEMPLATE_FILE_NOT_FOUND','Archivo de plantilla no encontrado',{ path: templatePath },404);
+      }
+
     }
 
     // Procesar tokens en chunks para mantener el uso de memoria limitado
@@ -177,7 +198,8 @@ export async function GET(req: Request) {
         const qrMeta = defaultQrMeta;
 
         const composed = await composeTemplateWithQr({ 
-          templatePath, 
+          templatePath,
+          templateBuffer,
           qrBuffer: qrBuf, 
           qrMetadata: qrMeta, 
           dpi 
@@ -206,7 +228,7 @@ export async function GET(req: Request) {
     const pdfBuf = await composePdfFromPagePngs(pages, { dpi });
     const durationMs = Date.now() - startMs;
 
-    const filename = `batch-${batchId}-template-${templateId}.pdf`;
+    const filename = `batch-${batchId}.pdf`;
     
     // Convertir buffer a formato adecuado para NextResponse
     const toUint8 = (b: any): Uint8Array => {

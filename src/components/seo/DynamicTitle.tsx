@@ -15,6 +15,7 @@ const MATCHERS: TitleMatcher[] = [
   { test: p => p === '/' || p === '/landing', build: () => 'Inicio' },
   { test: p => p.startsWith('/marketing'), build: () => 'Marketing' },
   { test: p => p === '/admin', build: () => 'Dashboard' },
+  { test: p => p.startsWith('/admin/estacion') || p.startsWith('/u/estacion'), build: () => 'Estación de operación' },
   { test: p => p.startsWith('/admin/prizes'), build: () => 'Premios' },
   { test: p => p.startsWith('/admin/roulettebatches/purge'), build: () => 'Purgar Lotes' },
   { test: p => p.startsWith('/admin/roulettebatches/'), build: (p) => 'Batch ' + p.split('/').pop() },

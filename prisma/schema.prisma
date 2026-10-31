@@ -2464,3 +2464,50 @@ model GameIssuance {
   createdAt DateTime @default(now())
   batch Batch? @relation(fields:[batchId],references:[id],onDelete:SetNull)
 }
+
+// Operation stations and their paired remote scanners.
+model OperationStation {
+  id          String   @id @default(cuid())
+  ownerId     String
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  invitations StationInvitation[]
+  terminals   StationTerminal[]
+  readings    StationReading[]
+  @@index([ownerId, expiresAt])
+}
+
+model StationInvitation {
+  id          String   @id @default(cuid())
+  stationId   String
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  station     OperationStation @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  @@index([stationId])
+}
+
+model StationTerminal {
+  id          String   @id @default(cuid())
+  stationId   String
+  userId      String
+  createdAt   DateTime @default(now())
+  revokedAt   DateTime?
+  lastSeenAt  DateTime?
+  station     OperationStation @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  @@index([stationId, revokedAt])
+  @@index([userId, revokedAt])
+}
+
+model StationReading {
+  id          String @id
+  stationId   String
+  terminalId  String
+  userId      String
+  senderName  String
+  text        String
+  createdAt  DateTime @default(now())
+  confirmedAt DateTime?
+  station     OperationStation @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  @@index([stationId, confirmedAt, createdAt])
+}

@@ -20,7 +20,8 @@ export type QrMetadata = {
  * Options for composeTemplateWithQr
  */
 export type ComposeOpts = {
-  templatePath: string; // path to PNG/JPG template (relative or absolute)
+  templatePath?: string; // path to PNG/JPG template (relative or absolute)
+  templateBuffer?: Buffer; // temporary image held in memory
   qrBuffer: Buffer; // PNG Buffer for the QR image
   qrMetadata: QrMetadata;
   dpi?: number; // DPI used to convert mm -> px, default 300
@@ -50,9 +51,9 @@ function mmToPx(mm: number, dpi: number): number {
  * - Throws when the template path does not exist or when inputs are invalid.
  */
 export async function composeTemplateWithQr(opts: ComposeOpts): Promise<Buffer> {
-  const { templatePath, qrBuffer, qrMetadata, dpi = 300 } = opts;
+  const { templatePath, templateBuffer, qrBuffer, qrMetadata, dpi = 300 } = opts;
 
-  if (!templatePath || typeof templatePath !== 'string') {
+  if (!templateBuffer && (!templatePath || typeof templatePath !== 'string')) {
     throw new TypeError('composeTemplateWithQr: templatePath must be a non-empty string');
   }
 
@@ -60,13 +61,13 @@ export async function composeTemplateWithQr(opts: ComposeOpts): Promise<Buffer> 
     throw new TypeError('composeTemplateWithQr: qrBuffer must be a Buffer (PNG recommended)');
   }
 
-  const resolvedPath = path.isAbsolute(templatePath)
-    ? templatePath
-    : path.resolve(process.cwd(), templatePath);
-
-  if (!fs.existsSync(resolvedPath)) {
+  const resolvedPath = templatePath
+    ? (path.isAbsolute(templatePath) ? templatePath : path.resolve(process.cwd(), templatePath))
+    : undefined;
+  if (!templateBuffer && resolvedPath && !fs.existsSync(resolvedPath)) {
     throw new Error(`composeTemplateWithQr: template file not found: ${resolvedPath}`);
   }
+  const templateInput = templateBuffer || resolvedPath!;
 
   // Convert mm to px based on DPI for placement. NOTE: QR physical size is
   // forced to a fixed pixel size below (230x230) per product requirement.
@@ -77,7 +78,7 @@ export async function composeTemplateWithQr(opts: ComposeOpts): Promise<Buffer> 
   // Read template metadata so we can ensure the QR we composite will not be
   // larger than the template. Sharp throws if the overlay is bigger than the base.
   const sharp = await getSharp();
-  const templateMeta = await sharp(resolvedPath).metadata();
+  const templateMeta = await sharp(templateInput).metadata();
   const templateWidth = templateMeta.width ?? 0;
   const templateHeight = templateMeta.height ?? 0;
 
@@ -111,7 +112,7 @@ export async function composeTemplateWithQr(opts: ComposeOpts): Promise<Buffer> 
 
   // Read template and composite
   try {
-  const template = sharp(resolvedPath);
+  const template = sharp(templateInput);
 
     // We don't change the template's dimensions; we place the QR at the pixel coordinates
     // computed from mm and dpi. If the template was created at a different DPI, the
@@ -129,7 +130,7 @@ export async function composeTemplateWithQr(opts: ComposeOpts): Promise<Buffer> 
     // Heuristic: detect a large near-white rectangle (the box where the QR
     // should go) and center the QR inside it. This helps when templates
     // include a printed white box to receive an overlaid QR.
-  async function detectWhiteBox(pathToImage: string, targetW: number, targetH: number): Promise<{ left: number; top: number; width: number; height: number } | null> {
+  async function detectWhiteBox(pathToImage: string | Buffer, targetW: number, targetH: number): Promise<{ left: number; top: number; width: number; height: number } | null> {
       try {
         // Downscale for speed while keeping aspect ratio
         const maxScanWidth = 800;
@@ -211,7 +212,7 @@ export async function composeTemplateWithQr(opts: ComposeOpts): Promise<Buffer> 
       }
     }
 
-  const whiteBox = await detectWhiteBox(resolvedPath, qrProcessedW, qrProcessedH);
+  const whiteBox = await detectWhiteBox(templateInput, qrProcessedW, qrProcessedH);
     if (whiteBox) {
       // center QR in white box
       left = whiteBox.left + Math.round((whiteBox.width - qrProcessedW) / 2);

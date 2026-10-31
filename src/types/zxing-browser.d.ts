@@ -4,7 +4,7 @@ declare module "@zxing/browser" {
       constraints: MediaStreamConstraints,
       video: HTMLVideoElement,
       callback: (result: { getText(): string } | null, err: unknown) => void
-    ): Promise<void>;
+    ): Promise<{ stop(): void }>;
     reset(): void;
   }
 }

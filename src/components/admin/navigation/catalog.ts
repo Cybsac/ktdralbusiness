@@ -23,6 +23,12 @@ export function getNavigationGroups(
 ): NavigationGroup[] {
   const pathPrefix = basePath === "admin" ? "/admin" : "/u";
   const groups: NavigationGroup[] = [
+    ...(basePath === "admin" && ["ADMIN", "COORDINATOR"].includes(userRole || "") ? [{
+      id: "estacion-operacion",
+      title: "ESTACIÓN DE OPERACIÓN",
+      icon: "qr" as const,
+      items: [{ href: "/admin/estacion", label: "Abrir estación", icon: "qr" as const }],
+    }] : []),
     ...(basePath === "admin" && surface === "mobile"
       ? [
           {
