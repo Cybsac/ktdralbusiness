@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useState } from "react";
 import SmartPreloader from "@/components/common/SmartPreloader";
 import ScratchCardExperience from "@/components/experiences/ScratchCardExperience";
 import { PrizeDeliveryAction } from "@/components/prize-authorization/PrizeDeliveryAction";
+import { PrizeRedemptionQr } from "@/components/roulette/PrizeRedemptionQr";
 import LoseModal from "@/components/roulette/LoseModal";
 import NewRoulette from "@/components/roulette/NewRoulette";
 import RetryContinuation from "@/components/roulette/RetryContinuation";
@@ -210,17 +211,6 @@ function GuideInsightIcon({ icon }: { icon: RouletteSidebarInsight["icon"] | "pl
   );
 }
 
-function CopyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true">
-      <rect x="9" y="9" width="10" height="10" rx="2" />
-      <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
-      <path d="M7 7h6" />
-      <path d="M7 11h2" />
-    </svg>
-  );
-}
-
 interface TokenShape {
   timeZone?: string;
   id: string;
@@ -313,7 +303,6 @@ export default function RouletteClientPage({
   const [isRetryTransition, setIsRetryTransition] = useState(false);
   const prizeModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [spinCounter, setSpinCounter] = useState<number | null>(null);
-  const [prizeLinkCopied, setPrizeLinkCopied] = useState(false);
   const [guideInsights, setGuideInsights] = useState<RouletteSidebarInsight[]>([]);
   const [guideRotationIndex, setGuideRotationIndex] = useState(0);
   const experienceUi = getExperienceUi(token?.experienceType);
@@ -663,21 +652,6 @@ export default function RouletteClientPage({
       setDeliverError(e?.message || "DELIVER_FAILED");
     } finally {
       setDelivering(false);
-    }
-  };
-
-  const handleCopyPrizeLink = async () => {
-    if (typeof window === "undefined") return;
-    const prizeUrl = new URL(
-      `/marketing/ruleta?tokenId=${encodeURIComponent(activeTokenId)}`,
-      window.location.origin
-    ).toString();
-    try {
-      await navigator.clipboard.writeText(prizeUrl);
-      setPrizeLinkCopied(true);
-      window.setTimeout(() => setPrizeLinkCopied(false), 2200);
-    } catch (copyError) {
-      console.error("Failed to copy prize link", copyError);
     }
   };
 
@@ -1147,29 +1121,18 @@ export default function RouletteClientPage({
           <div className={layoutStyles.revealedCard}>
             <div className={layoutStyles.revealedInner}>
               <div className={layoutStyles.revealedKicker}>Premio revelado</div>
-              <p className={layoutStyles.revealedLead}>
-                Muestralo en barra para canjearlo. Nuestro staff confirmara la entrega en tu
-                pantalla.
-              </p>
               <div className={layoutStyles.revealedPrizeCard}>
                 <div className={layoutStyles.revealedPrize}>{prizeWon.label}</div>
               </div>
+              {token?.action === "PRIZE" && (
+                <PrizeRedemptionQr tokenId={activeTokenId} />
+              )}
               <div className={layoutStyles.revealedActions}>
                 <PrizeDeliveryAction
                   onClick={confirmDeliver}
                   disabled={delivering}
                   busy={delivering}
                 />
-                <button
-                  className={layoutStyles.secondaryAction}
-                  onClick={handleCopyPrizeLink}
-                  type="button"
-                >
-                  <span className={layoutStyles.actionIcon}>
-                    <CopyIcon />
-                  </span>
-                  {prizeLinkCopied ? "Enlace copiado" : "Copiar acceso del premio"}
-                </button>
               </div>
               {deliverError && <div className={layoutStyles.revealedError}>{deliverError}</div>}
             </div>
@@ -1205,7 +1168,7 @@ export default function RouletteClientPage({
                 initial={{ y: 30, opacity: 0, scale: 0.9 }}
                 animate={{ y: 0, opacity: 1, scale: 1 }}
                 exit={{ y: 30, opacity: 0, scale: 0.9, transition: { duration: 0.4 } }}
-                className="relative z-10 rounded-xl p-6 sm:p-8 max-w-md w-full border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden"
+                className="relative z-10 rounded-xl p-6 sm:p-8 max-w-md w-full border border-white/10 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain overflow-x-hidden"
                 style={{
                   background:
                     themeConfig?.global?.modal?.background ||
@@ -1308,14 +1271,11 @@ export default function RouletteClientPage({
                     </motion.p>
                   </motion.div>
 
-                  <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.7 }}
-                    className="text-white/80 mb-6 sm:mb-8 text-base sm:text-lg px-1 sm:px-2 leading-relaxed"
-                  >
-                    Muestra esta pantalla en la barra y disfruta tu premio.
-                  </motion.p>
+                  {token?.action === "PRIZE" && (
+                    <div className="mb-5 text-white/90">
+                      <PrizeRedemptionQr tokenId={activeTokenId} />
+                    </div>
+                  )}
 
                   <motion.button
                     initial={{ opacity: 0, y: 15 }}

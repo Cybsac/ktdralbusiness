@@ -19,3 +19,9 @@ Verificación: tipos y comprobaciones aisladas de creación, emisión y migraci�
 - «Premios del sistema» aparece antes de «Crear nuevo premio». Su acción es «Preparar premios del sistema».
 - El catálogo muestra nombre y stock como texto, sin indicador de color ni edición directa de cantidades. Solo ofrece Editar y Eliminar; Editar carga el formulario superior y desplaza la pantalla hasta él. La eliminación conserva las restricciones de uso existentes.
 - «Lotes recientes» consulta los últimos siete lotes. Cada uno muestra nombre, creación, vigencia y cantidad, con Ver lote y Descargar QR. «Ver todos los lotes» abre `/admin/roulettebatches`; esta vista resumida no incorpora paginación interna ni estadísticas.
+
+## QR del premio revelado
+
+Ruleta y raspa y gana muestran un QR de canje en el modal final y en el panel persistente, exclusivamente para resultados entregables. El QR usa el enlace del token activo, también después de un reintento; no se crea otro premio. La lectura abre el flujo existente y la entrega conserva las comprobaciones del servidor de vigencia, estado y responsable. Los estados de vencimiento, deshabilitación y entrega conservan sus pantallas existentes.
+
+`PrizeRedemptionQr` genera la imagen localmente con la biblioteca instalada, sin servicios externos. Mantiene contraste negro/blanco, margen de lectura y ancho flexible hasta 224 px; el modal tiene altura máxima según el viewport dinámico y desplazamiento vertical para móviles pequeños. Si falla la generación, ofrece el enlace del premio. El cliente puede conservar una captura sin extender su vigencia. El panel no muestra un botón para copiar el enlace del premio.

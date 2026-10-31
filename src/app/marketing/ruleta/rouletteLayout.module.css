@@ -355,12 +355,6 @@
   color: #ffd166;
 }
 
-.revealedLead {
-  max-width: 34rem;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 0.98rem;
-  line-height: 1.55;
-}
 
 .revealedPrizeCard {
   width: min(100%, 36rem);
@@ -393,39 +387,9 @@
 }
 
 
-.secondaryAction {
-  min-width: min(100%, 26rem);
-  justify-content: center;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.65rem;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.18);
-  padding: 0.95rem 1.35rem;
-  background: rgba(10, 11, 17, 0.48);
-  color: rgba(255,255,255,0.92);
-  font-size: 0.98rem;
-  font-weight: 600;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
-}
 
-.secondaryAction:hover {
-  transform: translateY(-1px);
-  border-color: rgba(255, 209, 102, 0.28);
-  background: rgba(18, 20, 28, 0.64);
-}
 
-.actionIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 
-.actionIcon svg {
-  width: 1.2rem;
-  height: 1.2rem;
-}
 
 
 
@@ -539,15 +503,8 @@
     gap: 0.7rem;
   }
 
-  .revealedLead {
-    font-size: 0.9rem;
-  }
 
 
-  .secondaryAction {
-    width: 100%;
-    max-width: 18rem;
-  }
 }
 
 /* Extra ajuste para teléfonos muy pequeños (≤380px): reducir aún más los chips
