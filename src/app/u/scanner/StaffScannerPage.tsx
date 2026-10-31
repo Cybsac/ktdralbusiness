@@ -1,8 +1,8 @@
 "use client";
 import { STATION_INVITATION_PREFIX, STATION_PAIR_KEY } from "@/lib/station/contracts";
-import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
+import { prizeAuthorizedFetch } from "@/lib/prize-authorization/client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { verifyBirthdayClaim, type BirthdayClaim } from "@/lib/birthdays/token";
 import {
@@ -20,7 +20,15 @@ type Result = { getText(): string };
 type ScanHistoryEntry = {
   id: string;
   ts: number;
-  type: "offer" | "birthday" | "invitation" | "reusable" | "static" | "mundial2026" | "fanzone" | "error";
+  type:
+    | "offer"
+    | "birthday"
+    | "invitation"
+    | "reusable"
+    | "static"
+    | "mundial2026"
+    | "fanzone"
+    | "error";
   label: string;
   detail?: string;
   variant: "success" | "error" | "info";
@@ -56,7 +64,9 @@ function isGlobalQr(text: string): boolean {
   return !!(j && j.kind === "GLOBAL");
 }
 
-function decodeOfferQrFromText(text: string): { type: string; purchaseId: string; qrCode: string } | null {
+function decodeOfferQrFromText(
+  text: string
+): { type: string; purchaseId: string; qrCode: string } | null {
   // Try JSON direct
   try {
     const j = JSON.parse(text);
@@ -163,15 +173,22 @@ function vibrate(ms = 80) {
   } catch {}
 }
 
-export default function StaffScannerPage() {
+export default function StaffScannerPage({
+  beforeScan,
+}: { beforeScan?: (text: string) => Promise<void> } = {}) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const processingRef = useRef(false);
-  const [cooldownUntil, setCooldownUntil] = useState<number>(0);
+  const cooldownUntil = useRef(0);
+  const setCooldownUntil = useCallback((until: number) => {
+    cooldownUntil.current = until;
+  }, []);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraActive, setCameraActive] = useState(true);
 
-  const [banner, setBanner] = useState<{ variant: "success" | "error"; message: string } | null>(null);
+  const [banner, setBanner] = useState<{ variant: "success" | "error"; message: string } | null>(
+    null
+  );
   const [offerOverlay, setOfferOverlay] = useState<{
     purchase: { customerName: string; amount: number; createdAt: string };
     offer: { title: string; price: number };
@@ -186,8 +203,6 @@ export default function StaffScannerPage() {
   const [scanCount, setScanCount] = useState({ total: 0, success: 0, error: 0 });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const inCooldown = useMemo(() => Date.now() < cooldownUntil, [cooldownUntil]);
-
   // Load history from localStorage on mount
   useEffect(() => {
     try {
@@ -196,7 +211,14 @@ export default function StaffScannerPage() {
         const parsed = JSON.parse(stored) as ScanHistoryEntry[];
         if (Array.isArray(parsed)) {
           setScanHistory(parsed.slice(0, 50));
-          const s = parsed.reduce((a, e) => ({ total: a.total + 1, success: a.success + (e.variant === "success" ? 1 : 0), error: a.error + (e.variant === "error" ? 1 : 0) }), { total: 0, success: 0, error: 0 });
+          const s = parsed.reduce(
+            (a, e) => ({
+              total: a.total + 1,
+              success: a.success + (e.variant === "success" ? 1 : 0),
+              error: a.error + (e.variant === "error" ? 1 : 0),
+            }),
+            { total: 0, success: 0, error: 0 }
+          );
           setScanCount(s);
         }
       }
@@ -207,7 +229,9 @@ export default function StaffScannerPage() {
     const newEntry: ScanHistoryEntry = { ...entry, id: crypto.randomUUID(), ts: Date.now() };
     setScanHistory((prev) => {
       const next = [newEntry, ...prev].slice(0, 50);
-      try { localStorage.setItem("staffScanHistory", JSON.stringify(next)); } catch {}
+      try {
+        localStorage.setItem("staffScanHistory", JSON.stringify(next));
+      } catch {}
       return next;
     });
     setScanCount((prev) => ({
@@ -220,265 +244,361 @@ export default function StaffScannerPage() {
   const clearHistory = useCallback(() => {
     setScanHistory([]);
     setScanCount({ total: 0, success: 0, error: 0 });
-    try { localStorage.removeItem("staffScanHistory"); } catch {}
+    try {
+      localStorage.removeItem("staffScanHistory");
+    } catch {}
   }, []);
 
-  const processDecodedText = useCallback(async (text: string) => {
-    if (!text) return;
-    if (processingRef.current || inCooldown) return;
-    processingRef.current = true;
+  const processDecodedText = useCallback(
+    async (text: string) => {
+      if (!text) return;
+      if (processingRef.current || Date.now() < cooldownUntil.current) return;
+      processingRef.current = true;
 
-    if (text.startsWith(STATION_INVITATION_PREFIX)) {
-      const token = text.slice(STATION_INVITATION_PREFIX.length);
-      if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
-        setBanner({ variant: "error", message: "QR de estación inválido" });
+      if (text.startsWith(STATION_INVITATION_PREFIX)) {
+        const token = text.slice(STATION_INVITATION_PREFIX.length);
+        if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+          setBanner({ variant: "error", message: "QR de estación inválido" });
+          processingRef.current = false;
+          return;
+        }
+        sessionStorage.setItem(STATION_PAIR_KEY, token);
+        window.location.assign("/u/estacion/terminal");
+        return;
+      }
+
+      if (beforeScan) {
+        try {
+          await beforeScan(text);
+        } catch (error) {
+          setBanner({
+            variant: "error",
+            message: `${error instanceof Error ? error.message : "No se pudo registrar la lectura"} Activa la cámara para reintentar.`,
+          });
+          setCameraActive(false);
+          processingRef.current = false;
+          return;
+        }
+      }
+
+      // Game QR codes use the same destination and delivery guards as a direct scan.
+      try {
+        const url = new URL(text.trim(), window.location.origin);
+        const isToken = /^\/r\/[^/]+\/?$/.test(url.pathname);
+        const isGame = url.pathname === "/marketing/ruleta" && !!url.searchParams.get("tokenId");
+        if (isToken || isGame) {
+          window.location.assign(url.pathname + url.search + url.hash);
+          return;
+        }
+      } catch {
+        /* Continue with the other supported QR formats. */
+      }
+
+      // 1) Detect GLOBAL QR (attendance posters) — this scanner does NOT handle attendance
+      if (isGlobalQr(text)) {
+        setBanner({
+          variant: "error",
+          message: "Este escáner no registra asistencia. Usa el escáner de Entrada/Salida.",
+        });
+        beep(220, 100, "square");
+        vibrate(80);
+        setCooldownUntil(Date.now() + 1500);
         processingRef.current = false;
         return;
       }
-      sessionStorage.setItem(STATION_PAIR_KEY, token);
-      window.location.assign('/u/estacion/terminal');
-      return;
-    }
 
-    // 1) Detect GLOBAL QR (attendance posters) — this scanner does NOT handle attendance
-    if (isGlobalQr(text)) {
-      setBanner({ variant: "error", message: "Este escáner no registra asistencia. Usa el escáner de Entrada/Salida." });
-      beep(220, 100, "square");
-      vibrate(80);
-      setCooldownUntil(Date.now() + 1500);
-      processingRef.current = false;
-      return;
-    }
-
-    // 1.5) Detect PERSON QR (attendance) — this scanner does NOT handle attendance
-    if (isPersonQr(text)) {
-      setBanner({ variant: "error", message: "QR de asistencia detectado. Usa el escáner de Entrada/Salida para registrar." });
-      beep(220, 100, "square");
-      vibrate(80);
-      setCooldownUntil(Date.now() + 1500);
-      processingRef.current = false;
-      return;
-    }
-
-    // 2) Detect OFFER QR: validate offer purchase
-    const offerQrData = decodeOfferQrFromText(text);
-    if (offerQrData) {
-      try {
-        const res = await fetch("/api/offers/validate-qr", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ qrData: text }),
+      // 1.5) Detect PERSON QR (attendance) — this scanner does NOT handle attendance
+      if (isPersonQr(text)) {
+        setBanner({
+          variant: "error",
+          message: "QR de asistencia detectado. Usa el escáner de Entrada/Salida para registrar.",
         });
-        const json = await res.json();
+        beep(220, 100, "square");
+        vibrate(80);
+        setCooldownUntil(Date.now() + 1500);
+        processingRef.current = false;
+        return;
+      }
 
-        if (json.valid) {
-          setOfferOverlay({
-            purchase: {
-              customerName: json.purchase.customerName,
-              amount: json.purchase.amount,
-              createdAt: json.purchase.createdAt
-            },
-            offer: {
-              title: json.offer.title,
-              price: json.offer.price
-            },
-            status: json.status,
-            purchaseId: json.purchase.purchaseId,
-            canComplete: json.purchase.status === 'PENDING'
+      // 2) Detect OFFER QR: validate offer purchase
+      const offerQrData = decodeOfferQrFromText(text);
+      if (offerQrData) {
+        try {
+          const res = await fetch("/api/offers/validate-qr", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ qrData: text }),
           });
-          if (overlayHideTimeout) clearTimeout(overlayHideTimeout);
-          setOverlayHideTimeout(setTimeout(() => setOfferOverlay(null), 10000));
-          addHistory({ type: "offer", label: `Oferta: ${json.offer.title}`, detail: json.purchase.customerName, variant: "success" });
-          setBanner({ variant: "success", message: `✅ Oferta pendiente: ${json.purchase.customerName} - S/ ${json.purchase.amount.toFixed(2)}` });
-          beep(880, 120, "sine");
-          vibrate(60);
-          setCooldownUntil(Date.now() + 1200);
-        } else {
-          let errorMsg = "QR de oferta inválido";
-          if (json.status === 'expired') errorMsg = "QR de oferta expirado";
-          else if (json.status === 'used') errorMsg = "QR de oferta ya utilizado";
-          else if (json.status === 'cancelled') errorMsg = "Compra de oferta cancelada";
-          else if (json.status === 'refunded') errorMsg = "Compra de oferta reembolsada";
+          const json = await res.json();
 
-          addHistory({ type: "offer", label: errorMsg, variant: "error" });
+          if (json.valid) {
+            setOfferOverlay({
+              purchase: {
+                customerName: json.purchase.customerName,
+                amount: json.purchase.amount,
+                createdAt: json.purchase.createdAt,
+              },
+              offer: {
+                title: json.offer.title,
+                price: json.offer.price,
+              },
+              status: json.status,
+              purchaseId: json.purchase.purchaseId,
+              canComplete: json.purchase.status === "PENDING",
+            });
+            if (overlayHideTimeout) clearTimeout(overlayHideTimeout);
+            setOverlayHideTimeout(setTimeout(() => setOfferOverlay(null), 10000));
+            addHistory({
+              type: "offer",
+              label: `Oferta: ${json.offer.title}`,
+              detail: json.purchase.customerName,
+              variant: "success",
+            });
+            setBanner({
+              variant: "success",
+              message: `✅ Oferta pendiente: ${json.purchase.customerName} - S/ ${json.purchase.amount.toFixed(2)}`,
+            });
+            beep(880, 120, "sine");
+            vibrate(60);
+            setCooldownUntil(Date.now() + 1200);
+          } else {
+            let errorMsg = "QR de oferta inválido";
+            if (json.status === "expired") errorMsg = "QR de oferta expirado";
+            else if (json.status === "used") errorMsg = "QR de oferta ya utilizado";
+            else if (json.status === "cancelled") errorMsg = "Compra de oferta cancelada";
+            else if (json.status === "refunded") errorMsg = "Compra de oferta reembolsada";
 
-          setBanner({ variant: "error", message: errorMsg });
+            addHistory({ type: "offer", label: errorMsg, variant: "error" });
+
+            setBanner({ variant: "error", message: errorMsg });
+            beep(220, 150, "square");
+            vibrate(120);
+            setCooldownUntil(Date.now() + 1000);
+          }
+        } catch (e: any) {
+          setBanner({
+            variant: "error",
+            message: `Error al validar oferta: ${String(e?.message || e)}`,
+          });
           beep(220, 150, "square");
           vibrate(120);
           setCooldownUntil(Date.now() + 1000);
         }
-      } catch (e: any) {
-        setBanner({ variant: "error", message: `Error al validar oferta: ${String(e?.message || e)}` });
-        beep(220, 150, "square");
-        vibrate(120);
-        setCooldownUntil(Date.now() + 1000);
+        processingRef.current = false;
+        return;
       }
-      processingRef.current = false;
-      return;
-    }
 
-    // 3) Detect BIRTHDAY QR: redirect to appropriate birthday interface
-    const birthdayClaim = decodeBirthdayQrFromText(text);
-    if (birthdayClaim) {
-      try {
-        // Check if user has valid session (admin/staff or collaborator)
-        const sessionRes = await fetch("/api/static/session");
-        const sessionJson = await sessionRes.json();
-        const hasValidSession = sessionJson.isStaff || sessionJson.isAdmin || sessionJson.isCollaborator;
+      // 3) Detect BIRTHDAY QR: redirect to appropriate birthday interface
+      const birthdayClaim = decodeBirthdayQrFromText(text);
+      if (birthdayClaim) {
+        try {
+          // Check if user has valid session (admin/staff or collaborator)
+          const sessionRes = await fetch("/api/static/session");
+          const sessionJson = await sessionRes.json();
+          const hasValidSession =
+            sessionJson.isStaff || sessionJson.isAdmin || sessionJson.isCollaborator;
 
-        if (hasValidSession) {
-          window.location.href = `/u/birthdays/${encodeURIComponent(birthdayClaim.rid)}`;
-        } else {
-          window.location.href = `/marketing/birthdays/${encodeURIComponent(birthdayClaim.rid)}/qrs`;
+          if (hasValidSession) {
+            window.location.href = `/u/birthdays/${encodeURIComponent(birthdayClaim.rid)}`;
+          } else {
+            window.location.href = `/marketing/birthdays/${encodeURIComponent(birthdayClaim.rid)}/qrs`;
+          }
+
+          addHistory({
+            type: "birthday",
+            label: "Token de cumpleaños",
+            detail: birthdayClaim.rid,
+            variant: "success",
+          });
+
+          setBanner({
+            variant: "success",
+            message: `🎂 Token de cumpleaños detectado - Redirigiendo...`,
+          });
+          beep(880, 120, "sine");
+          vibrate(60);
+          setCooldownUntil(Date.now() + 2000);
+        } catch (e: any) {
+          setBanner({
+            variant: "error",
+            message: `Error al procesar token de cumpleaños: ${String(e?.message || e)}`,
+          });
+          beep(220, 150, "square");
+          vibrate(120);
+          setCooldownUntil(Date.now() + 1000);
         }
+        processingRef.current = false;
+        return;
+      }
 
-        addHistory({ type: "birthday", label: "Token de cumpleaños", detail: birthdayClaim.rid, variant: "success" });
+      // 3.5) Detect BIRTHDAY URL: redirect to birthday page
+      try {
+        const url = new URL(text);
+        if (url.pathname.startsWith("/b/")) {
+          // Extract code from URL
+          const code = url.pathname.split("/b/")[1];
+          if (code && code.length >= 4) {
+            addHistory({
+              type: "birthday",
+              label: "Código de cumpleaños",
+              detail: code,
+              variant: "info",
+            });
+            window.location.href = url.pathname + url.search + url.hash;
+            setBanner({
+              variant: "success",
+              message: `🎂 Código de cumpleaños detectado - Redirigiendo...`,
+            });
+            beep(880, 120, "sine");
+            vibrate(60);
+            setCooldownUntil(Date.now() + 2000);
+            processingRef.current = false;
+            return;
+          }
+        }
+      } catch {
+        // Not a URL, continue with normal processing
+      }
 
-        setBanner({ variant: "success", message: `🎂 Token de cumpleaños detectado - Redirigiendo...` });
+      // 3.6) Detect STATIC TOKEN URL: redirect to the static token page
+      // Static QR codes are generated as /static/{tokenId}, either as a full
+      // URL or as a relative path. Keep the token ID path-safe when redirecting.
+      const staticTokenMatch = text.trim().match(/(?:^|\/)(?:static)\/([^\/\s?#]{4,})/i);
+      if (staticTokenMatch) {
+        const tokenId = staticTokenMatch[1];
+        addHistory({ type: "static", label: "Token estático", detail: tokenId, variant: "info" });
+        setBanner({ variant: "success", message: "🎫 Token estático detectado - Redirigiendo..." });
         beep(880, 120, "sine");
         vibrate(60);
         setCooldownUntil(Date.now() + 2000);
-      } catch (e: any) {
-        setBanner({ variant: "error", message: `Error al procesar token de cumpleaños: ${String(e?.message || e)}` });
-        beep(220, 150, "square");
-        vibrate(120);
-        setCooldownUntil(Date.now() + 1000);
+        window.location.href = `/static/${encodeURIComponent(tokenId)}`;
+        processingRef.current = false;
+        return;
       }
-      processingRef.current = false;
-      return;
-    }
 
-    // 3.5) Detect BIRTHDAY URL: redirect to birthday page
-    try {
-      const url = new URL(text);
-      if (url.pathname.startsWith('/b/')) {
-        // Extract code from URL
-        const code = url.pathname.split('/b/')[1];
-        if (code && code.length >= 4) {
-          addHistory({ type: "birthday", label: "Código de cumpleaños", detail: code, variant: "info" });
-          window.location.href = url.pathname + url.search + url.hash;
-          setBanner({ variant: "success", message: `🎂 Código de cumpleaños detectado - Redirigiendo...` });
-          beep(880, 120, "sine");
-          vibrate(60);
-          setCooldownUntil(Date.now() + 2000);
-          processingRef.current = false;
-          return;
-        }
-      }
-    } catch {
-      // Not a URL, continue with normal processing
-    }
-
-    // 3.6) Detect STATIC TOKEN URL: redirect to the static token page
-    // Static QR codes are generated as /static/{tokenId}, either as a full
-    // URL or as a relative path. Keep the token ID path-safe when redirecting.
-    const staticTokenMatch = text.trim().match(/(?:^|\/)(?:static)\/([^\/\s?#]{4,})/i);
-    if (staticTokenMatch) {
-      const tokenId = staticTokenMatch[1];
-      addHistory({ type: "static", label: "Token estático", detail: tokenId, variant: "info" });
-      setBanner({ variant: "success", message: "🎫 Token estático detectado - Redirigiendo..." });
-      beep(880, 120, "sine");
-      vibrate(60);
-      setCooldownUntil(Date.now() + 2000);
-      window.location.href = `/static/${encodeURIComponent(tokenId)}`;
-      processingRef.current = false;
-      return;
-    }
-
-    // 3.7) Detect REUSABLE TOKEN URL: redirect to reusable token page
-    try {
-      const url = new URL(text);
-      if (url.pathname.startsWith('/reusable/')) {
-        // Extract tokenId from URL
-        const tokenId = url.pathname.split('/reusable/')[1];
-        if (tokenId) {
-          addHistory({ type: "reusable", label: "Token reutilizable", detail: tokenId, variant: "info" });
-          setBanner({ variant: "success", message: `🎫 Token reutilizable detectado - Redirigiendo...` });
-          beep(880, 120, "sine");
-          vibrate(60);
-          setCooldownUntil(Date.now() + 2000);
-          // Redirect to reusable token page
-          window.location.href = `/reusable/${tokenId}`;
-          processingRef.current = false;
-          return;
-        }
-      }
-    } catch {
-      // Not a URL, continue with normal processing
-    }
-
-    // 3.8) Detect INVITATION URL: redirect to invitation validation page
-    try {
-      const url = new URL(text);
-      if (url.pathname.startsWith('/i/')) {
-        const invCode = url.pathname.split('/i/')[1];
-        if (invCode && invCode.length >= 4) {
-          addHistory({ type: "invitation", label: "Invitación detectada", detail: invCode, variant: "info" });
-          setBanner({ variant: "success", message: `🎟️ Invitación detectada - Redirigiendo...` });
-          beep(880, 120, "sine");
-          vibrate(60);
-          setCooldownUntil(Date.now() + 2000);
-          window.location.href = url.pathname + url.search + url.hash;
-          processingRef.current = false;
-          return;
-        }
-      }
-    } catch {
-      // Not a URL, continue with normal processing
-    }
-
-    // 3.9) Detect MUNDIAL 2026 QR: redirect to Mundial 2026 redeem flow
-    const fanZoneCode = extractMundial2026FanZoneCode(text);
-    if (fanZoneCode) {
-      addHistory({ type: "fanzone", label: "Fan Zone Mundial 2026", detail: fanZoneCode, variant: "success" });
-      setBanner({ variant: "success", message: "Fan Zone Mundial 2026 detectada - Abriendo canje..." });
-      beep(880, 120, "sine");
-      vibrate(60);
-      setCooldownUntil(Date.now() + 2000);
-      window.location.href = `/admin/mundial2026/fanzone/${encodeURIComponent(fanZoneCode)}`;
-      processingRef.current = false;
-      return;
-    }
-
-    if (isMundial2026Qr(text)) {
-      addHistory({ type: "mundial2026", label: "Jugada Mundial 2026", variant: "success" });
-      setBanner({ variant: "success", message: "Jugada Mundial 2026 detectada - Redirigiendo..." });
-      beep(880, 120, "sine");
-      vibrate(60);
-      setCooldownUntil(Date.now() + 2000);
-      window.location.href = `/u/mundial2026/scan?scan=${encodeURIComponent(text)}`;
-      processingRef.current = false;
-      return;
-    }
-
-    // Unrecognized QR
-    addHistory({ type: "error", label: "QR no reconocido", variant: "error" });
-    setBanner({ variant: "error", message: "QR no reconocido por este escáner" });
-    beep(220, 150, "square");
-    vibrate(120);
-    setCooldownUntil(Date.now() + 800);
-    processingRef.current = false;
-  }, [inCooldown, addHistory]);
-
-  const onFileSelect = useCallback(async (file: File | null) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = String(reader.result || "");
+      // 3.7) Detect REUSABLE TOKEN URL: redirect to reusable token page
       try {
-        const r: any = await (readerRef.current as any)?.decodeFromImageUrl?.(dataUrl);
-        const text: string | undefined = r?.getText?.();
-        if (text) {
-          await processDecodedText(text);
-        } else {
+        const url = new URL(text);
+        if (url.pathname.startsWith("/reusable/")) {
+          // Extract tokenId from URL
+          const tokenId = url.pathname.split("/reusable/")[1];
+          if (tokenId) {
+            addHistory({
+              type: "reusable",
+              label: "Token reutilizable",
+              detail: tokenId,
+              variant: "info",
+            });
+            setBanner({
+              variant: "success",
+              message: `🎫 Token reutilizable detectado - Redirigiendo...`,
+            });
+            beep(880, 120, "sine");
+            vibrate(60);
+            setCooldownUntil(Date.now() + 2000);
+            // Redirect to reusable token page
+            window.location.href = `/reusable/${tokenId}`;
+            processingRef.current = false;
+            return;
+          }
+        }
+      } catch {
+        // Not a URL, continue with normal processing
+      }
+
+      // 3.8) Detect INVITATION URL: redirect to invitation validation page
+      try {
+        const url = new URL(text);
+        if (url.pathname.startsWith("/i/")) {
+          const invCode = url.pathname.split("/i/")[1];
+          if (invCode && invCode.length >= 4) {
+            addHistory({
+              type: "invitation",
+              label: "Invitación detectada",
+              detail: invCode,
+              variant: "info",
+            });
+            setBanner({ variant: "success", message: `🎟️ Invitación detectada - Redirigiendo...` });
+            beep(880, 120, "sine");
+            vibrate(60);
+            setCooldownUntil(Date.now() + 2000);
+            window.location.href = url.pathname + url.search + url.hash;
+            processingRef.current = false;
+            return;
+          }
+        }
+      } catch {
+        // Not a URL, continue with normal processing
+      }
+
+      // 3.9) Detect MUNDIAL 2026 QR: redirect to Mundial 2026 redeem flow
+      const fanZoneCode = extractMundial2026FanZoneCode(text);
+      if (fanZoneCode) {
+        addHistory({
+          type: "fanzone",
+          label: "Fan Zone Mundial 2026",
+          detail: fanZoneCode,
+          variant: "success",
+        });
+        setBanner({
+          variant: "success",
+          message: "Fan Zone Mundial 2026 detectada - Abriendo canje...",
+        });
+        beep(880, 120, "sine");
+        vibrate(60);
+        setCooldownUntil(Date.now() + 2000);
+        window.location.href = `/admin/mundial2026/fanzone/${encodeURIComponent(fanZoneCode)}`;
+        processingRef.current = false;
+        return;
+      }
+
+      if (isMundial2026Qr(text)) {
+        addHistory({ type: "mundial2026", label: "Jugada Mundial 2026", variant: "success" });
+        setBanner({
+          variant: "success",
+          message: "Jugada Mundial 2026 detectada - Redirigiendo...",
+        });
+        beep(880, 120, "sine");
+        vibrate(60);
+        setCooldownUntil(Date.now() + 2000);
+        window.location.href = `/u/mundial2026/scan?scan=${encodeURIComponent(text)}`;
+        processingRef.current = false;
+        return;
+      }
+
+      // Unrecognized QR
+      addHistory({ type: "error", label: "QR no reconocido", variant: "error" });
+      setBanner({ variant: "error", message: "QR no reconocido por este escáner" });
+      beep(220, 150, "square");
+      vibrate(120);
+      setCooldownUntil(Date.now() + 800);
+      processingRef.current = false;
+    },
+    [addHistory, beforeScan, setCooldownUntil]
+  );
+
+  const onFileSelect = useCallback(
+    async (file: File | null) => {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const dataUrl = String(reader.result || "");
+        try {
+          const r: any = await (readerRef.current as any)?.decodeFromImageUrl?.(dataUrl);
+          const text: string | undefined = r?.getText?.();
+          if (text) {
+            await processDecodedText(text);
+          } else {
+            setBanner({ variant: "error", message: "No se pudo leer el QR de la imagen" });
+          }
+        } catch (e) {
           setBanner({ variant: "error", message: "No se pudo leer el QR de la imagen" });
         }
-      } catch (e) {
-        setBanner({ variant: "error", message: "No se pudo leer el QR de la imagen" });
-      }
-    };
-    reader.readAsDataURL(file);
-  }, [processDecodedText]);
+      };
+      reader.readAsDataURL(file);
+    },
+    [processDecodedText]
+  );
 
   useEffect(() => {
     return () => {
@@ -506,7 +626,8 @@ export default function StaffScannerPage() {
       })
       .catch((e: unknown) => {
         if (!mounted) return;
-        const msg = typeof e === 'object' && e && 'toString' in e ? (e as any).toString() : String(e);
+        const msg =
+          typeof e === "object" && e && "toString" in e ? (e as any).toString() : String(e);
         setCameraError(msg || "Permiso denegado o cámara no disponible");
         setBanner({ variant: "error", message: `No se pudo abrir la cámara: ${msg}` });
       });
@@ -526,7 +647,9 @@ export default function StaffScannerPage() {
   const toggleCamera = useCallback(() => {
     if (cameraActive) {
       // Stop camera
-      try { readerRef.current?.reset(); } catch {}
+      try {
+        readerRef.current?.reset();
+      } catch {}
       try {
         const s = videoRef.current?.srcObject as MediaStream | undefined;
         s?.getTracks().forEach((t) => t.stop());
@@ -574,7 +697,6 @@ export default function StaffScannerPage() {
       <div className="w-full max-w-2xl mx-auto flex flex-col lg:flex-row gap-3">
         {/* Main scanner column */}
         <div className="flex-1 min-w-0">
-
           {/* Banner */}
           {banner && (
             <div
@@ -585,7 +707,10 @@ export default function StaffScannerPage() {
               }`}
             >
               <span className="flex-1 text-left">{banner.message}</span>
-              <button onClick={() => setBanner(null)} className="flex-shrink-0 opacity-60 hover:opacity-100">
+              <button
+                onClick={() => setBanner(null)}
+                className="flex-shrink-0 opacity-60 hover:opacity-100"
+              >
                 <IconX size={16} />
               </button>
             </div>
@@ -593,7 +718,13 @@ export default function StaffScannerPage() {
 
           {/* Camera viewport */}
           <div className="relative w-full aspect-[4/3] overflow-hidden rounded-2xl border-2 border-gray-200 dark:border-slate-600 bg-black shadow-lg">
-            <video ref={videoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
+            <video
+              ref={videoRef}
+              className="h-full w-full object-cover"
+              muted
+              playsInline
+              autoPlay
+            />
 
             {/* Scanning guides */}
             {!offerOverlay && !cameraError && cameraActive && (
@@ -623,9 +754,15 @@ export default function StaffScannerPage() {
                   <div className="text-base font-bold leading-tight drop-shadow-lg mb-1">
                     🎁 {offerOverlay.offer.title}
                   </div>
-                  <div className="text-sm opacity-90 truncate">{offerOverlay.purchase.customerName}</div>
-                  <div className="text-xs opacity-80">S/ {offerOverlay.purchase.amount.toFixed(2)}</div>
-                  <div className="text-xs opacity-70 mt-1">{new Date(offerOverlay.purchase.createdAt).toLocaleDateString()}</div>
+                  <div className="text-sm opacity-90 truncate">
+                    {offerOverlay.purchase.customerName}
+                  </div>
+                  <div className="text-xs opacity-80">
+                    S/ {offerOverlay.purchase.amount.toFixed(2)}
+                  </div>
+                  <div className="text-xs opacity-70 mt-1">
+                    {new Date(offerOverlay.purchase.createdAt).toLocaleDateString()}
+                  </div>
                   {offerOverlay.canComplete && (
                     <button
                       className="pointer-events-auto mt-3 px-4 py-2 bg-white text-green-800 font-semibold rounded-lg shadow-lg hover:bg-gray-100 transition-colors text-sm"
@@ -639,7 +776,10 @@ export default function StaffScannerPage() {
                           });
                           const data = await res.json();
                           if (data.success) {
-                            setBanner({ variant: "success", message: "✅ Entrega completada exitosamente" });
+                            setBanner({
+                              variant: "success",
+                              message: "✅ Entrega completada exitosamente",
+                            });
                             setOfferOverlay(null);
                             beep(880, 120, "sine");
                             vibrate(60);
@@ -649,7 +789,10 @@ export default function StaffScannerPage() {
                             vibrate(120);
                           }
                         } catch (e: any) {
-                          setBanner({ variant: "error", message: `Error al completar entrega: ${String(e?.message || e)}` });
+                          setBanner({
+                            variant: "error",
+                            message: `Error al completar entrega: ${String(e?.message || e)}`,
+                          });
                           beep(220, 150, "square");
                           vibrate(120);
                         }
@@ -668,7 +811,10 @@ export default function StaffScannerPage() {
                 <IconCameraOff size={40} className="opacity-50 mb-3" />
                 <p className="mb-1 font-bold text-sm">No se pudo acceder a la cámara</p>
                 <p className="text-xs opacity-80 mb-3">Concede permiso de cámara al navegador.</p>
-                <button onClick={retryCamera} className="flex items-center gap-1.5 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors">
+                <button
+                  onClick={retryCamera}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors"
+                >
                   <IconRefresh size={16} /> Reintentar
                 </button>
               </div>
@@ -685,7 +831,15 @@ export default function StaffScannerPage() {
                   : "border-teal-300 dark:border-teal-600 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20 hover:bg-teal-100 dark:hover:bg-teal-900/30"
               }`}
             >
-              {cameraActive ? <><IconCameraOff size={16} /> Pausar</> : <><IconCamera size={16} /> Activar</>}
+              {cameraActive ? (
+                <>
+                  <IconCameraOff size={16} /> Pausar
+                </>
+              ) : (
+                <>
+                  <IconCamera size={16} /> Activar
+                </>
+              )}
             </button>
             <label className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer transition-colors">
               <IconPhoto size={16} />
@@ -717,10 +871,18 @@ export default function StaffScannerPage() {
           {/* Supported QR types info */}
           <div className="mt-3 px-1">
             <div className="flex flex-wrap gap-1.5 justify-center text-[10px] font-medium text-gray-500 dark:text-slate-500">
-              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">🎁 Ofertas</span>
-              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">🎂 Cumpleaños</span>
-              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">🎟️ Invitaciones</span>
-              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">🎫 Reutilizables</span>
+              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">
+                🎁 Ofertas
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">
+                🎂 Cumpleaños
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">
+                🎟️ Invitaciones
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">
+                🎫 Reutilizables
+              </span>
             </div>
           </div>
         </div>
@@ -730,14 +892,22 @@ export default function StaffScannerPage() {
           <div className="w-full lg:w-72 lg:flex-shrink-0">
             <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow overflow-hidden">
               <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-slate-700">
-                <span className="text-sm font-semibold text-gray-800 dark:text-slate-200">Historial</span>
+                <span className="text-sm font-semibold text-gray-800 dark:text-slate-200">
+                  Historial
+                </span>
                 <div className="flex items-center gap-1">
                   {scanHistory.length > 0 && (
-                    <button onClick={clearHistory} className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                    <button
+                      onClick={clearHistory}
+                      className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    >
                       <IconTrash size={12} /> Limpiar
                     </button>
                   )}
-                  <button onClick={() => setShowHistory(false)} className="lg:hidden p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300">
+                  <button
+                    onClick={() => setShowHistory(false)}
+                    className="lg:hidden p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300"
+                  >
                     <IconX size={16} />
                   </button>
                 </div>
@@ -751,13 +921,25 @@ export default function StaffScannerPage() {
                   <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
                     {scanHistory.map((entry) => (
                       <div key={entry.id} className="px-3 py-2 flex items-start gap-2">
-                        <span className={`mt-0.5 flex-shrink-0 w-2 h-2 rounded-full ${entry.variant === "success" ? "bg-green-500" : entry.variant === "error" ? "bg-red-500" : "bg-blue-400"}`} />
+                        <span
+                          className={`mt-0.5 flex-shrink-0 w-2 h-2 rounded-full ${entry.variant === "success" ? "bg-green-500" : entry.variant === "error" ? "bg-red-500" : "bg-blue-400"}`}
+                        />
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs font-medium text-gray-800 dark:text-slate-200 truncate">{entry.label}</div>
-                          {entry.detail && <div className="text-[10px] text-gray-500 dark:text-slate-500 truncate">{entry.detail}</div>}
+                          <div className="text-xs font-medium text-gray-800 dark:text-slate-200 truncate">
+                            {entry.label}
+                          </div>
+                          {entry.detail && (
+                            <div className="text-[10px] text-gray-500 dark:text-slate-500 truncate">
+                              {entry.detail}
+                            </div>
+                          )}
                         </div>
                         <span className="text-[10px] text-gray-400 dark:text-slate-600 flex-shrink-0 tabular-nums">
-                          {new Date(entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                          {new Date(entry.ts).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
                         </span>
                       </div>
                     ))}

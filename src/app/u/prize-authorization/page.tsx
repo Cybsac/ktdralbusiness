@@ -1,38 +1,8 @@
 "use client";
-import { useState } from "react";
-
-import { usePrizeAuthorizationRefresh } from "@/hooks/usePrizeAuthorizationRefresh";
+import { usePersonalPrizeCode } from "@/components/prize-authorization/PersonalPrizeCodeProvider";
 
 export default function MyPrizeCodePage() {
-  const [data, setData] = useState<{
-    enabled: boolean;
-    code: string | null;
-    name: string | null;
-    validUntil: string | null;
-    publicRedemptionOpen: boolean;
-    timezone: string;
-  } | null>(null);
-  const [error, setError] = useState("");
-  usePrizeAuthorizationRefresh(
-    async (signal) => {
-      try {
-        const res = await fetch("/api/user/prize-authorization", { cache: "no-store", signal });
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.message || "No se pudo consultar tu clave");
-        if (!signal.aborted) {
-          setData(body);
-          setError("");
-        }
-      } catch (e: any) {
-        if (!signal.aborted) {
-          setData(null);
-          setError(e.message);
-        }
-      }
-    },
-    data?.validUntil,
-    () => setData(null)
-  );
+  const { data, error } = usePersonalPrizeCode();
   return (
     <div className="mx-auto max-w-md space-y-4 p-6">
       <a href="/u" className="text-sm underline">

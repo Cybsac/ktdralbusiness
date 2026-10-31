@@ -1,3 +1,4 @@
+import { isPrizeCode } from "./code-format";
 import { notifyPrizeAuthorizationChanged } from "./realtime";
 import { createHash, randomBytes } from "crypto";
 
@@ -175,7 +176,7 @@ export async function requirePrizeAuthorization(
           ),
         }
       );
-    if (!/^\d{6}$/.test(code))
+    if (!isPrizeCode(code))
       return apiError(
         "PRIZE_OTP_INVALID",
         "La clave es incorrecta, está revocada o ya cambió.",

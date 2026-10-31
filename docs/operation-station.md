@@ -1,19 +1,25 @@
 # Estación de operación
 
-El administrador puede abrir `/admin/estacion` desde «Estación de operación» en el panel. Desde el área de trabajo, el colaborador abre `/u/estacion` en la PC. Ambas rutas usan la misma estación y sesión de usuario. La estación genera un QR temporal y de un solo uso. Un colaborador con sesión activa lo lee desde `/u/scanner`; el teléfono pasa a `/u/estacion/terminal` y transmite las lecturas a la estación. Las lecturas no ejecutan canjes ni redirigen al cliente. El operador confirma la recepción en pantalla.
+El administrador abre `/admin/estacion` o el colaborador `/u/estacion` en la PC. La estación genera una invitación temporal de un solo uso; el colaborador autenticado la escanea en `/u/scanner` y pasa a `/u/estacion/terminal`.
+
+## Canje desde el móvil
+
+El teléfono vinculado reutiliza `StaffScannerPage`, el mismo componente del escáner habitual. Registra cada lectura en la estación y continúa el flujo normal del QR en el teléfono: ofertas, cumpleaños, invitaciones, QR estáticos, reutilizables, Tokenshow y Mundial. La lectura no marca automáticamente ningún premio como entregado. El colaborador completa el canje en su pantalla habitual; sus endpoints mantienen vigencia, disponibilidad, autorización por sesión y atribución del responsable.
+
+La estación muestra las últimas 100 lecturas recibidas, de más reciente a más antigua. No requiere confirmar recepción y no ofrece una acción de entrega. El registro de lectura no acredita que se haya completado el canje. Se retiró la acción `confirm` de la API. El campo histórico `confirmedAt` se conserva únicamente para preservar los datos anteriores; no se usa en el flujo nuevo. Los registros antiguos cuyo contenido ya fue borrado no se presentan como nuevas lecturas.
 
 ## Vinculación y conexión
 
-La invitación solo se guarda como hash y caduca. El vínculo está ligado al usuario, al terminal y a la estación, que vence al finalizar el día de trabajo configurado. El celular recuerda el vínculo y la PC recuerda su estación en el mismo navegador; ambos requieren una sesión válida. El operador o el colaborador pueden desvincular el terminal. El estado del terminal se actualiza mientras su página permanezca activa; el navegador o el sistema pueden pausar la cámara y la aplicación en segundo plano.
+La invitación se guarda como hash y caduca. El vínculo está ligado al usuario, terminal y estación, y vence según el día de trabajo configurado. Ambos dispositivos requieren sesión válida y pueden conectarse a redes diferentes mediante internet. La cámara necesita HTTPS y permiso del navegador. El teléfono recuerda el vínculo; la estación y el colaborador pueden revocarlo.
 
-## Lecturas pendientes
+## Envío y recuperación
 
-Cada lectura lleva un identificador único. La aplicación intenta enviarla al servidor y reintenta con el mismo identificador si no recibe respuesta; la estación recupera las lecturas pendientes de la base al recargarse. El celular mantiene una lectura pendiente en la sesión del navegador y deja de admitir otra hasta enviarla o descartarla. Si se cierra esa sesión del navegador, no se garantiza conservar la lectura que aún no llegó al servidor. Para evitar múltiples lecturas de un mismo QR inmóvil, el operador del celular debe pulsar «Permitir leer el mismo código otra vez» si necesita repetirlo.
-
-Cuando el operador confirma una lectura, se borra el contenido del QR del registro y se conserva su identificador para evitar duplicados. Las lecturas sin confirmar quedan almacenadas en la base: por ahora no existe una tarea que elimine su contenido al finalizar la jornada; debe definirse una política de retención antes de utilizar datos sensibles. Se muestran como máximo las primeras 100 pendientes; al confirmar una se cargan las siguientes.
+Cada lectura tiene un identificador estable. Antes de abrir el flujo de canje se registra mediante la API; si falla la conexión, la lectura queda pendiente en memoria y, cuando está disponible, en sessionStorage. Se vuelve a escanear el mismo QR para reintentar con el mismo identificador, evitando duplicar el registro. No se admite otro QR hasta enviar o descartar la lectura pendiente. Cerrar la sesión del navegador puede perder una lectura aún no enviada. La recuperación no ejecuta entregas automáticamente.
 
 ## Comunicación y despliegue
 
-Las solicitudes y la base de datos son la fuente de verdad; Socket.IO informa de cambios cuando está disponible, y la estación consulta periódicamente como respaldo. Esto evita depender de que dos dispositivos estén conectados al mismo proceso para recuperar las lecturas. Debe verificarse la infraestructura real antes de escalarla, incluidos los tiempos de respuesta y la política de retención.
+La API y la base de datos son la fuente de verdad. Socket.IO notifica cambios y la estación consulta periódicamente como respaldo. La página del móvil actualiza su conexión mientras permanece abierta; navegar al canje o poner el navegador en segundo plano puede hacer que la estación lo muestre desconectado sin revocar su vínculo.
 
-Antes de usar la función deben aplicarse, por el proceso habitual de despliegue, las migraciones aditivas `20261031120000_operation_station` y `20261031130000_station_readings`. No se aplican automáticamente al editar el proyecto. Una instalación existente también requiere generar el cliente Prisma y reiniciar la aplicación. La cámara requiere conexión segura y permiso del navegador.
+Se conservan las migraciones `20261031120000_operation_station` y `20261031130000_station_readings`. Este ajuste no necesita cambios de esquema ni borra datos existentes. Los contenidos de las lecturas se conservan como registro; debe definirse una política de retención antes de utilizar datos sensibles.
+
+El antirrebote del escáner consulta el instante actual en cada lectura, sin dejar una pausa memorizada que bloquee los escaneos siguientes.

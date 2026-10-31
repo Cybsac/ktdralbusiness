@@ -1,3 +1,4 @@
+import { PRIZE_CODE_SPACE } from "./code-format";
 import { Prisma } from "@prisma/client";
 import { createHash } from "crypto";
 
@@ -58,14 +59,24 @@ export async function currentPersonalCodes(now = new Date()) {
         !row ||
         row.period !== window.period ||
         row.configRevision !== config.revision ||
-        row.credentialRevision !== credential.revision
+        row.credentialRevision !== credential.revision ||
+        row.codeHash !==
+          hashPrizeCode(
+            personalPrizeCode(
+              credential.secret,
+              credential.revision,
+              config.revision,
+              `${config.secret}:${window.period}`,
+              row.nonce
+            )
+          )
       ) {
         let nonce = 0;
         let codeHash: string;
-        // Each active collaborator receives a different six-digit code. Never reuse
+        // Each active collaborator receives a different personal code. Never reuse
         // their preceding code when rotating, even if the HMAC happens to collide.
         do {
-          if (nonce >= 1000000) throw new Error("PRIZE_CODE_CAPACITY");
+          if (nonce >= PRIZE_CODE_SPACE) throw new Error("PRIZE_CODE_CAPACITY");
           codeHash = hashPrizeCode(
             personalPrizeCode(
               credential.secret,

@@ -3,6 +3,8 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { PRIZE_AUTH_EVENT, type PrizeAuthorizationRequest } from "@/lib/prize-authorization/client";
 
+import { PRIZE_CODE_DIGITS, PRIZE_CODE_PATTERN } from "@/lib/prize-authorization/code-format";
+
 const canceled = () =>
   new Response(
     JSON.stringify({
@@ -97,15 +99,15 @@ export function PrizeAuthorizationPrompt() {
           El colaborador debe ingresar su clave personal. La entrega quedará registrada a su nombre.
         </p>
         <label className="block text-sm">
-          Clave de 6 dígitos
+          Clave de {PRIZE_CODE_DIGITS} dígitos
           <input
             autoFocus
             required
             type="password"
             inputMode="numeric"
             autoComplete="off"
-            pattern="[0-9]{6}"
-            maxLength={6}
+            pattern={PRIZE_CODE_PATTERN}
+            maxLength={PRIZE_CODE_DIGITS}
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
             disabled={busy}
@@ -120,7 +122,7 @@ export function PrizeAuthorizationPrompt() {
         <div className="flex flex-col gap-2 sm:flex-row">
           <button
             className="btn min-h-11 min-w-0 sm:flex-1"
-            disabled={busy || code.length !== 6}
+            disabled={busy || code.length !== PRIZE_CODE_DIGITS}
             type="submit"
           >
             {busy ? "Confirmando…" : "Confirmar entrega"}

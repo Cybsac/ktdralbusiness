@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { DateTime } from "luxon";
 
+import { isPrizeCode, PRIZE_CODE_DIGITS, PRIZE_CODE_SPACE } from "./code-format";
+
 import type { PrizePolicy, PrizeScope } from "./policy";
 
 export function policyWindow(policy: PrizePolicy, _scope: PrizeScope, now = new Date()) {
@@ -46,8 +48,14 @@ export function generatePrizeCode(secret: string, revision: number, period: stri
     .update(`prize-authorization:v1:${revision}:${period}`)
     .digest();
   const offset = digest[digest.length - 1] & 15;
-  return ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, "0");
+  return ((digest.readUInt32BE(offset) & 0x7fffffff) % PRIZE_CODE_SPACE)
+    .toString()
+    .padStart(PRIZE_CODE_DIGITS, "0");
 }
 export function verifyPrizeCode(code: string, expected: string) {
-  return /^\d{6}$/.test(code) && timingSafeEqual(Buffer.from(code), Buffer.from(expected));
+  return (
+    isPrizeCode(code) &&
+    isPrizeCode(expected) &&
+    timingSafeEqual(Buffer.from(code), Buffer.from(expected))
+  );
 }

@@ -3,7 +3,7 @@
 ## Dos vías de autorización
 
 - **Sesión activa de una cuenta de usuario**: COLLAB, STAFF, COORDINATOR, ADMIN y cualquier otro rol válido de cuenta activa pueden confirmar la entrega sin OTP. El responsable es el usuario de la sesión, consultado en la base de datos. Una cuenta inactiva o una cookie inválida no omiten la validación.
-- **Teléfono público sin sesión**: el botón de entrega está disponible, pero pide seis dígitos. El OTP personal identifica al colaborador habilitado por administración. El servidor proporciona esa identidad a la operación; nunca se acepta un identificador de colaborador enviado por el cliente.
+- **Teléfono público sin sesión**: el botón de entrega está disponible, pero pide cuatro dígitos. El OTP personal identifica al colaborador habilitado por administración. El servidor proporciona esa identidad a la operación; nunca se acepta un identificador de colaborador enviado por el cliente.
 
 La política de vigencia afecta al canje público con OTP. Desactivarla o estar fuera de sus fechas cierra el canje público, sin bloquear las entregas de cuentas con sesión. Ver o revelar un premio no consume usos.
 
@@ -71,3 +71,9 @@ personal autenticado y enlace discreto para público. Cada flujo conserva su cal
 una consulta de sesión, que se actualiza al recuperar el foco. No duplica permisos. El servidor decide si corresponde solicitar OTP o usar la
 identidad de la sesión. No se cambian controles de administración de sorteos,
 aprobaciones de intercambio ni operaciones de restaurante.
+
+## OTP de cuatro dígitos y cabecera del colaborador
+
+La longitud se define en `code-format.ts`, compartido por generación, validación del servidor y formulario público. Se conservan ceros iniciales y la asignación única por colaborador, bloqueo de configuración y límite de intentos. Al leer las credenciales, si la clave calculada no corresponde a su hash registrado (incluidos los registros anteriores de seis dígitos), se reasigna y persiste dentro de la misma transacción. Las claves anteriores no se aceptan. No se modifica la vigencia, habilitación ni revocación de las cuentas y no se necesita una migración de esquema.
+
+La cabecera autenticada de `/u` presenta el OTP propio junto a la identidad del usuario, enlazado a «Mi clave de canjes». Un proveedor compartido alimenta cabecera y página de detalle sin duplicar consultas o suscripciones; usa las notificaciones, reconexión, foco, consulta de respaldo y vencimiento existentes. La API devuelve únicamente la clave del usuario autenticado, con `private, no-store`. Las claves se conservan en memoria de la interfaz, sin agregarlas al almacenamiento persistente del navegador. La cabecera indica también si el canje público está fuera de vigencia o la clave no está habilitada.
