@@ -5,6 +5,7 @@ export const REUSABLE_POLICY = {
   maxPageSize: 100,
   maxDescription: 2000,
   maxBulkTokens: 1000,
+  purgeClockSkewMs: 60_000,
   defaultDays: 30,
   defaultStart: "18:00",
   defaultEnd: "00:00",

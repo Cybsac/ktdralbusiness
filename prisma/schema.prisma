@@ -2162,6 +2162,9 @@ model PersonDailyRating {
   rating          String   // MALO, REGULAR, BUENO, MUY_BUENO
   note            String?
   ratedByUserId   String?
+  originalRating  String?
+  adjustmentReason String?
+  adjustedAt      DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   person          Person   @relation(fields: [personId], references: [id])

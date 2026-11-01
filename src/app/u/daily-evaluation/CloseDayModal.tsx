@@ -1,6 +1,6 @@
 'use client';
 
-type Rating = 'MALO' | 'REGULAR' | 'BUENO' | 'MUY_BUENO';
+import type { Rating } from '@/lib/daily-evaluation';
 
 interface AttendanceEntry {
   person: { id: string; name: string; area: string | null };
@@ -38,7 +38,7 @@ const QUICK_COMMENTS = ['¡Todo bien!', '¡Buena noche!', 'Show fluido', 'Buen a
 
 function formatTime(iso: string | null) {
   if (!iso) return '-';
-  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' });
 }
 
 export default function CloseDayModal({
@@ -105,7 +105,7 @@ export default function CloseDayModal({
             <section>
               <div className="mb-2 flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Calificación individual</h3>
-                <span className="text-xs text-slate-500 dark:text-slate-400">{personRatings.size}/{attendance.length} completos</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">{attendance.filter((entry) => personRatings.has(entry.person.id)).length}/{attendance.length} completos</span>
               </div>
               <div className="space-y-2">
                 {attendance.map((entry) => {

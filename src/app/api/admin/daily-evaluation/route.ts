@@ -4,14 +4,8 @@ import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/
 
 export const dynamic = 'force-dynamic';
 
-const RATING_LEVELS = ['MALO', 'REGULAR', 'BUENO', 'MUY_BUENO'] as const;
-const MISSING_EXIT_NOTE = 'Ajuste automático: no registró salida al cerrar la jornada.';
-
-function downgradeRating(rating: string) {
-  const index = RATING_LEVELS.indexOf(rating as (typeof RATING_LEVELS)[number]);
-  if (index <= 0) return 'MALO';
-  return RATING_LEVELS[index - 1];
-}
+import { currentBusinessDay } from '@/lib/attendanceDay';
+import { adjustMissingExit, isBusinessDay, isRating, MISSING_EXIT_NOTE, MISSING_EXIT_REASON } from '@/lib/daily-evaluation';
 
 // GET /api/admin/daily-evaluation?day=YYYY-MM-DD
 export async function GET(req: NextRequest) {
@@ -22,8 +16,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
+    if (req.nextUrl.searchParams.has('configuration')) return NextResponse.json({ currentBusinessDay: currentBusinessDay() });
     const day = req.nextUrl.searchParams.get('day');
-    if (!day) return NextResponse.json({ error: 'day param required' }, { status: 400 });
+    if (!isBusinessDay(day)) return NextResponse.json({ error: 'Fecha inválida' }, { status: 400 });
 
     const evaluation = await prisma.dailyEvaluation.findUnique({
       where: { businessDay: day }
@@ -66,12 +61,11 @@ export async function POST(req: NextRequest) {
     }
 
     const { businessDay, rating, comment } = await req.json();
-    if (!businessDay) {
+    if (!isBusinessDay(businessDay)) {
       return NextResponse.json({ error: 'businessDay required' }, { status: 400 });
     }
 
-    const validRatings = ['MALO', 'REGULAR', 'BUENO', 'MUY_BUENO'];
-    if (rating && !validRatings.includes(rating)) {
+    if (rating && !isRating(rating)) {
       return NextResponse.json({ error: 'Invalid rating' }, { status: 400 });
     }
 
@@ -114,139 +108,52 @@ export async function PATCH(req: NextRequest) {
     }
 
     const { businessDay, action, rating, comment, ratings } = await req.json();
-    if (!businessDay || !['close', 'reopen'].includes(action)) {
+    if (!isBusinessDay(businessDay) || !['close', 'reopen'].includes(action)) {
       return NextResponse.json({ error: 'businessDay and action (close/reopen) required' }, { status: 400 });
     }
 
     if (action === 'close') {
-      const validRatings = ['MALO', 'REGULAR', 'BUENO', 'MUY_BUENO'];
       const normalizedComment = typeof comment === 'string' ? comment.trim() : '';
-      if (!validRatings.includes(rating)) {
-        return NextResponse.json({ error: 'Debes seleccionar una calificación global.' }, { status: 400 });
-      }
-      if (!normalizedComment) {
-        return NextResponse.json({ error: 'El comentario global de la jornada es obligatorio.' }, { status: 400 });
-      }
-      if (!Array.isArray(ratings)) {
-        return NextResponse.json({ error: 'Debes enviar las calificaciones individuales.' }, { status: 400 });
-      }
-
-      // Prevent closing a future day
-      const now = new Date();
-      const limaHour = Number(now.toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false }));
-      const ref = limaHour < 10 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
-      const todayBusiness = ref.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-      if (businessDay > todayBusiness) {
-        return NextResponse.json({ error: 'No se puede cerrar una jornada futura' }, { status: 400 });
-      }
-
-      const presentScans = await prisma.scan.findMany({
-        where: { businessDay, type: 'IN' },
-        select: { personId: true },
-        distinct: ['personId'],
-      });
-      const presentPersonIds = presentScans.map((scan) => scan.personId);
-      const presentWorkers = await prisma.person.findMany({
-        where: {
-          id: { in: presentPersonIds },
-          active: true,
-          user: { role: { in: ['COLLAB', 'STAFF'] } },
-        },
-        select: { id: true, name: true },
-        orderBy: { name: 'asc' },
-      });
-      const submittedRatings = new Map(
-        ratings.map((item: { personId?: string; rating?: string; note?: string }) => [item.personId, item])
-      );
-      const missingWorkers = presentWorkers.filter((person) => {
-        const submitted = submittedRatings.get(person.id);
-        return !submitted || !validRatings.includes(submitted.rating || '');
-      });
-      if (missingWorkers.length > 0) {
-        return NextResponse.json({
-          error: 'Debes asignar una calificación individual a cada colaborador presente antes de cerrar la jornada.',
-          missingWorkers,
-        }, { status: 400 });
-      }
-
-      const exitScans = await prisma.scan.findMany({
-        where: { businessDay, type: 'OUT', personId: { in: presentPersonIds } },
-        select: { personId: true },
-        distinct: ['personId'],
-      });
-      const peopleWithExit = new Set(exitScans.map((scan) => scan.personId));
-      const missingExitIds = new Set(
-        presentWorkers
-          .filter((person) => !peopleWithExit.has(person.id))
-          .map((person) => person.id)
-      );
-      const shouldApplyMissingExitAdjustment = !(await prisma.dailyEvaluation.findUnique({
-        where: { businessDay },
-        select: { closedAt: true },
-      }))?.closedAt;
-
-      const adjustedWorkers = presentWorkers
-        .filter((person) => shouldApplyMissingExitAdjustment && missingExitIds.has(person.id))
-        .map((person) => {
-          const submitted = submittedRatings.get(person.id)!;
-          const note = submitted.note?.includes(MISSING_EXIT_NOTE)
-            ? submitted.note
-            : [submitted.note, MISSING_EXIT_NOTE].filter(Boolean).join(' | ');
-          return {
-            personId: person.id,
-            previousRating: submitted.rating!,
-            rating: downgradeRating(submitted.rating!),
-            note,
-          };
-        });
-
-      const evaluation = await prisma.$transaction(async (tx) => {
-        for (const person of presentWorkers) {
-          const submitted = submittedRatings.get(person.id)!;
-          await tx.personDailyRating.upsert({
-            where: { businessDay_personId: { businessDay, personId: person.id } },
-            create: {
-              businessDay,
-              personId: person.id,
-              rating: submitted.rating!,
-              note: submitted.note?.trim() || null,
-              ratedByUserId: session.userId,
-            },
-            update: {
-              rating: submitted.rating!,
-              note: submitted.note?.trim() || null,
-              ratedByUserId: session.userId,
-            },
-          });
+      if (!isRating(rating)) return NextResponse.json({ error: 'Debes seleccionar una calificación global.' }, { status: 400 });
+      if (!normalizedComment) return NextResponse.json({ error: 'El comentario global de la jornada es obligatorio.' }, { status: 400 });
+      if (!Array.isArray(ratings)) return NextResponse.json({ error: 'Debes enviar las calificaciones individuales.' }, { status: 400 });
+      if (businessDay > currentBusinessDay()) return NextResponse.json({ error: 'No se puede cerrar una jornada futura' }, { status: 400 });
+      const submitted = new Map<string, { personId: string; rating: (typeof import('@/lib/daily-evaluation').RATING_LEVELS)[number]; note: string }>();
+      for (const item of ratings) {
+        if (!item || typeof item.personId !== 'string' || !item.personId || !isRating(item.rating) || (item.note != null && typeof item.note !== 'string') || submitted.has(item.personId)) {
+          return NextResponse.json({ error: 'Calificaciones individuales inválidas o duplicadas.' }, { status: 400 });
         }
+        submitted.set(item.personId, { personId: item.personId, rating: item.rating, note: item.note?.trim() || '' });
+      }
 
-        for (const adjustment of adjustedWorkers) {
-          await tx.personDailyRating.update({
-            where: { businessDay_personId: { businessDay, personId: adjustment.personId } },
-            data: { rating: adjustment.rating, note: adjustment.note, ratedByUserId: session.userId },
-          });
+      const result = await prisma.$transaction(async (tx) => {
+        const existing = await tx.dailyEvaluation.findUnique({ where: { businessDay }, select: { closedAt: true } });
+        if (existing?.closedAt) return { error: 'La jornada ya está cerrada.', status: 409 as const };
+        const scans = await tx.scan.findMany({ where: { businessDay, type: { in: ['IN', 'OUT'] } }, select: { personId: true, type: true } });
+        const inIds = [...new Set(scans.filter(s => s.type === 'IN').map(s => s.personId))];
+        const outIds = new Set(scans.filter(s => s.type === 'OUT').map(s => s.personId));
+        const workers = await tx.person.findMany({ where: { id: { in: inIds }, active: true, user: { role: { in: ['COLLAB', 'STAFF'] } } }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
+        const missingWorkers = workers.filter(person => !submitted.has(person.id));
+        if (missingWorkers.length) return { error: 'Debes asignar una calificación individual a cada colaborador presente antes de cerrar la jornada.', status: 400 as const, missingWorkers };
+        const previous = await tx.personDailyRating.findMany({ where: { businessDay, personId: { in: workers.map(p => p.id) } }, select: { personId: true, adjustmentReason: true } });
+        const previouslyAdjusted = new Set(previous.filter(p => p.adjustmentReason === MISSING_EXIT_REASON).map(p => p.personId));
+        const adjustedWorkers: Array<{ personId: string; previousRating: string; rating: string; note: string }> = [];
+        for (const person of workers) {
+          const input = submitted.get(person.id)!;
+          const adjustment = !outIds.has(person.id) ? adjustMissingExit(input.rating, input.note, previouslyAdjusted.has(person.id)) : { rating: input.rating, note: input.note };
+          // Preserve the historical marker even if an edited note omitted it.
+          const note = previouslyAdjusted.has(person.id) && !adjustment.note.includes(MISSING_EXIT_NOTE)
+            ? [adjustment.note, MISSING_EXIT_NOTE].filter(Boolean).join(' | ') : adjustment.note;
+          if (adjustment.rating !== input.rating || (!outIds.has(person.id) && !previouslyAdjusted.has(person.id))) adjustedWorkers.push({ personId: person.id, previousRating: input.rating, rating: adjustment.rating, note });
+          const newAdjustment = !outIds.has(person.id) && !previouslyAdjusted.has(person.id);
+          const adjustmentFields = newAdjustment ? { originalRating: input.rating, adjustmentReason: MISSING_EXIT_REASON, adjustedAt: new Date() } : {};
+          await tx.personDailyRating.upsert({ where: { businessDay_personId: { businessDay, personId: person.id } }, create: { businessDay, personId: person.id, rating: adjustment.rating, note: note || null, ratedByUserId: session.userId, ...adjustmentFields }, update: { rating: adjustment.rating, note: note || null, ratedByUserId: session.userId, ...adjustmentFields } });
         }
-
-        return tx.dailyEvaluation.upsert({
-          where: { businessDay },
-          create: {
-            businessDay,
-            rating,
-            comment: normalizedComment,
-            evaluatedByUserId: session.userId,
-            closedAt: new Date(),
-            closedByUserId: session.userId,
-          },
-          update: {
-            rating,
-            comment: normalizedComment,
-            evaluatedByUserId: session.userId,
-            closedAt: new Date(),
-            closedByUserId: session.userId,
-          },
-        });
-      });
-      return NextResponse.json({ evaluation, adjustedWorkers });
+        const evaluation = await tx.dailyEvaluation.upsert({ where: { businessDay }, create: { businessDay, rating, comment: normalizedComment, evaluatedByUserId: session.userId, closedAt: new Date(), closedByUserId: session.userId }, update: { rating, comment: normalizedComment, evaluatedByUserId: session.userId, closedAt: new Date(), closedByUserId: session.userId } });
+        return { evaluation, adjustedWorkers };
+      }, { isolationLevel: 'Serializable' });
+      if ('error' in result) return NextResponse.json({ error: result.error, missingWorkers: result.missingWorkers }, { status: result.status });
+      return NextResponse.json(result);
     } else {
       // reopen — only ADMIN can reopen
       if (currentRole !== 'ADMIN') {
@@ -265,6 +172,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ evaluation });
     }
   } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && (error.code === 'P2034' || error.code === 'P2002')) return NextResponse.json({ error: 'La jornada cambió al mismo tiempo. Actualiza los datos y vuelve a intentarlo.' }, { status: 409 });
     console.error('Error closing/reopening day:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

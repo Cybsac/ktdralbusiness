@@ -76,11 +76,13 @@ export default function ReusableTokensAdmin() {
   const [recentTokens, setRecentTokens] = useState<IndividualToken[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [tokenSearch, setTokenSearch] = useState("");
+  const [tokenSort, setTokenSort] = useState<"newest" | "oldest" | "most_used" | "least_used">("newest");
   const [selectedTokenIds, setSelectedTokenIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [prizesDropdownOpen, setPrizesDropdownOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"premios" | "grupos" | "tokens">("premios");
-  const [groupForm, setGroupForm] = useState({ name: "", description: "", color: "" });
+  const [groupForm, setGroupForm] = useState({ name: "", description: "" });
   const [editingGroup, setEditingGroup] = useState<TokenGroup | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const expandedRef = useRef(new Set<string>());
@@ -170,8 +172,9 @@ export default function ReusableTokensAdmin() {
     void fetchGroups();
   }, []);
   useEffect(() => {
-    void fetchRecentTokens(currentPage);
-  }, [currentPage]);
+    const timer = setTimeout(() => { void fetchRecentTokens(currentPage); }, tokenSearch.trim() ? 250 : 0);
+    return () => { clearTimeout(timer); recentAbort.current?.abort(); };
+  }, [currentPage, tokenSearch, tokenSort]);
 
   // Cerrar desplegable de premios al hacer clic fuera
   useEffect(() => {
@@ -252,7 +255,6 @@ export default function ReusableTokensAdmin() {
     const body = {
       name: groupForm.name.trim(),
       description: groupForm.description?.trim() || null,
-      color: groupForm.color || null,
     };
 
     const res = await fetch("/api/admin/token-groups", {
@@ -263,7 +265,7 @@ export default function ReusableTokensAdmin() {
 
     if (res.ok) {
       alert("Grupo creado exitosamente");
-      setGroupForm({ name: "", description: "", color: "" });
+      setGroupForm({ name: "", description: "" });
       fetchGroups();
     } else {
       const error = await res.json();
@@ -276,7 +278,6 @@ export default function ReusableTokensAdmin() {
     setGroupForm({
       name: group.name,
       description: group.description || "",
-      color: group.color || "",
     });
   };
 
@@ -290,7 +291,6 @@ export default function ReusableTokensAdmin() {
     const body = {
       name: groupForm.name.trim(),
       description: groupForm.description?.trim() || null,
-      color: groupForm.color || null,
     };
 
     const res = await fetch(`/api/admin/token-groups/${editingGroup.id}`, {
@@ -302,7 +302,7 @@ export default function ReusableTokensAdmin() {
     if (res.ok) {
       alert("Grupo actualizado exitosamente");
       setEditingGroup(null);
-      setGroupForm({ name: "", description: "", color: "" });
+      setGroupForm({ name: "", description: "" });
       fetchGroups();
     } else {
       const error = await res.json();
@@ -333,7 +333,7 @@ export default function ReusableTokensAdmin() {
 
   const cancelEditGroup = () => {
     setEditingGroup(null);
-    setGroupForm({ name: "", description: "", color: "" });
+    setGroupForm({ name: "", description: "" });
   };
 
   const recentAbort = useRef<AbortController | null>(null);
@@ -344,7 +344,7 @@ export default function ReusableTokensAdmin() {
     recentAbort.current = controller;
     try {
       const res = await fetch(
-        `/api/admin/reusable-tokens/recent?page=${page}&limit=${P.pageSize}`,
+        `/api/admin/reusable-tokens/recent?${new URLSearchParams({ page: String(page), limit: String(P.pageSize), search: tokenSearch, sort: tokenSort })}`,
         { cache: "no-store", signal: controller.signal }
       );
       if (res.ok) {
@@ -549,14 +549,6 @@ export default function ReusableTokensAdmin() {
       else next.add(tokenId);
       return next;
     });
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedTokenIds.size === recentTokens.length) {
-      setSelectedTokenIds(new Set());
-    } else {
-      setSelectedTokenIds(new Set(recentTokens.map((t) => t.id)));
-    }
   };
 
   const handleBulkDelete = async () => {
@@ -873,7 +865,7 @@ export default function ReusableTokensAdmin() {
             </div>
             <div className="card-body">
               {/* Formulario para crear/editar grupo */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Nombre del Grupo *
@@ -884,17 +876,6 @@ export default function ReusableTokensAdmin() {
                     value={groupForm.name}
                     onChange={(e) => setGroupForm({ ...groupForm, name: e.target.value })}
                     placeholder="Ej: PROMOS BARRA"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Color
-                  </label>
-                  <input
-                    type="color"
-                    className="input w-full h-10"
-                    value={groupForm.color || "#3b82f6"}
-                    onChange={(e) => setGroupForm({ ...groupForm, color: e.target.value })}
                   />
                 </div>
                 <div className="flex items-end">
@@ -1473,26 +1454,29 @@ export default function ReusableTokensAdmin() {
           {/* Todos los Tokens */}
           <div className="card">
             <div className="card-header">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">Todos los Tokens</h2>
                   <p className="text-sm text-slate-600 dark:text-slate-400">
                     Lista completa de tokens generados con paginación
                   </p>
                 </div>
+                <label className="flex w-full items-center gap-2 text-sm text-slate-600 dark:text-slate-300 sm:w-auto">
+                  <span className="sr-only">Buscar tokens</span>
+                  <input type="search" aria-label="Buscar tokens" placeholder="Buscar por premio, ID o grupo..." value={tokenSearch} maxLength={200} onChange={(event) => { setSelectedTokenIds(new Set()); setCurrentPage(1); setRecentTokens([]); setPagination(null); setTokenSearch(event.target.value); }} className="input w-full sm:w-72" />
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                  Ordenar
+                  <select aria-label="Ordenar tokens" value={tokenSort} onChange={(event) => { setSelectedTokenIds(new Set()); setCurrentPage(1); setRecentTokens([]); setPagination(null); setTokenSort(event.target.value as typeof tokenSort); }} className="input">
+                    <option value="newest">Más recientes</option>
+                    <option value="oldest">Más antiguos</option>
+                    <option value="most_used">Más usos</option>
+                    <option value="least_used">Menos usos</option>
+                  </select>
+                </label>
                 {recentTokens.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={
-                          selectedTokenIds.size === recentTokens.length && recentTokens.length > 0
-                        }
-                        onChange={toggleSelectAll}
-                        className="rounded border-slate-300"
-                      />
-                      Seleccionar todos
-                    </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {recentTokens.some(token => (token.usedCount ?? 0) === 0) && <button type="button" onClick={() => setSelectedTokenIds(new Set(recentTokens.filter(token => (token.usedCount ?? 0) === 0).map(token => token.id)))} className="btn-sm bg-blue-600 hover:bg-blue-700 text-white">Seleccionar sin usos</button>}
                     {selectedTokenIds.size > 0 && (
                       <button
                         onClick={handleBulkDelete}
@@ -1508,7 +1492,7 @@ export default function ReusableTokensAdmin() {
             </div>
             <div className="card-body">
               {recentTokens.length === 0 ? (
-                <p className="text-slate-500 dark:text-slate-400">No hay tokens generados aún</p>
+                <p className="text-slate-500 dark:text-slate-400">{tokenSearch.trim() ? "No se encontraron tokens con esa búsqueda." : "No hay tokens generados aún"}</p>
               ) : (
                 <div className="space-y-4">
                   {recentTokens.map((token) => (
@@ -1676,7 +1660,7 @@ export default function ReusableTokensAdmin() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => fetchRecentTokens(currentPage - 1)}
+                      onClick={() => { setSelectedTokenIds(new Set()); void fetchRecentTokens(currentPage - 1); }}
                       disabled={currentPage <= 1}
                       className="btn-sm bg-slate-600 hover:bg-slate-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white"
                     >
@@ -1686,7 +1670,7 @@ export default function ReusableTokensAdmin() {
                       Página {currentPage} de {pagination.totalPages}
                     </span>
                     <button
-                      onClick={() => fetchRecentTokens(currentPage + 1)}
+                      onClick={() => { setSelectedTokenIds(new Set()); void fetchRecentTokens(currentPage + 1); }}
                       disabled={currentPage >= pagination.totalPages}
                       className="btn-sm bg-slate-600 hover:bg-slate-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white"
                     >

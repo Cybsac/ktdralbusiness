@@ -67,7 +67,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json(group);
     }
 
-    const { name, description, color } = body;
+    const { name, description } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -78,7 +78,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       data: {
         name: name.trim(),
         description: description?.trim() || null,
-        color: color || null,
       },
     });
 

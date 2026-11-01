@@ -1,239 +1,131 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { REUSABLE_POLICY, REUSABLE_TIMEZONE } from '@/lib/reusable-tokens/policy';
 
-interface ReusableToken {
-  id: string;
-  qrUrl: string;
-  prize: { id: string; label: string; key?: string; color?: string };
-  maxUses: number;
-  usedCount?: number;
-  expiresAt: string;
-  startTime?: string | null;
-  endTime?: string | null;
-  createdAt?: string;
-  deliveryNote?: string;
-  disabled?: boolean;
+type Usage = 'all' | 'unused' | 'used';
+interface Token {
+  id: string; qrUrl: string; prize: { label: string; key: string; color: string | null };
+  maxUses: number; usedCount: number; expiresAt: string; deletable: boolean;
 }
+interface Results { tokens: Token[]; pagination: { page: number; total: number; totalPages: number }; eligible: number; asOf: string }
 
 export default function ReusableTokensPurgeAdmin() {
-  const [tokens, setTokens] = useState<ReusableToken[]>([]);
+  const [data, setData] = useState<Results | null>(null);
+  const [search, setSearch] = useState('');
+  const [usage, setUsage] = useState<Usage>('all');
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [allSnapshot, setAllSnapshot] = useState<string | null>(null);
+  const [allCount, setAllCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterUsed, setFilterUsed] = useState<'all' | 'unused' | 'used'>('all');
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [revision, setRevision] = useState(0);
 
   useEffect(() => {
-    fetchTokens();
-  }, []);
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ page: String(page), limit: String(REUSABLE_POLICY.pageSize), search, usage });
+        if (allSnapshot) params.set('asOf', allSnapshot);
+        const response = await fetch(`/api/admin/reusable-tokens/all?${params}`, { cache: 'no-store', signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || result.error || 'No se pudieron cargar los tokens.');
+        if (!controller.signal.aborted) setData(result);
+      } catch (err) {
+        if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'No se pudieron cargar los tokens.');
+      } finally { if (!controller.signal.aborted) setLoading(false); }
+    }, search ? 250 : 0);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [search, usage, page, revision, allSnapshot]);
 
-  const fetchTokens = async () => {
-    const res = await fetch('/api/admin/reusable-tokens/all');
-    if (res.ok) {
-      const data = await res.json();
-      setTokens(data.tokens || []);
-    } else {
-      alert('Error cargando tokens');
-    }
-    setLoading(false);
+  const clearSelection = () => { setSelected(new Set()); setAllSnapshot(null); setAllCount(0); };
+  const changeFilters = (nextSearch: string, nextUsage: Usage) => {
+    clearSelection(); setPage(1); setSearch(nextSearch); setUsage(nextUsage); setMessage('');
   };
-
-  const deleteToken = async (tokenId: string) => {
-    if (!confirm('¿Estás seguro de que quieres eliminar este token? Esta acción no se puede deshacer.')) {
-      return;
-    }
-
-    setDeleting(tokenId);
-    try {
-      const res = await fetch(`/api/admin/reusable-tokens/${tokenId}`, {
-        method: 'DELETE'
-      });
-
-      if (res.ok) {
-        alert('Token eliminado exitosamente');
-        fetchTokens(); // Recargar la lista
-      } else {
-        const error = await res.json();
-        alert(error.error || 'Error eliminando token');
-      }
-    } catch (error) {
-      alert('Error de red');
-    } finally {
-      setDeleting(null);
-    }
-  };
-
-  const filteredTokens = tokens.filter(token => {
-    const matchesSearch = searchTerm === '' ||
-      token.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      token.prize.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      token.prize.key?.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesFilter = filterUsed === 'all' ||
-      (filterUsed === 'unused' && (token.usedCount || 0) === 0) ||
-      (filterUsed === 'used' && (token.usedCount || 0) > 0);
-
-    return matchesSearch && matchesFilter;
+  const toggle = (id: string) => setSelected(previous => {
+    const next = new Set(previous);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
   });
+  const selectedCount = allSnapshot ? allCount : selected.size;
 
-  if (loading) return <div className="text-slate-900 dark:text-slate-100">Cargando...</div>;
+  const deleteSelection = async (oneId?: string) => {
+    const count = oneId ? 1 : selectedCount;
+    if (!count || !confirm(`¿Eliminar ${count} token(es) sin usos ni historial? Esta acción no se puede deshacer.`)) return;
+    setDeleting(true); setError(''); setMessage('');
+    let deleted = 0, skipped = 0;
+    try {
+      if (oneId || !allSnapshot) {
+        const response = await fetch('/api/admin/reusable-tokens/bulk-delete', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tokenIds: oneId ? [oneId] : [...selected] }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || result.error || 'No se pudieron eliminar los tokens.');
+        deleted = result.deleted; skipped = result.skipped;
+      } else {
+        let cursor: string | null = null;
+        do {
+          const response: Response = await fetch('/api/admin/reusable-tokens/bulk-delete', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filter: { search: search.trim(), usage, asOf: allSnapshot }, ...(cursor ? { cursor } : {}) }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.message || result.error || 'No se pudieron completar los lotes.');
+          deleted += result.deleted; skipped += result.skipped;
+          cursor = result.nextCursor;
+          setMessage(`Eliminados hasta ahora: ${deleted}.`);
+        } while (cursor);
+        skipped += Math.max(0, count - deleted - skipped);
+      }
+      setMessage(`${deleted} token(es) eliminado(s)${skipped ? `; ${skipped} omitido(s) por cambios, usos o historial` : ''}.`);
+    } catch (err) {
+      setError(`${deleted ? `Se eliminaron ${deleted} token(es) antes del error. ` : ''}${err instanceof Error ? err.message : 'Error de conexión.'} Actualiza la lista antes de reintentar.`);
+    } finally {
+      clearSelection(); setDeleting(false); setPage(1); setRevision(value => value + 1);
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Eliminar Tokens Reusables</h1>
-      </div>
-
-      {/* Filtros */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold">Filtros</h2>
+      <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Eliminar tokens reutilizables</h1>
+      <div className="card"><div className="card-header"><h2 className="text-lg font-semibold">Filtros</h2></div>
+        <div className="card-body grid grid-cols-1 gap-4 md:grid-cols-2">
+          <label className="text-sm font-medium">Buscar<input type="search" className="input mt-1 w-full" placeholder="Buscar por ID, premio o clave..." value={search} maxLength={200} disabled={deleting} onChange={event => changeFilters(event.target.value, usage)} /></label>
+          <label className="text-sm font-medium">Estado de uso<select className="input mt-1 w-full" value={usage} disabled={deleting} onChange={event => changeFilters(search, event.target.value as Usage)}><option value="all">Todos los tokens</option><option value="unused">Solo sin usar</option><option value="used">Solo usados</option></select></label>
         </div>
-        <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Buscar</label>
-              <input
-                type="text"
-                className="input w-full"
-                placeholder="Buscar por ID, premio o key..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Estado de uso</label>
-              <select
-                className="input w-full"
-                value={filterUsed}
-                onChange={e => setFilterUsed(e.target.value as 'all' | 'unused' | 'used')}
-              >
-                <option value="all">Todos los tokens</option>
-                <option value="unused">Solo sin usar</option>
-                <option value="used">Solo usados</option>
-              </select>
-            </div>
+      </div>
+      {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{error}</div>}
+      {message && <div role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">{message}</div>}
+      <div className="card">
+        <div className="card-header space-y-3">
+          <div><h2 className="text-lg font-semibold">Tokens reutilizables ({data?.pagination.total ?? 0})</h2><p className="text-sm text-slate-500">Solo pueden eliminarse tokens sin usos ni historial.</p></div>
+          <div className="flex flex-wrap items-center gap-2">
+            {allSnapshot ? <button type="button" className="btn-sm bg-slate-600 text-white" disabled={deleting} onClick={clearSelection}>Cancelar selección total</button> : <button type="button" className="btn-sm bg-blue-600 text-white disabled:opacity-50" disabled={loading || deleting || !data?.eligible} onClick={() => { if (data) { setSelected(new Set()); setAllSnapshot(data.asOf); setAllCount(data.eligible); } }}>Seleccionar todos los eliminables ({data?.eligible ?? 0})</button>}
+            {selectedCount > 0 && <button type="button" className="btn-sm bg-red-600 text-white disabled:opacity-50" disabled={loading || deleting} onClick={() => void deleteSelection()}>{deleting ? 'Eliminando…' : `Eliminar seleccionados (${selectedCount})`}</button>}
           </div>
-        </div>
-      </div>
-
-      {/* Lista de Tokens */}
-      <div className="card">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold">Tokens Reusables ({filteredTokens.length})</h2>
-          <p className="text-sm text-slate-600 dark:text-slate-400">Solo se pueden eliminar tokens que no han sido usados</p>
+          {allSnapshot && <p className="text-xs text-slate-500">Selección de todos los resultados filtrados; los tokens con usos o historial se conservan.</p>}
         </div>
         <div className="card-body">
-          {filteredTokens.length === 0 ? (
-            <p className="text-slate-500 dark:text-slate-400">
-              {tokens.length === 0 ? 'No hay tokens generados aún' : 'No se encontraron tokens con los filtros aplicados'}
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {filteredTokens.map(token => (
-                <div key={token.id} className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
-                  <div className="flex flex-col md:flex-row gap-4">
-                    {/* Token Info */}
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-3">
-                          {token.prize.color && (
-                            <div
-                              className="w-4 h-4 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: token.prize.color }}
-                            />
-                          )}
-                          <div>
-                            <div className="font-medium text-slate-900 dark:text-slate-100">
-                              {token.prize.label}
-                            </div>
-                            <div className="text-sm text-slate-600 dark:text-slate-400">
-                              ID: {token.id}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-lg font-bold text-blue-600 dark:text-blue-400 mb-1">
-                            Usos: {token.usedCount || 0}/{token.maxUses}
-                          </div>
-                          <div className="text-sm text-slate-600 dark:text-slate-400">
-                            Expira: {new Date(token.expiresAt).toLocaleString('es-ES', { timeZone: 'America/Lima' })}
-                          </div>
-                          {token.startTime && token.endTime && (
-                            <div className="text-sm text-slate-600 dark:text-slate-400">
-                              Horario: {new Date(token.startTime).toLocaleTimeString('es-ES', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit' })} - {new Date(token.endTime).toLocaleTimeString('es-ES', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                          )}
-                          {token.createdAt && (
-                            <div className="text-sm text-slate-600 dark:text-slate-400">
-                              Creado: {new Date(token.createdAt).toLocaleString('es-ES', { timeZone: 'America/Lima' })}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      {token.deliveryNote && (
-                        <div className="text-sm text-slate-600 dark:text-slate-400 mb-2">
-                          Nota: {token.deliveryNote}
-                        </div>
-                      )}
-                      <div className="flex gap-2">
-                        <a
-                          href={token.qrUrl}
-                          target="_blank"
-                          className="btn-sm bg-blue-600 hover:bg-blue-700 text-white"
-                        >
-                          Ver Token
-                        </a>
-                        <button
-                          onClick={() => navigator.clipboard.writeText(token.qrUrl)}
-                          className="btn-sm bg-slate-600 hover:bg-slate-700 text-white"
-                        >
-                          Copiar URL
-                        </button>
-                        {(token.usedCount || 0) === 0 ? (
-                          <button
-                            onClick={() => deleteToken(token.id)}
-                            disabled={deleting === token.id}
-                            className="btn-sm bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
-                          >
-                            {deleting === token.id ? 'Eliminando...' : 'Eliminar'}
-                          </button>
-                        ) : (
-                          <span className="text-sm text-slate-500 dark:text-slate-400 italic">
-                            No se puede eliminar (ya usado)
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* QR Preview */}
-                    <div className="flex-shrink-0">
-                      <div className="bg-white p-2 rounded-lg border border-slate-200 dark:border-slate-600">
-                        <img
-                          src={`/api/qr/${token.id}`}
-                          alt={`QR para ${token.prize.label}`}
-                          className="w-20 h-20 object-contain"
-                          loading="lazy"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="card border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
-        <div className="card-header">
-          <h2 className="text-lg font-semibold text-amber-600 dark:text-amber-400">⚠️ Advertencia</h2>
-        </div>
-        <div className="card-body">
-          <p className="text-amber-700 dark:text-amber-300">
-            Solo se pueden eliminar tokens que no han sido usados aún. Una vez que un token ha sido escaneado y usado,
-            no se puede eliminar para mantener la integridad del sistema de redención.
-          </p>
+          {loading ? <p className="text-sm text-slate-500">Cargando tokens…</p> : !data?.tokens.length ? <p className="text-sm text-slate-500">No se encontraron tokens con estos filtros.</p> : <div className="space-y-3">
+            {data.tokens.map(token => <div key={token.id} className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+              <input type="checkbox" aria-label={`Seleccionar ${token.prize.label} ${token.id}`} className="mt-1 rounded border-slate-300" checked={allSnapshot ? token.deletable : selected.has(token.id)} disabled={deleting || !token.deletable || !!allSnapshot} onChange={() => {
+                if (!selected.has(token.id) && selected.size >= REUSABLE_POLICY.maxBulkTokens) {
+                  setError('Para seleccionar más tokens utiliza la selección total.');
+                  return;
+                }
+                toggle(token.id);
+              }} />
+              <div className="min-w-0 flex-1"><div className="font-medium">{token.prize.label}</div><div className="break-all text-xs text-slate-500">{token.id}</div><div className="mt-1 text-xs text-slate-500">Usos: {token.usedCount}/{token.maxUses} · Expira: {new Date(token.expiresAt).toLocaleString('es-PE', { timeZone: REUSABLE_TIMEZONE })}</div>{!token.deletable && <div className="mt-1 text-xs text-amber-600">No eliminable: tiene usos o historial.</div>}</div>
+              {token.deletable && <button type="button" className="btn-sm bg-red-600 text-white disabled:opacity-50" disabled={deleting || !!allSnapshot} onClick={() => void deleteSelection(token.id)}>Eliminar</button>}
+            </div>)}
+          </div>}
+          {data && data.pagination.totalPages > 1 && <div className="mt-5 flex items-center justify-between gap-2 text-sm"><button className="btn-sm bg-slate-600 text-white disabled:opacity-50" disabled={loading || deleting || page <= 1} onClick={() => setPage(page - 1)}>Anterior</button><span>Página {page} de {data.pagination.totalPages}</span><button className="btn-sm bg-slate-600 text-white disabled:opacity-50" disabled={loading || deleting || page >= data.pagination.totalPages} onClick={() => setPage(page + 1)}>Siguiente</button></div>}
         </div>
       </div>
     </div>

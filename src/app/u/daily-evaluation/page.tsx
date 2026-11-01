@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import type { Rating } from '@/lib/daily-evaluation';
+import { RATING_OPTIONS } from '@/lib/daily-evaluation-options';
 import { ALLOWED_AREAS } from '@/lib/areas';
 import CloseDayModal from './CloseDayModal';
 
-type Rating = 'MALO' | 'REGULAR' | 'BUENO' | 'MUY_BUENO';
 
 interface PersonInfo {
   id: string;
@@ -18,11 +19,13 @@ interface AttendanceEntry {
   firstIn: string | null;
   lastOut: string | null;
   missingExit: boolean;
+  evaluable: boolean;
 }
 
 interface DeliveredPrize {
   label: string;
   count: number;
+  operators: { name: string; count: number }[];
 }
 
 interface DayPrize {
@@ -53,6 +56,23 @@ interface StaticBatchDeliveredPrize {
 }
 
 interface StaticBatchSummary {
+  interactive: {
+    batchId: string;
+    batchName: string | null;
+    total: number;
+    available: number;
+    availablePrizes: StaticBatchDeliveredPrize[];
+    unavailable: number;
+    disabled: number;
+    expired: number;
+    upcoming: number;
+    redeemed: number;
+    redeemedPrizes: StaticBatchDeliveredPrize[];
+    inCirculation: number;
+    circulationPrizes: StaticBatchDeliveredPrize[];
+    deliveredToday: number;
+    deliveredPrizes: (StaticBatchDeliveredPrize & { operators: { name: string; count: number }[] })[];
+  } | null;
   deliveredToday: number;
   deliveredPrizes: StaticBatchDeliveredPrize[];
   revealedToday: number;
@@ -69,7 +89,18 @@ interface SummaryData {
   totalDelivered: number;
   dayPrizes: DayPrize[];
   totalTokensInBatches: number;
+  programmedPrizes: { id: string; label: string; count: number }[];
+  programmedBatches: { id: string; description: string | null; count: number }[];
+  totalPlayed: number;
+  playedPrizes: { id: string; label: string; count: number; pending: number }[];
     birthdays: {
+      approvedTotal: number;
+      approvedArrived: number;
+      approvedGuests: number;
+      approvedGuestArrivals: number;
+      pendingReview: number;
+      draftCount: number;
+      packs: { name: string; count: number }[];
       total: number;
       arrived: number;
       totalGuests: number;
@@ -77,6 +108,7 @@ interface SummaryData {
       reservations: {
         id: string;
         celebrantName: string;
+        timeSlot: string;
         status: string;
         guestsPlanned: number;
         guestArrivals: number;
@@ -195,12 +227,6 @@ interface JourneyStatsResponse {
   operators?: JourneyOperatorStats[];
 }
 
-const RATING_OPTIONS: { value: Rating; label: string; color: string; emoji: string }[] = [
-  { value: 'MALO', label: 'Malo', color: 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700', emoji: '😞' },
-  { value: 'REGULAR', label: 'Regular', color: 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-700', emoji: '😐' },
-  { value: 'BUENO', label: 'Bueno', color: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700', emoji: '😊' },
-  { value: 'MUY_BUENO', label: 'Muy Bueno', color: 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700', emoji: '🤩' },
-];
 
 function getRatingOption(val: Rating) {
   return RATING_OPTIONS.find(r => r.value === val) || RATING_OPTIONS[1];
@@ -208,23 +234,17 @@ function getRatingOption(val: Rating) {
 
 function formatTime(iso: string | null) {
   if (!iso) return '-';
-  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' });
 }
 
 function toLimaDateStr(date: Date): string {
   return date.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 }
 
-function getBusinessDay(): string {
-  const now = new Date();
-  const limaHour = Number(now.toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false }));
-  const d = limaHour < 10 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
-  return toLimaDateStr(d);
-}
 
 function shiftDay(dayStr: string, delta: number): string {
   const d = new Date(dayStr + 'T12:00:00Z');
-  d.setDate(d.getDate() + delta);
+  d.setUTCDate(d.getUTCDate() + delta);
   return toLimaDateStr(d);
 }
 
@@ -250,6 +270,9 @@ function classifyReusableSourceForJourney(groupName: string | null | undefined) 
 
 export default function DailyEvaluationPage() {
   const [selectedDay, setSelectedDay] = useState('');
+  const [todayBusinessDay, setTodayBusinessDay] = useState('');
+  const requestVersion = useRef(0);
+  const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
   const [userArea, setUserArea] = useState<string>('');
@@ -259,7 +282,6 @@ export default function DailyEvaluationPage() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [evaluation, setEvaluation] = useState<DailyEvaluation | null>(null);
   const [dayBrief, setDayBrief] = useState<{ title?: string | null; show?: string | null; promos?: string | null; notes?: string | null } | null>(null);
-  const [spinCount, setSpinCount] = useState<number | null>(null);
   const [journeyStats, setJourneyStats] = useState<JourneyStatsResponse | null>(null);
   const [journeyLoading, setJourneyLoading] = useState(false);
   const [journeyRoleFilter, setJourneyRoleFilter] = useState<string>('ALL');
@@ -291,36 +313,35 @@ export default function DailyEvaluationPage() {
 
   // Initialize to today's business day
   useEffect(() => {
-    setSelectedDay(getBusinessDay());
+    fetch('/api/admin/daily-evaluation?configuration=1').then(r => { if (!r.ok) throw new Error(); return r.json(); }).then(data => { setTodayBusinessDay(data.currentBusinessDay); setSelectedDay(data.currentBusinessDay); }).catch(() => { setLoadError('No se pudo obtener la fecha de la jornada.'); setLoading(false); });
   }, []);
 
   const fetchData = useCallback(async () => {
     if (!selectedDay) return;
+    const version = ++requestVersion.current;
+    setLoadError('');
     setLoading(true);
     setSummary(null);
     setEvaluation(null);
     setDayBrief(null);
-    setSpinCount(null);
     setEvalRating('REGULAR');
     setEvalComment('');
     setPersonRatingsMap(new Map());
     try {
-      const [summaryRes, evalRes, ratingsRes, briefRes, spinsRes] = await Promise.all([
+      const [summaryRes, evalRes, ratingsRes, briefRes] = await Promise.all([
         fetch(`/api/admin/daily-evaluation/summary?day=${selectedDay}`),
         fetch(`/api/admin/daily-evaluation?day=${selectedDay}`),
         fetch(`/api/admin/daily-evaluation/ratings?day=${selectedDay}`),
         fetch(`/api/admin/day-brief?day=${selectedDay}`),
-        fetch(`/api/system/tokens/spins?day=${selectedDay}`),
       ]);
 
-      if (summaryRes.ok) setSummary(await summaryRes.json());
-      if (spinsRes.ok) {
-        const spinsData = await spinsRes.json();
-        if (spinsData.ok) setSpinCount(spinsData.metrics?.totalSpins ?? null);
-      }
+      if (version !== requestVersion.current) return;
+      if (!summaryRes.ok || !evalRes.ok || !ratingsRes.ok) throw new Error('No se pudieron cargar los datos de la jornada.');
+      if (summaryRes.ok) { const data = await summaryRes.json(); if (version !== requestVersion.current) return; setSummary(data); }
       let loadedEvaluation: DailyEvaluation | null = null;
       if (evalRes.ok) {
         const evalData = await evalRes.json();
+        if (version !== requestVersion.current) return;
         loadedEvaluation = evalData.evaluation || null;
         if (evalData.evaluation) {
           setEvaluation(evalData.evaluation);
@@ -330,6 +351,7 @@ export default function DailyEvaluationPage() {
       }
       if (ratingsRes.ok) {
         const rData = await ratingsRes.json();
+        if (version !== requestVersion.current) return;
         const map = new Map<string, { rating: Rating; note: string }>();
         for (const r of (rData.ratings || []) as PersonRating[]) {
           map.set(r.personId, { rating: r.rating as Rating, note: r.note || '' });
@@ -338,17 +360,20 @@ export default function DailyEvaluationPage() {
       }
       if (briefRes.ok) {
         const bData = await briefRes.json();
+        if (version !== requestVersion.current) return;
         if (bData.brief) setDayBrief(bData.brief);
       }
     } catch (err) {
       console.error('Error loading daily evaluation data:', err);
+      if (version === requestVersion.current) setLoadError('No se pudieron cargar los datos de la jornada. Inténtalo de nuevo.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [selectedDay]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
+    return () => { requestVersion.current++; };
   }, [fetchData]);
 
   const fetchJourneyStats = useCallback(async () => {
@@ -461,7 +486,7 @@ export default function DailyEvaluationPage() {
     setSavingRatings(true);
     setRatingsMsg('');
 
-    const ratings = (summary?.attendance || []).map((entry) => {
+    const ratings = (summary?.attendance || []).filter((entry) => entry.evaluable).map((entry) => {
       const data = personRatingsMap.get(entry.person.id) || { rating: 'REGULAR' as Rating, note: '' };
       return {
         personId: entry.person.id,
@@ -485,6 +510,7 @@ export default function DailyEvaluationPage() {
 
       setEvaluation(data.evaluation);
       setRatingsModalOpen(false);
+      void fetchData();
       const adjustedCount = Array.isArray(data.adjustedWorkers) ? data.adjustedWorkers.length : 0;
       setCloseMsg(
         adjustedCount > 0
@@ -492,7 +518,7 @@ export default function DailyEvaluationPage() {
           : 'Jornada cerrada'
       );
     } catch {
-      setRatingsMsg('Error de conexión. La jornada permanece abierta.');
+      setRatingsMsg('Error de conexión. Comprueba el estado de la jornada antes de reintentar.');
     } finally {
       setSavingRatings(false);
       setClosingDay(false);
@@ -512,8 +538,8 @@ export default function DailyEvaluationPage() {
     });
   };
 
-  const isToday = selectedDay === getBusinessDay();
-  const isFutureDay = selectedDay > getBusinessDay();
+  const isToday = selectedDay === todayBusinessDay;
+  const isFutureDay = selectedDay > todayBusinessDay;
   const isClosed = !!evaluation?.closedAt;
   const canManage = ['ADMIN', 'COORDINATOR'].includes(userRole);
   const canClose = ['ADMIN', 'COORDINATOR'].includes(userRole);
@@ -659,50 +685,28 @@ export default function DailyEvaluationPage() {
         <div className="flex-1 h-px bg-pink-200 dark:bg-pink-700" />
       </div>
 
-      <button
-        onClick={() => setModalSection('birthdays')}
-        className="w-full relative rounded-xl border p-3 sm:p-4 text-left transition-all hover:shadow-md border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-pink-300 dark:hover:border-pink-600"
-      >
-        <div className="flex items-center gap-3">
-          <div className="text-xl sm:text-2xl">🎂</div>
-          <div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">{summary.birthdays?.total ?? 0}</div>
-            <div className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium">Reservas</div>
-          </div>
-          {summary.birthdays && summary.birthdays.total > 0 && (
-            <div className="ml-auto text-right">
-              <div className="text-[10px] text-pink-600 dark:text-pink-400">{summary.birthdays.arrived} llegaron</div>
-              <div className="text-[10px] text-slate-500">{summary.birthdays.arrivedGuests}/{summary.birthdays.totalGuests} invitados</div>
-            </div>
-          )}
-        </div>
-      </button>
-
-      {/* Tarjeta: Cumpleañeros que llegaron */}
-      {summary.birthdays && summary.birthdays.total > 0 && (
-        <button
-          onClick={() => setModalSection('birthdays')}
-          className="w-full relative rounded-xl border p-3 sm:p-4 text-left transition-all hover:shadow-md border-pink-200 dark:border-pink-700 bg-gradient-to-r from-pink-50 to-rose-50 dark:from-pink-900/10 dark:to-rose-900/10 hover:shadow-pink-100 dark:hover:shadow-none"
-        >
-          <div className="flex items-center gap-3">
-            <div className="text-xl sm:text-2xl">✅</div>
-            <div>
-              <div className="text-2xl sm:text-3xl font-bold text-pink-800 dark:text-pink-200">{summary.birthdays.arrived}/{summary.birthdays.total}</div>
-              <div className="text-[10px] sm:text-xs text-pink-600 dark:text-pink-400 font-medium">Cumpleañeros llegaron</div>
-            </div>
-            <div className="ml-auto text-right">
-              <div className="text-[10px] text-pink-600 dark:text-pink-400">{summary.birthdays.arrivedGuests}/{summary.birthdays.totalGuests} invitados</div>
-            </div>
-          </div>
+      <div className="grid grid-cols-3 gap-2">
+        <button onClick={() => setModalSection('birthdays')} className="rounded-xl border border-pink-200 bg-pink-50 p-2.5 text-left hover:shadow-md dark:border-pink-700 dark:bg-pink-900/10 sm:p-4">
+          <div className="text-xl font-bold text-pink-800 dark:text-pink-200 sm:text-3xl">{summary.birthdays.approvedTotal}</div>
+          <div className="mt-1 text-[10px] font-medium text-pink-700 dark:text-pink-400 sm:text-xs">Reservas aprobadas</div>
         </button>
-      )}
+        <button onClick={() => setModalSection('birthdays')} className="rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 text-left hover:shadow-md dark:border-emerald-700 dark:bg-emerald-900/10 sm:p-4">
+          <div className="text-xl font-bold text-emerald-800 dark:text-emerald-200 sm:text-3xl">{summary.birthdays.approvedArrived}<span className="text-sm font-medium opacity-70 sm:text-xl">/{summary.birthdays.approvedTotal}</span></div>
+          <div className="mt-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-400 sm:text-xs">Cumpleañeros que llegaron</div>
+        </button>
+        <button onClick={() => setModalSection('birthdays')} className="rounded-xl border border-sky-200 bg-sky-50 p-2.5 text-left hover:shadow-md dark:border-sky-700 dark:bg-sky-900/10 sm:p-4">
+          <div className="text-xl font-bold text-sky-800 dark:text-sky-200 sm:text-3xl">{summary.birthdays.approvedGuestArrivals}<span className="text-sm font-medium opacity-70 sm:text-xl">/{summary.birthdays.approvedGuests}</span></div>
+          <div className="mt-1 text-[10px] font-medium text-sky-700 dark:text-sky-400 sm:text-xs">Invitados que llegaron</div>
+        </button>
+      </div>
+      {summary.birthdays.pendingReview > 0 && <button onClick={() => setModalSection('birthdays')} className="text-left text-xs font-medium text-amber-700 dark:text-amber-400">⏳ {summary.birthdays.pendingReview} reserva{summary.birthdays.pendingReview !== 1 ? 's' : ''} pendiente{summary.birthdays.pendingReview !== 1 ? 's' : ''} de revisión</button>}
 
       {modalSection === 'birthdays' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setModalSection(null)}>
               <div className="w-full max-w-sm rounded-2xl border border-pink-200 dark:border-pink-700 bg-white dark:bg-slate-800 p-4 shadow-xl" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                    🎂 Cumpleaños — {summary.birthdays?.total ?? 0} reservas
+                    🎂 Cumpleaños — {summary.birthdays.approvedTotal} aprobadas
                   </h3>
               <button onClick={() => setModalSection(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                 <span className="text-lg text-slate-400">&times;</span>
@@ -710,9 +714,10 @@ export default function DailyEvaluationPage() {
             </div>
             {summary.birthdays && summary.birthdays.total > 0 && (
               <div className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                {summary.birthdays.arrived} llegaron · {summary.birthdays.arrivedGuests}/{summary.birthdays.totalGuests} invitados
+                {summary.birthdays.approvedArrived}/{summary.birthdays.approvedTotal} cumpleañeros llegaron · {summary.birthdays.approvedGuestArrivals}/{summary.birthdays.approvedGuests} invitados
               </div>
             )}
+            {summary.birthdays.packs.length > 0 && <div className="mb-3 flex flex-wrap gap-1.5">{summary.birthdays.packs.map(pack => <span key={pack.name} className="rounded-full bg-pink-100 px-2 py-1 text-[10px] font-medium text-pink-800 dark:bg-pink-900/30 dark:text-pink-200">{pack.name}: {pack.count}</span>)}</div>}
             {!summary.birthdays || summary.birthdays.total === 0 ? (
               <p className="text-xs text-slate-500 dark:text-slate-400">No hay reservas de cumpleaños para este día.</p>
             ) : (
@@ -725,6 +730,8 @@ export default function DailyEvaluationPage() {
                           {r.celebrantName}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+                          <span className="rounded-full bg-white/70 px-2 py-0.5 dark:bg-slate-800">Hora prevista: {r.timeSlot}</span>
+                          <span className="rounded-full bg-white/70 px-2 py-0.5 font-medium dark:bg-slate-800">{r.status === 'pending_review' ? 'Pendiente de revisión' : r.status === 'approved' ? 'Aprobada' : r.status === 'completed' ? 'Completada' : r.status === 'draft' ? 'Borrador' : r.status}</span>
                           {r.packName && <span className="rounded-full border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-800 px-2 py-0.5">{r.packName}</span>}
                           <span className={`rounded-full px-2 py-0.5 font-medium ${r.wantsPhotoSession ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}>
                             Set fotográfico: {r.wantsPhotoSession ? 'Sí' : 'No'}
@@ -736,9 +743,9 @@ export default function DailyEvaluationPage() {
                       </div>
                       <div className="flex-shrink-0">
                         {r.hostArrived ? (
-                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">✅</span>
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">Llegó</span>
                         ) : (
-                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">⏳</span>
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">Sin llegada</span>
                         )}
                       </div>
                     </div>
@@ -1024,7 +1031,7 @@ export default function DailyEvaluationPage() {
           </button>
           {!isToday && (
             <button
-              onClick={() => setSelectedDay(getBusinessDay())}
+              onClick={() => setSelectedDay(todayBusinessDay)}
               className="px-2 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors"
             >
               Hoy
@@ -1048,14 +1055,15 @@ export default function DailyEvaluationPage() {
         )}
       </div>
 
-      {loading ? (
+      {loadError && <div role="alert" className="p-3 text-sm text-red-600">{loadError}</div>}
+        {loading ? (
         <div className="flex items-center justify-center min-h-[200px]">
           <div className="text-center space-y-3">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
             <p className="text-sm text-slate-500 dark:text-slate-400">Cargando...</p>
           </div>
         </div>
-      ) : (
+      ) : loadError ? null : (
         <>
           {/* ====== BRIEF DEL DÍA (siempre primero) ====== */}
           {dayBrief && (dayBrief.title || dayBrief.show || dayBrief.promos || dayBrief.notes) && (
@@ -1166,51 +1174,45 @@ export default function DailyEvaluationPage() {
           )}
 
           {/* ====== TOKENS ESTÁTICOS ====== */}
-          {summary?.staticBatches && (summary.staticBatches.availableTotal > 0 || summary.staticBatches.deliveredToday > 0 || summary.staticBatches.revealedToday > 0) && (
+          {summary?.staticBatches?.interactive && (
             <>
               <div className="relative flex items-center gap-3 pt-2">
                 <div className="flex-1 h-px bg-indigo-200 dark:bg-indigo-700" />
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider">
-                  🎟️ TOKEN&apos;s GOLD
+                  🎟️ TOKENS INTERACTIVOS
                 </span>
                 <div className="flex-1 h-px bg-indigo-200 dark:bg-indigo-700" />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                {/* Tokens restantes según la fecha seleccionada */}
-                <button
-                  onClick={() => setModalSection('staticAvailable')}
-                  className="relative rounded-xl border p-3 sm:p-4 text-left transition-all hover:shadow-md border-emerald-200 dark:border-emerald-700 bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-900/10 dark:to-green-900/10 hover:border-emerald-400 dark:hover:border-emerald-500"
-                >
-                  <div className="text-2xl sm:text-3xl font-bold text-emerald-800 dark:text-emerald-200">
-                    {summary.staticBatches.availableTotal}
-                  </div>
-                  <div className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">Tokens restantes</div>
+              {summary.staticBatches.interactive.batchName && <p className="text-center text-[10px] text-slate-500 dark:text-slate-400">{summary.staticBatches.interactive.batchName}</p>}
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={() => setModalSection('staticAvailable')} className="rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 text-left transition-all hover:shadow-md dark:border-emerald-700 dark:bg-emerald-900/10 sm:p-4">
+                  <div className="text-lg font-bold text-emerald-800 dark:text-emerald-200 sm:text-3xl">{summary.staticBatches.interactive.available}</div>
+                  <div className="mt-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-400 sm:text-xs">Disponibles</div>
+                  <div className="mt-1 text-[9px] text-emerald-600 dark:text-emerald-400">Sin escanear</div>
                 </button>
-
-                {/* Escaneados hoy */}
-                <button
-                  onClick={() => setModalSection('staticRevealed')}
-                  className="relative rounded-xl border p-3 sm:p-4 text-left transition-all hover:shadow-md border-sky-200 dark:border-sky-700 bg-gradient-to-br from-sky-50 to-cyan-50 dark:from-sky-900/10 dark:to-cyan-900/10 hover:border-sky-400 dark:hover:border-sky-500"
-                >
-                  <div className="text-2xl sm:text-3xl font-bold text-sky-800 dark:text-sky-200">
-                    {summary.staticBatches.revealedToday}
-                  </div>
-                  <div className="text-[10px] sm:text-xs text-sky-600 dark:text-sky-400 font-medium mt-0.5">Escaneados hoy</div>
+                <button onClick={() => setModalSection('staticCirculation')} className="rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-left transition-all hover:shadow-md dark:border-amber-700 dark:bg-amber-900/10 sm:p-4">
+                  <div className="text-lg font-bold text-amber-800 dark:text-amber-200 sm:text-3xl">{summary.staticBatches.interactive.inCirculation}</div>
+                  <div className="mt-1 text-[10px] font-medium text-amber-700 dark:text-amber-400 sm:text-xs">En circulación</div>
+                  <div className="mt-1 text-[9px] text-amber-600 dark:text-amber-400">Escaneados, pendientes de entrega</div>
                 </button>
-
-                {/* Entregados hoy */}
-                <button
-                  onClick={() => setModalSection('staticPrizes')}
-                  className="relative rounded-xl border p-3 sm:p-4 text-left transition-all hover:shadow-md border-indigo-200 dark:border-indigo-700 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-900/10 dark:to-blue-900/10 hover:border-indigo-400 dark:hover:border-indigo-500"
-                >
-                  <div className="text-2xl sm:text-3xl font-bold text-indigo-800 dark:text-indigo-200">
-                    {summary.staticBatches.deliveredToday}
-                  </div>
-                  <div className="text-[10px] sm:text-xs text-indigo-600 dark:text-indigo-400 font-medium mt-0.5">Entregados hoy</div>
+                <button onClick={() => setModalSection('staticPrizes')} className="rounded-xl border border-indigo-200 bg-indigo-50 p-2.5 text-left transition-all hover:shadow-md dark:border-indigo-700 dark:bg-indigo-900/10 sm:p-4">
+                  <div className="text-lg font-bold text-indigo-800 dark:text-indigo-200 sm:text-3xl">{summary.staticBatches.interactive.deliveredToday}</div>
+                  <div className="mt-1 text-[10px] font-medium text-indigo-700 dark:text-indigo-400 sm:text-xs">Entregados en la jornada</div>
+                  <div className="mt-1 text-[9px] text-indigo-600 dark:text-indigo-400">Durante la jornada seleccionada</div>
                 </button>
-
               </div>
+
+              <button onClick={() => setModalSection('staticRedeemed')} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left transition-all hover:shadow-md dark:border-slate-700 dark:bg-slate-800">
+                <div className="flex items-center justify-between gap-3 text-xs font-medium text-slate-700 dark:text-slate-200">
+                  <span>Avance del lote · entregados</span>
+                  <span>{summary.staticBatches.interactive.redeemed}/{summary.staticBatches.interactive.total}</span>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700" role="progressbar" aria-label="Avance de entregas del lote" aria-valuemin={0} aria-valuemax={summary.staticBatches.interactive.total} aria-valuenow={summary.staticBatches.interactive.redeemed}>
+                  <div className="h-full rounded-full bg-indigo-500" style={{ width: `${summary.staticBatches.interactive.total ? Math.min(100, summary.staticBatches.interactive.redeemed / summary.staticBatches.interactive.total * 100) : 0}%` }} />
+                </div>
+                {summary.staticBatches.interactive.unavailable > 0 && <div className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">No disponibles: {summary.staticBatches.interactive.unavailable} · Vencidos: {summary.staticBatches.interactive.expired} · Deshabilitados: {summary.staticBatches.interactive.disabled} · Próximamente: {summary.staticBatches.interactive.upcoming}</div>}
+              </button>
 
               {/* Modal: premios disponibles */}
               {modalSection === 'staticAvailable' && (
@@ -1218,18 +1220,18 @@ export default function DailyEvaluationPage() {
                   <div className="w-full max-w-sm rounded-2xl border border-emerald-200 dark:border-emerald-700 bg-white dark:bg-slate-800 p-4 shadow-xl" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                        🎟️ Tokens restantes — {summary.staticBatches.availableTotal}
+                        🎟️ Disponibles — {summary.staticBatches.interactive.available}
                       </h3>
                       <button onClick={() => setModalSection(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                         <span className="text-lg text-slate-400">&times;</span>
                       </button>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Tokens no entregados ni vencidos hasta la fecha seleccionada</p>
-                    {summary.staticBatches.availablePrizes.length === 0 ? (
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Sin premios disponibles.</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Tokens sin escanear {isToday ? 'ahora' : 'al cierre de la jornada seleccionada'}</p>
+                    {summary.staticBatches.interactive.availablePrizes.length === 0 ? (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">No quedan tokens disponibles.</p>
                     ) : (
                       <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto">
-                        {summary.staticBatches.availablePrizes.map(p => (
+                        {summary.staticBatches.interactive.availablePrizes.map(p => (
                           <div key={p.label} className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/10">
                             <div className="flex items-center gap-2 min-w-0">
                               {p.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
@@ -1244,25 +1246,24 @@ export default function DailyEvaluationPage() {
                 </div>
               )}
 
-              {/* Modal: entregados hoy */}
-              {modalSection === 'staticPrizes' && (
+              {/* Modal: premios disponibles */}
+              {modalSection === 'staticRedeemed' && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setModalSection(null)}>
                   <div className="w-full max-w-sm rounded-2xl border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-slate-800 p-4 shadow-xl" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                        🎟️ Entregados hoy — {summary.staticBatches.deliveredToday}
+                        🎟️ Canjeados del lote — {summary.staticBatches.interactive.redeemed}/{summary.staticBatches.interactive.total}
                       </h3>
                       <button onClick={() => setModalSection(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                         <span className="text-lg text-slate-400">&times;</span>
                       </button>
                     </div>
-                    {summary.staticBatches.deliveredPrizes.length === 0 ? (
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {isToday ? 'Sin entregas aún hoy.' : 'No se entregaron tokens estáticos este día.'}
-                      </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Premios entregados hasta {isToday ? 'ahora' : 'el cierre de la jornada seleccionada'}</p>
+                    {summary.staticBatches.interactive.redeemedPrizes.length === 0 ? (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Sin premios canjeados.</p>
                     ) : (
-                      <div className="grid grid-cols-1 gap-1.5 max-h-60 overflow-y-auto">
-                        {summary.staticBatches.deliveredPrizes.map(p => (
+                      <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto">
+                        {summary.staticBatches.interactive.redeemedPrizes.map(p => (
                           <div key={p.label} className="flex items-center justify-between p-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/10">
                             <div className="flex items-center gap-2 min-w-0">
                               {p.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
@@ -1277,32 +1278,36 @@ export default function DailyEvaluationPage() {
                 </div>
               )}
 
-              {/* Modal: escaneados hoy */}
-              {modalSection === 'staticRevealed' && (
+              {/* Modal: entregados hoy */}
+              {modalSection === 'staticPrizes' && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setModalSection(null)}>
-                  <div className="w-full max-w-sm rounded-2xl border border-sky-200 dark:border-sky-700 bg-white dark:bg-slate-800 p-4 shadow-xl" onClick={e => e.stopPropagation()}>
+                  <div className="w-full max-w-sm rounded-2xl border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-slate-800 p-4 shadow-xl" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                        👁️ Escaneados hoy — {summary.staticBatches.revealedToday}
+                        🎟️ Entregados en la jornada — {summary.staticBatches.interactive.deliveredToday}
                       </h3>
                       <button onClick={() => setModalSection(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                         <span className="text-lg text-slate-400">&times;</span>
                       </button>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">QRs abiertos por clientes hoy</p>
-                    {summary.staticBatches.revealedPrizes.length === 0 ? (
+                    {summary.staticBatches.interactive.deliveredPrizes.length === 0 ? (
                       <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {isToday ? 'Ningún QR escaneado aún.' : 'No se escanearon tokens este día.'}
+                        {isToday ? 'Sin entregas aún hoy.' : 'No se entregaron tokens estáticos este día.'}
                       </p>
                     ) : (
                       <div className="grid grid-cols-1 gap-1.5 max-h-60 overflow-y-auto">
-                        {summary.staticBatches.revealedPrizes.map(p => (
-                          <div key={p.label} className="flex items-center justify-between p-2.5 rounded-lg bg-sky-50 dark:bg-sky-900/10">
-                            <div className="flex items-center gap-2 min-w-0">
-                              {p.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
-                              <span className="text-xs font-medium truncate">{p.label}</span>
+                        {summary.staticBatches.interactive.deliveredPrizes.map(p => (
+                          <div key={p.label} className="flex items-center justify-between p-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/10">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 min-w-0">
+                                {p.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
+                                <span className="text-xs font-medium truncate">{p.label}</span>
+                              </div>
+                              <div className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                                Entregado por: {p.operators.map(operator => `${operator.name}${operator.count > 1 ? ` (${operator.count})` : ''}`).join(', ')}
+                              </div>
                             </div>
-                            <span className="font-bold text-xs text-sky-700 dark:text-sky-300 flex-shrink-0 ml-2">{p.count}</span>
+                            <span className="font-bold text-xs text-indigo-700 dark:text-indigo-300 flex-shrink-0 ml-2">{p.count}</span>
                           </div>
                         ))}
                       </div>
@@ -1317,18 +1322,18 @@ export default function DailyEvaluationPage() {
                   <div className="w-full max-w-sm rounded-2xl border border-amber-200 dark:border-amber-700 bg-white dark:bg-slate-800 p-4 shadow-xl" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                        🔄 En circulación global — {summary.staticBatches.inCirculation}
+                        🔄 En circulación — {summary.staticBatches.interactive.inCirculation}
                       </h3>
                       <button onClick={() => setModalSection(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                         <span className="text-lg text-slate-400">&times;</span>
                       </button>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Escaneados por clientes pero aún pendientes de canjear</p>
-                    {summary.staticBatches.circulationPrizes.length === 0 ? (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Escaneados y pendientes de entrega {isToday ? 'ahora' : 'al cierre de la jornada seleccionada'}</p>
+                    {summary.staticBatches.interactive.circulationPrizes.length === 0 ? (
                       <p className="text-xs text-slate-500 dark:text-slate-400">Ningún token en circulación.</p>
                     ) : (
                       <div className="grid grid-cols-1 gap-1.5 max-h-60 overflow-y-auto">
-                        {summary.staticBatches.circulationPrizes.map(p => (
+                        {summary.staticBatches.interactive.circulationPrizes.map(p => (
                           <div key={p.label} className="flex items-center justify-between p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/10">
                             <div className="flex items-center gap-2 min-w-0">
                               {p.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />}
@@ -1345,32 +1350,32 @@ export default function DailyEvaluationPage() {
             </>
           )}
 
-          {/* ====== SECCIÓN: RULETA TOKENSHOW ====== */}
+          {/* ====== SECCIÓN: PULSERAS TOKENSHOW ====== */}
           {summary && (
             <>
               <div className="relative flex items-center gap-3 pt-1">
                 <div className="flex-1 h-px bg-amber-200 dark:bg-amber-700" />
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
-                  🎰 RULETA TOKENSHOW
+                  🎟️ PULSERAS TOKENSHOW
                 </span>
                 <div className="flex-1 h-px bg-amber-200 dark:bg-amber-700" />
               </div>
 
-              <button
-                onClick={() => setModalSection('dayPrizes')}
-                className="w-full rounded-xl border border-amber-200 dark:border-amber-700 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/10 dark:to-orange-900/10 p-3 sm:p-4 text-left transition-all hover:shadow-md"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="text-xl sm:text-2xl">🎰</div>
-                  <div>
-                    <div className="text-2xl sm:text-3xl font-bold text-amber-800 dark:text-amber-200">{summary.dayPrizes.length}</div>
-                    <div className="text-[10px] sm:text-xs text-amber-700 dark:text-amber-400 font-medium">Premios asignados</div>
-                  </div>
-                  {summary.totalTokensInBatches > 0 && (
-                    <div className="ml-auto text-[10px] text-amber-600 dark:text-amber-400">{summary.totalTokensInBatches} pulseras</div>
-                  )}
-                </div>
-              </button>
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={() => setModalSection('dayPrizes')} className="rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-left hover:shadow-md dark:border-amber-700 dark:bg-amber-900/10 sm:p-4">
+                  <div className="text-xl font-bold text-amber-800 dark:text-amber-200 sm:text-3xl">{summary.totalTokensInBatches}</div>
+                  <div className="mt-1 text-[10px] font-medium text-amber-700 dark:text-amber-400 sm:text-xs">Pulseras programadas</div>
+                </button>
+                <button onClick={() => setModalSection('braceletsPlayed')} className="rounded-xl border border-sky-200 bg-sky-50 p-2.5 text-left hover:shadow-md dark:border-sky-700 dark:bg-sky-900/10 sm:p-4">
+                  <div className="text-xl font-bold text-sky-800 dark:text-sky-200 sm:text-3xl">{summary.totalPlayed}</div>
+                  <div className="mt-1 text-[10px] font-medium text-sky-700 dark:text-sky-400 sm:text-xs">Dinámicas jugadas</div>
+                </button>
+                <button onClick={() => setModalSection('prizes')} className="rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 text-left hover:shadow-md dark:border-emerald-700 dark:bg-emerald-900/10 sm:p-4">
+                  <div className="text-xl font-bold text-emerald-800 dark:text-emerald-200 sm:text-3xl">{summary.totalDelivered}</div>
+                  <div className="mt-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-400 sm:text-xs">Premios entregados</div>
+                </button>
+              </div>
+              <p className="text-center text-[10px] text-slate-500 dark:text-slate-400">{summary.dayPrizes.length} tipos de premios asignados · Jugadas y entregas durante la jornada</p>
 
               {/* Day Prizes Modal */}
               {modalSection === 'dayPrizes' && (
@@ -1378,22 +1383,23 @@ export default function DailyEvaluationPage() {
                   <div className="w-full max-w-sm rounded-2xl border border-amber-200 dark:border-amber-700 bg-white dark:bg-slate-800 p-4 shadow-xl" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                        🎰 Premios asignados — {summary.dayPrizes.length}
+                        🎟️ Pulseras programadas — {summary.totalTokensInBatches}
                       </h3>
                       <button onClick={() => setModalSection(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                         <span className="text-lg text-slate-400">&times;</span>
                       </button>
                     </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                      {summary.totalTokensInBatches} pulseras en lotes activos
+                      {summary.totalTokensInBatches} pulseras en lotes de la fecha seleccionada
                     </div>
-                    {summary.dayPrizes.length === 0 ? (
-                      <p className="text-xs text-slate-500 dark:text-slate-400">No hay premios configurados en la ruleta para este día.</p>
+                    {summary.programmedBatches.length > 0 && <div className="mb-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">{summary.programmedBatches.map(batch => <div key={batch.id} className="flex justify-between gap-2"><span>{batch.description || 'Lote sin nombre'}</span><span>{batch.count}</span></div>)}</div>}
+                    {summary.programmedPrizes.length === 0 ? (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">No hay premios asignados a las pulseras de este día.</p>
                     ) : (
                       <div className="grid grid-cols-1 gap-1.5 max-h-60 overflow-y-auto">
-                        {summary.dayPrizes.map(p => (
-                          <div key={p.id} className="flex items-center p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/10">
-                            <span className="text-xs font-medium">🎁 {p.label}</span>
+                        {summary.programmedPrizes.map(p => (
+                          <div key={p.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/10">
+                            <span className="text-xs font-medium">🎁 {p.label}</span><span className="text-xs font-bold">{p.count}</span>
                           </div>
                         ))}
                       </div>
@@ -1402,32 +1408,22 @@ export default function DailyEvaluationPage() {
                 </div>
               )}
 
-              {/* Stat card: Giros del día */}
-              {spinCount != null && (
-                <div className="w-full rounded-xl border border-amber-200 dark:border-amber-700 bg-white dark:bg-slate-800 p-3 sm:p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="text-xl sm:text-2xl">🎡</div>
-                    <div>
-                      <div className="text-2xl sm:text-3xl font-bold text-amber-800 dark:text-amber-200">{spinCount}</div>
-                      <div className="text-[10px] sm:text-xs text-amber-700 dark:text-amber-400 font-medium">Giros del día</div>
+              {modalSection === 'braceletsPlayed' && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModalSection(null)}>
+                  <div className="w-full max-w-sm rounded-2xl border border-sky-200 bg-white p-4 shadow-xl dark:border-sky-700 dark:bg-slate-800" onClick={e => e.stopPropagation()}>
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold">Dinámicas jugadas — {summary.totalPlayed}</h3>
+                      <button onClick={() => setModalSection(null)} className="rounded-lg p-1 text-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Cerrar">&times;</button>
                     </div>
+                    <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">Premios revelados durante la jornada. Pendientes {isToday ? 'ahora' : 'al cierre de la jornada'}.</p>
+                    {summary.playedPrizes.length === 0 ? <p className="text-xs text-slate-500">No se registraron dinámicas jugadas.</p> : (
+                      <div className="grid max-h-60 grid-cols-1 gap-1.5 overflow-y-auto">
+                        {summary.playedPrizes.map(prize => <div key={prize.id} className="flex items-center justify-between gap-2 rounded-lg bg-sky-50 p-2.5 dark:bg-sky-900/10"><div className="min-w-0"><div className="text-xs font-medium">{prize.label}</div><div className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">{prize.pending} pendiente{prize.pending !== 1 ? 's' : ''} de entrega</div></div><span className="text-xs font-bold text-sky-700 dark:text-sky-300">{prize.count}</span></div>)}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
-
-              {/* Stat card: Premios Entregados */}
-              <button
-                onClick={() => setModalSection('prizes')}
-                className="w-full relative rounded-xl border p-3 sm:p-4 text-left transition-all hover:shadow-md border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-300 dark:hover:border-emerald-600"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="text-xl sm:text-2xl">🎁</div>
-                  <div>
-                    <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">{summary.totalDelivered}/{summary.totalTokensInBatches}</div>
-                    <div className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium">Pulseras canjeadas</div>
-                  </div>
-                </div>
-              </button>
 
               {/* Prizes Modal */}
               {modalSection === 'prizes' && (
@@ -1447,7 +1443,10 @@ export default function DailyEvaluationPage() {
                       <div className="grid grid-cols-1 gap-1.5 max-h-60 overflow-y-auto">
                         {summary.deliveredPrizes.map(p => (
                           <div key={p.label} className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/10">
-                            <span className="text-xs font-medium">{p.label}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-medium">{p.label}</div>
+                              <div className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Entregado por: {p.operators.map(operator => `${operator.name}${operator.count > 1 ? ` (${operator.count})` : ''}`).join(', ')}</div>
+                            </div>
                             <span className="font-bold text-xs text-emerald-700 dark:text-emerald-300">{p.count}</span>
                           </div>
                         ))}
@@ -1568,7 +1567,7 @@ export default function DailyEvaluationPage() {
 
           <CloseDayModal
             open={ratingsModalOpen && !!summary}
-            attendance={summary?.attendance || []}
+            attendance={(summary?.attendance || []).filter((entry) => entry.evaluable)}
             ratingOptions={RATING_OPTIONS}
             generalRating={evalRating}
             generalComment={evalComment}

@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import type { Rating } from '@/lib/daily-evaluation';
+import { RATING_OPTIONS } from '@/lib/daily-evaluation-options';
+import CloseDayModal from '@/app/u/daily-evaluation/CloseDayModal';
 
-type Rating = 'MALO' | 'REGULAR' | 'BUENO' | 'MUY_BUENO';
 
 interface PersonInfo {
   id: string;
@@ -16,6 +18,7 @@ interface AttendanceEntry {
   firstIn: string | null;
   lastOut: string | null;
   missingExit: boolean;
+  evaluable: boolean;
 }
 
 interface DeliveredPrize {
@@ -109,12 +112,6 @@ interface PersonRating {
   person: PersonInfo;
 }
 
-const RATING_OPTIONS: { value: Rating; label: string; color: string; emoji: string }[] = [
-  { value: 'MALO', label: 'Malo', color: 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700', emoji: '😞' },
-  { value: 'REGULAR', label: 'Regular', color: 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-700', emoji: '😐' },
-  { value: 'BUENO', label: 'Bueno', color: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700', emoji: '😊' },
-  { value: 'MUY_BUENO', label: 'Muy Bueno', color: 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700', emoji: '🤩' },
-];
 
 function getRatingOption(val: Rating) {
   return RATING_OPTIONS.find(r => r.value === val) || RATING_OPTIONS[1];
@@ -122,28 +119,25 @@ function getRatingOption(val: Rating) {
 
 function formatTime(iso: string | null) {
   if (!iso) return '-';
-  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' });
 }
 
 function toLimaDateStr(date: Date): string {
   return date.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 }
 
-function getBusinessDay(): string {
-  const now = new Date();
-  const limaHour = Number(now.toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false }));
-  const d = limaHour < 10 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
-  return toLimaDateStr(d);
-}
 
 function shiftDay(dayStr: string, delta: number): string {
   const d = new Date(dayStr + 'T12:00:00Z');
-  d.setDate(d.getDate() + delta);
+  d.setUTCDate(d.getUTCDate() + delta);
   return toLimaDateStr(d);
 }
 
 export default function AdminDailyEvaluationPage() {
   const [selectedDay, setSelectedDay] = useState('');
+  const [todayBusinessDay, setTodayBusinessDay] = useState('');
+  const requestVersion = useRef(0);
+  const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
 
@@ -162,6 +156,7 @@ export default function AdminDailyEvaluationPage() {
   const [ratingsMsg, setRatingsMsg] = useState('');
   const [closeMsg, setCloseMsg] = useState('');
   const [ratingsLocked, setRatingsLocked] = useState(false);
+  const [closeModalOpen, setCloseModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'recursos' | 'resultados'>('recursos');
 
   useEffect(() => {
@@ -172,11 +167,13 @@ export default function AdminDailyEvaluationPage() {
   }, []);
 
   useEffect(() => {
-    setSelectedDay(getBusinessDay());
+    fetch('/api/admin/daily-evaluation?configuration=1').then(r => { if (!r.ok) throw new Error(); return r.json(); }).then(data => { setTodayBusinessDay(data.currentBusinessDay); setSelectedDay(data.currentBusinessDay); }).catch(() => { setLoadError('No se pudo obtener la fecha de la jornada.'); setLoading(false); });
   }, []);
 
   const fetchData = useCallback(async () => {
     if (!selectedDay) return;
+    const version = ++requestVersion.current;
+    setLoadError('');
     setLoading(true);
     setSummary(null);
     setEvaluation(null);
@@ -193,9 +190,12 @@ export default function AdminDailyEvaluationPage() {
         fetch(`/api/admin/day-brief?day=${selectedDay}`),
       ]);
 
-      if (summaryRes.ok) setSummary(await summaryRes.json());
+      if (version !== requestVersion.current) return;
+      if (!summaryRes.ok || !evalRes.ok || !ratingsRes.ok) throw new Error('No se pudieron cargar los datos de la jornada.');
+      if (summaryRes.ok) { const data = await summaryRes.json(); if (version !== requestVersion.current) return; setSummary(data); }
       if (evalRes.ok) {
         const evalData = await evalRes.json();
+        if (version !== requestVersion.current) return;
         if (evalData.evaluation) {
           setEvaluation(evalData.evaluation);
           setEvalRating(evalData.evaluation.rating || 'REGULAR');
@@ -204,6 +204,7 @@ export default function AdminDailyEvaluationPage() {
       }
       if (ratingsRes.ok) {
         const rData = await ratingsRes.json();
+        if (version !== requestVersion.current) return;
         const map = new Map<string, { rating: Rating; note: string }>();
         for (const r of (rData.ratings || []) as PersonRating[]) {
           map.set(r.personId, { rating: r.rating as Rating, note: r.note || '' });
@@ -213,16 +214,18 @@ export default function AdminDailyEvaluationPage() {
       }
       if (briefRes.ok) {
         const bData = await briefRes.json();
+        if (version !== requestVersion.current) return;
         if (bData.brief) setDayBrief(bData.brief);
       }
     } catch (err) {
       console.error('Error loading daily evaluation data:', err);
+      if (version === requestVersion.current) setLoadError('No se pudieron cargar los datos de la jornada. Inténtalo de nuevo.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [selectedDay]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { void fetchData(); return () => { requestVersion.current++; }; }, [fetchData]);
 
   useEffect(() => {
     if (!summary) return;
@@ -238,6 +241,7 @@ export default function AdminDailyEvaluationPage() {
   }, [summary]);
 
   const handleCloseDay = async (action: 'close' | 'reopen') => {
+    if (action === 'close') { setRatingsMsg(''); setCloseModalOpen(true); return; }
     setClosingDay(true);
     setCloseMsg('');
     try {
@@ -247,7 +251,7 @@ export default function AdminDailyEvaluationPage() {
         body: JSON.stringify({ businessDay: selectedDay, action }),
       });
       if (res.ok) {
-        setCloseMsg(action === 'close' ? 'Jornada cerrada' : 'Jornada reabierta');
+        setCloseMsg('Jornada reabierta');
         fetchData();
       } else {
         const err = await res.json();
@@ -259,6 +263,21 @@ export default function AdminDailyEvaluationPage() {
       setClosingDay(false);
       setTimeout(() => setCloseMsg(''), 4000);
     }
+  };
+
+  const confirmClose = async () => {
+    setClosingDay(true);
+    setRatingsMsg('');
+    try {
+      const ratings = (summary?.attendance || []).filter(entry => entry.evaluable).map(entry => ({ personId: entry.person.id, ...(personRatingsMap.get(entry.person.id) || { rating: 'REGULAR', note: '' }) }));
+      const res = await fetch('/api/admin/daily-evaluation', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ businessDay: selectedDay, action: 'close', rating: evalRating, comment: evalComment, ratings }) });
+      const data = await res.json();
+      if (!res.ok) { setRatingsMsg(data.error || 'No se pudo cerrar la jornada.'); return; }
+      setCloseModalOpen(false);
+      setCloseMsg('Jornada cerrada');
+      void fetchData();
+    } catch { setRatingsMsg('Error de conexión. Comprueba el estado de la jornada antes de reintentar.'); }
+    finally { setClosingDay(false); }
   };
 
   const handleSaveEvaluation = async () => {
@@ -328,8 +347,8 @@ export default function AdminDailyEvaluationPage() {
     });
   };
 
-  const isToday = selectedDay === getBusinessDay();
-  const isFutureDay = selectedDay > getBusinessDay();
+  const isToday = selectedDay === todayBusinessDay;
+  const isFutureDay = selectedDay > todayBusinessDay;
   const isClosed = !!evaluation?.closedAt;
   const isAdmin = userRole === 'ADMIN';
   const isEvalFinalized = !!evaluation?.rating;
@@ -357,19 +376,20 @@ export default function AdminDailyEvaluationPage() {
           <input type="date" value={selectedDay} onChange={(e) => e.target.value && setSelectedDay(e.target.value)} className="flex-1 min-w-[140px] max-w-[180px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <button onClick={() => setSelectedDay(shiftDay(selectedDay, 1))} className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors">&#8594;</button>
           {!isToday && (
-            <button onClick={() => setSelectedDay(getBusinessDay())} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">Hoy</button>
+            <button onClick={() => setSelectedDay(todayBusinessDay)} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">Hoy</button>
           )}
         </div>
       </div>
 
-      {loading ? (
+      {loadError && <div role="alert" className="p-3 text-sm text-red-600">{loadError}</div>}
+        {loading ? (
         <div className="flex items-center justify-center min-h-[300px]">
           <div className="text-center space-y-3">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto" />
             <p className="text-slate-500 dark:text-slate-400">Cargando datos del {selectedDay}...</p>
           </div>
         </div>
-      ) : (
+      ) : loadError ? null : (
         <>
           {/* ===== STATUS HEADER ===== */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 pb-3 border-b border-slate-200 dark:border-slate-700">
@@ -731,7 +751,7 @@ export default function AdminDailyEvaluationPage() {
                       <div className="text-3xl">🔓</div>
                       <h3 className="text-base sm:text-lg font-semibold text-slate-700 dark:text-slate-200">Jornada Abierta</h3>
                       <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                        Cierra la jornada para poder evaluar. Los datos de abajo son en tiempo real.
+                        Evalúa y cierra la jornada. Los datos de abajo son en tiempo real.
                       </p>
                       <button
                         onClick={() => handleCloseDay('close')}
@@ -1028,6 +1048,7 @@ export default function AdminDailyEvaluationPage() {
           )}
         </>
       )}
+      <CloseDayModal open={closeModalOpen && !!summary} attendance={(summary?.attendance || []).filter(entry => entry.evaluable)} ratingOptions={RATING_OPTIONS} generalRating={evalRating} generalComment={evalComment} personRatings={personRatingsMap} saving={closingDay} error={ratingsMsg} onClose={() => setCloseModalOpen(false)} onGeneralRatingChange={setEvalRating} onGeneralCommentChange={setEvalComment} onPersonRatingChange={(personId, value) => updatePersonRating(personId, 'rating', value)} onPersonNoteChange={(personId, value) => updatePersonRating(personId, 'note', value)} onQuickComment={(text) => setEvalComment(current => current.trim() ? `${current.trim()} ${text}` : text)} onSubmit={confirmClose} />
     </div>
   );
 }

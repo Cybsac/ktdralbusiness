@@ -41,3 +41,8 @@ El borrado individual y múltiple comparte una transacción con bloqueo de filas
 `20261031220000_reusable_operation_keys` agrega columnas opcionales e índices únicos para generación y operaciones. No actualiza ni elimina filas históricas. Antes de aplicarla se guardó una copia privada; después se verificaron todos los campos anteriores de 207 tokens y 1.966 registros de canje, sin cambios.
 
 La comprobación aislada usa dobles de Prisma y PostgreSQL en memoria. Cubrió horarios, validación, generación recuperable, duplicados de entrega, bloqueos de disponibilidad y preservación de filas al migrar. No se realizaron generaciones, canjes ni pruebas de borrado sobre la base de negocio. Las pruebas se mantienen en local.
+
+
+## Depuración de tokens
+
+En `/admin/reusable-tokens/purge`, la búsqueda y el filtro de uso se aplican en el servidor antes de paginar. Se pueden marcar tokens individuales o seleccionar todos los eliminables que coincidan con los filtros, incluidas otras páginas. La selección total queda limitada a los tokens creados hasta el momento de la consulta y se procesa por lotes. Cada lote vuelve a comprobar bajo bloqueo que el token tenga cero usos y ningún registro de canje o entrega; si cambió, se omite. Si falla un lote, la pantalla informa cuántos se eliminaron antes del error. La eliminación requiere confirmación en la interfaz y no altera tokens con historial.

@@ -1,3 +1,4 @@
+import { chooseGroupColor } from "@/lib/reusable-tokens/group-color";
 import {reusableGroupTokenSelect} from "@/lib/reusable-tokens/select";
 import { getPublicBaseUrl } from "@/lib/config";
 import { REUSABLE_POLICY } from "@/lib/reusable-tokens/policy";
@@ -81,21 +82,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: auth.error || "No autorizado" }, { status: 401 });
     }
 
-    const { name, description, color } = await request.json();
+    const { name, description } = await request.json();
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
     // Auto-assign sortOrder to end of list
-    const maxOrder = await prisma.tokenGroup.aggregate({ _max: { sortOrder: true } });
+    const [maxOrder, existingGroups] = await Promise.all([
+      prisma.tokenGroup.aggregate({ _max: { sortOrder: true } }),
+      prisma.tokenGroup.findMany({ select: { color: true } }),
+    ]);
     const nextOrder = (maxOrder._max.sortOrder ?? -1) + 1;
 
     const group = await prisma.tokenGroup.create({
       data: {
         name: name.trim(),
         description: description?.trim() || null,
-        color: color || null,
+        color: chooseGroupColor(existingGroups.map((group) => group.color)),
         sortOrder: nextOrder,
       },
     });
