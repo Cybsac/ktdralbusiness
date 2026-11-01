@@ -1,47 +1,19 @@
-export const runtime = 'nodejs';
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import bcrypt from 'bcryptjs';
-
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
+export const dynamic = "force-dynamic";
+import { NextResponse } from "next/server";
+import { requireUserActor } from "@/lib/users/access";
+import { resetActivePasswords } from "@/lib/users/passwords";
+import { userFailure } from "@/lib/users/http";
+import { checkRateLimitCustom } from "@/lib/rateLimit";
 export async function POST(req: Request) {
   try {
-    const raw = getSessionCookieFromRequest(req);
-    const session = await verifySessionCookie(raw);
-    const ok = requireRole(session, ['ADMIN', 'COORDINATOR']); // Only ADMIN can reset all passwords
-    if (!ok.ok) return NextResponse.json({ ok: false, code: ok.error || 'UNAUTHORIZED' }, { status: 401 });
-
-    const body = await req.json().catch(() => ({}));
-    const newPassword = body.password || '123456789';
-
-    // Validate password
-    if (typeof newPassword !== 'string' || newPassword.length < 8) {
-      return NextResponse.json({ ok: false, code: 'INVALID_PASSWORD', message: 'Password must be at least 8 characters' }, { status: 400 });
-    }
-
-    // Hash the new password
-    const salt = bcrypt.genSaltSync(10);
-    const passwordHash = bcrypt.hashSync(newPassword, salt);
-
-    // Update all users' passwords and mark them to force password change
-    const result = await prisma.user.updateMany({
-      data: {
-        passwordHash: passwordHash,
-        forcePasswordChange: true,
-      },
+    const actor = await requireUserActor(req, "admin");
+    const limit = checkRateLimitCustom(`users-reset:${actor.userId}`, 1, 60000);
+    if (!limit.ok) return NextResponse.json({ ok: false, code: "RATE_LIMIT" }, { status: 429 });
+    const body = await req.json();
+    return NextResponse.json(await resetActivePasswords(actor, body.confirm === true), {
+      headers: { "Cache-Control": "private, no-store" },
     });
-
-    return NextResponse.json({
-      ok: true,
-      message: `Contraseñas de ${result.count} usuarios actualizadas exitosamente`,
-      updatedCount: result.count
-    });
-
-  } catch (e: any) {
-    console.error('admin reset passwords error', e);
-    return NextResponse.json({ ok: false, code: 'INTERNAL', message: String(e?.message || e) }, { status: 500 });
+  } catch (error) {
+    return userFailure(error);
   }
 }

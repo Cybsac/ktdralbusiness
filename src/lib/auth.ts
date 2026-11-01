@@ -6,7 +6,7 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 horas
 
 // Tipo común para roles de usuario
 // Jerarquía: ADMIN > COORDINATOR > STAFF > COLLAB
-export type UserRole = 'COLLAB' | 'STAFF' | 'COORDINATOR' | 'ADMIN';
+export type UserRole = "COLLAB" | "STAFF" | "COORDINATOR" | "ADMIN";
 
 /** Orden jerárquico de roles (mayor = más permisos) */
 export const ROLE_HIERARCHY: Record<UserRole, number> = {
@@ -17,7 +17,12 @@ export const ROLE_HIERARCHY: Record<UserRole, number> = {
 };
 
 /** Todas las áreas válidas del sistema (replica de areas.ts para evitar import circular) */
-export const ALL_USER_ROLES: readonly UserRole[] = ['COLLAB', 'STAFF', 'COORDINATOR', 'ADMIN'] as const;
+export const ALL_USER_ROLES: readonly UserRole[] = [
+  "COLLAB",
+  "STAFF",
+  "COORDINATOR",
+  "ADMIN",
+] as const;
 
 export interface UserSessionData {
   iat: number; // issued at (ms)
@@ -63,38 +68,52 @@ async function hmacSha256Base64url(keyBytes: Uint8Array, message: string): Promi
   // Node fallback HMAC
   const { createHmac } = await import("crypto");
   // Convertimos el keyBytes a string hex para usarlo como clave determinística
-  const keyHex = Buffer.from(keyBytes).toString('hex');
+  const keyHex = Buffer.from(keyBytes).toString("hex");
   return createHmac("sha256", keyHex).update(message).digest("base64url");
 }
 
 function base64urlEncode(bytes: Uint8Array): string {
   // Edge-safe: usa btoa
-  let binary = '';
+  let binary = "";
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  const b64 = (globalThis as any).btoa ? (globalThis as any).btoa(binary) : Buffer.from(bytes).toString('base64');
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  const b64 = (globalThis as any).btoa
+    ? (globalThis as any).btoa(binary)
+    : Buffer.from(bytes).toString("base64");
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function base64urlDecodeToString(b64u: string): string {
-  const b64 = b64u.replace(/-/g, '+').replace(/_/g, '/');
+  const b64 = b64u.replace(/-/g, "+").replace(/_/g, "/");
   const pad = b64.length % 4;
-  const padded = pad ? b64 + '='.repeat(4 - pad) : b64;
+  const padded = pad ? b64 + "=".repeat(4 - pad) : b64;
   if ((globalThis as any).atob) {
     const binary = (globalThis as any).atob(padded);
     const arr = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
     return new TextDecoder().decode(arr);
   }
-  return Buffer.from(padded, 'base64').toString('utf8');
+  return Buffer.from(padded, "base64").toString("utf8");
 }
 
-export async function createUserSessionCookie(userId: string, role: UserRole = 'COLLAB', area?: string): Promise<string> {
+export async function createUserSessionCookie(
+  userId: string,
+  role: UserRole = "COLLAB",
+  area?: string
+): Promise<string> {
   const now = Date.now();
-  const data: UserSessionData = { iat: now, exp: now + SESSION_TTL_MS, userId, role, ...(area ? { area } : {}) };
+  const data: UserSessionData = {
+    iat: now,
+    exp: now + SESSION_TTL_MS,
+    userId,
+    role,
+    ...(area ? { area } : {}),
+  };
   const payload = (() => {
     const json = JSON.stringify(data);
-    if (typeof Buffer !== 'undefined') {
-      try { return Buffer.from(json).toString('base64url'); } catch {}
+    if (typeof Buffer !== "undefined") {
+      try {
+        return Buffer.from(json).toString("base64url");
+      } catch {}
     }
     // Edge-safe path
     return base64urlEncode(new TextEncoder().encode(json));
@@ -104,7 +123,9 @@ export async function createUserSessionCookie(userId: string, role: UserRole = '
   return `${payload}.${sig}`;
 }
 
-export async function verifyUserSessionCookie(raw: string | undefined | null): Promise<UserSessionData | null> {
+export async function verifyUserSessionCookie(
+  raw: string | undefined | null
+): Promise<UserSessionData | null> {
   if (!raw) return null;
   const parts = raw.split(".");
   if (parts.length !== 2) return null;
@@ -119,8 +140,24 @@ export async function verifyUserSessionCookie(raw: string | undefined | null): P
     const json = base64urlDecodeToString(payload);
     const data = JSON.parse(json) as UserSessionData;
     if (Date.now() > data.exp) return null;
-    if (!data.role) data.role = 'COLLAB';
+    if (!data.role) data.role = "COLLAB";
     if (!data.userId) return null;
+    // Node handlers revalidate current access. Keep the Edge verifier free of database imports.
+    if (process.env.NEXT_RUNTIME !== "edge") {
+      const { prisma } = await import("@/lib/prisma");
+      const current = await prisma.user.findUnique({
+        where: { id: data.userId },
+        select: { role: true, updatedAt: true, person: { select: { active: true, area: true } } },
+      });
+      if (
+        !current?.person.active ||
+        current.updatedAt.getTime() > data.iat ||
+        !ALL_USER_ROLES.includes(current.role as UserRole)
+      )
+        return null;
+      data.role = current.role as UserRole;
+      data.area = current.person.area || undefined;
+    }
     return data;
   } catch {
     return null;
@@ -163,15 +200,18 @@ export async function verifySessionCookie(raw: string | undefined | null) {
   return verifyUserSessionCookie(raw);
 }
 
-export function requireRole(session: UserSessionData | null | undefined, roles: string[]): { ok: boolean; hasAccess: boolean; error?: string } {
-  if (!session) return { ok: false, hasAccess: false, error: 'NO_SESSION' };
-  if (!roles.includes(session.role)) return { ok: false, hasAccess: false, error: 'FORBIDDEN' };
+export function requireRole(
+  session: UserSessionData | null | undefined,
+  roles: string[]
+): { ok: boolean; hasAccess: boolean; error?: string } {
+  if (!session) return { ok: false, hasAccess: false, error: "NO_SESSION" };
+  if (!roles.includes(session.role)) return { ok: false, hasAccess: false, error: "FORBIDDEN" };
   return { ok: true, hasAccess: true };
 }
 
 // Helper para saber si un rol es administrativo (COORDINATOR incluido)
 export function isAdminLike(role: UserRole | null | undefined) {
-  return role === 'ADMIN' || role === 'COORDINATOR' || role === 'STAFF';
+  return role === "ADMIN" || role === "COORDINATOR" || role === "STAFF";
 }
 
 /** Verifica si roleA tiene nivel >= roleB en la jerarquía */
@@ -181,20 +221,25 @@ export function roleAtLeast(role: UserRole | null | undefined, minRole: UserRole
 }
 
 // Helpers simplificados para refactors en rutas
-export function hasRole(session: UserSessionData | null | undefined, roles: ReadonlyArray<UserRole>): boolean {
+export function hasRole(
+  session: UserSessionData | null | undefined,
+  roles: ReadonlyArray<UserRole>
+): boolean {
   return !!session && roles.includes(session.role);
 }
 
 export function isStaffOrAdmin(session: UserSessionData | null | undefined): boolean {
-  return !!session && roleAtLeast(session.role, 'STAFF');
+  return !!session && roleAtLeast(session.role, "STAFF");
 }
 
 // Legacy helper solicitado por algunos endpoints antiguos.
-export async function verifyStaffAccess(req: Request): Promise<{ ok: boolean; hasAccess: boolean; role?: UserRole; error?: string }> {
+export async function verifyStaffAccess(
+  req: Request
+): Promise<{ ok: boolean; hasAccess: boolean; role?: UserRole; error?: string }> {
   const raw = getUserSessionCookieFromRequest(req);
   const session = await verifyUserSessionCookie(raw);
-  if (session && roleAtLeast(session.role, 'STAFF')) {
+  if (session && roleAtLeast(session.role, "STAFF")) {
     return { ok: true, hasAccess: true, role: session.role };
   }
-  return { ok: false, hasAccess: false, error: 'FORBIDDEN' };
+  return { ok: false, hasAccess: false, error: "FORBIDDEN" };
 }

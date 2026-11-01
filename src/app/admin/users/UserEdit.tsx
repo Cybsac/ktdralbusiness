@@ -1,4 +1,6 @@
 "use client";
+import { AREA_CHOICES, USER_POLICY } from "@/lib/users/policy";
+import { ManagedRoleInput } from "./management-context";
 
 import {
   Edit,
@@ -8,29 +10,13 @@ import {
   SelectInput,
   DateInput,
   required,
-} from 'react-admin';
-
-const roleChoices = [
-  { id: 'COLLAB', name: 'Colaborador' },
-  { id: 'STAFF', name: 'Staff' },
-  { id: 'COORDINATOR', name: 'Coordinador' },
-  { id: 'ADMIN', name: 'Admin' },
-];
-
-const areaChoices = [
-  { id: 'Caja', name: 'Caja' },
-  { id: 'Barra', name: 'Barra' },
-  { id: 'Mozos', name: 'Mozos' },
-  { id: 'Seguridad', name: 'Seguridad' },
-  { id: 'Animación', name: 'Animación' },
-  { id: 'DJs', name: 'DJs' },
-  { id: 'Multimedia', name: 'Multimedia' },
-  { id: 'Otros', name: 'Otros' },
-];
+} from "react-admin";
 
 const validateNewPassword = (value?: string) => {
-  if (!value || value.trim() === '') return undefined;
-  return value.trim().length >= 8 ? undefined : 'La contraseña debe tener al menos 8 caracteres';
+  if (!value || value.trim() === "") return undefined;
+  return value.length >= USER_POLICY.passwordMin
+    ? undefined
+    : "La contraseña debe tener al menos 8 caracteres";
 };
 
 export const UserEdit = (props: any) => (
@@ -38,12 +24,12 @@ export const UserEdit = (props: any) => (
     <SimpleForm
       sx={{
         maxWidth: 600,
-        mx: 'auto',
+        mx: "auto",
         px: { xs: 2, sm: 3 },
-        '& .MuiTextField-root': {
+        "& .MuiTextField-root": {
           mb: { xs: 2, sm: 1 },
         },
-        '& .MuiFormControl-root': {
+        "& .MuiFormControl-root": {
           mb: { xs: 2, sm: 1 },
         },
       }}
@@ -58,8 +44,8 @@ export const UserEdit = (props: any) => (
       />
       <TextInput source="personName" label="Name" validate={required()} fullWidth />
       <TextInput source="dni" fullWidth />
-      <SelectInput source="role" choices={roleChoices} validate={required()} fullWidth />
-      <SelectInput source="area" choices={areaChoices} fullWidth />
+      <ManagedRoleInput source="role" validate={required()} fullWidth />
+      <SelectInput source="area" choices={AREA_CHOICES} fullWidth />
       <TextInput source="whatsapp" fullWidth />
       <DateInput source="birthday" label="Birthday" fullWidth />
     </SimpleForm>

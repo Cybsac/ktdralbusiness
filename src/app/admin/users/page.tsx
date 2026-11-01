@@ -1,26 +1,20 @@
-import { cookies } from 'next/headers';
-import { verifyUserSessionCookie } from '@/lib/auth';
-import { UsersClient } from './UsersClient';
-import UsersWithTabsClient from './UsersWithTabsClient';
-
-export default async function AdminUsersPage({
-  searchParams,
-}: {
-  searchParams: { [key: string]: string | string[] | undefined };
-}) {
-  const raw = cookies().get('user_session')?.value;
-  const session = await verifyUserSessionCookie(raw);
-  const role = session?.role || 'GUEST';
-
-  // STAFF users get limited interface
-  if (role === 'STAFF') {
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { requireUserActor } from "@/lib/users/access";
+import { UsersClient } from "./UsersClient";
+import UsersWithTabsClient from "./UsersWithTabsClient";
+export default async function AdminUsersPage() {
+  let actor;
+  try {
+    actor = await requireUserActor({ headers: headers() } as Request);
+  } catch {
+    redirect("/u/login?next=/admin/users");
+  }
+  if (actor.role === "STAFF")
     return (
       <div className="mx-auto p-6 max-w-[1600px]">
-        <UsersClient role={role} />
+        <UsersClient role={actor.role} />
       </div>
     );
-  }
-
-  // ADMIN and COORDINATOR users get tabbed interface
-  return <UsersWithTabsClient />;
+  return <UsersWithTabsClient actor={{ userId: actor.userId, role: actor.role }} />;
 }

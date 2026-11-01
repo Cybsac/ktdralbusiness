@@ -1,9 +1,9 @@
 "use client";
 
-import dynamic from 'next/dynamic';
+import dynamic from "next/dynamic";
 
 // React Admin expects a browser DOM, so keep the tabbed interface client-only.
-const UsersWithTabs = dynamic(() => import('./UsersWithTabs'), {
+const UsersWithTabs = dynamic(() => import("./UsersWithTabs"), {
   ssr: false,
   loading: () => (
     <div className="flex min-h-[50vh] items-center justify-center text-sm text-slate-500">
@@ -12,6 +12,10 @@ const UsersWithTabs = dynamic(() => import('./UsersWithTabs'), {
   ),
 });
 
-export default function UsersWithTabsClient() {
-  return <UsersWithTabs />;
+export default function UsersWithTabsClient({
+  actor,
+}: {
+  actor: { userId: string; role: string };
+}) {
+  return <UsersWithTabs actor={actor} />;
 }

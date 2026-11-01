@@ -1,4 +1,6 @@
 "use client";
+import { AREA_CHOICES, USER_POLICY } from "@/lib/users/policy";
+import { ManagedRoleInput } from "./management-context";
 
 import {
   Create,
@@ -12,27 +14,9 @@ import {
   Toolbar,
   useRedirect,
   useResourceContext,
-} from 'react-admin';
-import { Box, Button } from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-
-const roleChoices = [
-  { id: 'COLLAB', name: 'Colaborador' },
-  { id: 'STAFF', name: 'Staff' },
-  { id: 'COORDINATOR', name: 'Coordinador' },
-  { id: 'ADMIN', name: 'Admin' },
-];
-
-const areaChoices = [
-  { id: 'Caja', name: 'Caja' },
-  { id: 'Barra', name: 'Barra' },
-  { id: 'Mozos', name: 'Mozos' },
-  { id: 'Seguridad', name: 'Seguridad' },
-  { id: 'Animación', name: 'Animación' },
-  { id: 'DJs', name: 'DJs' },
-  { id: 'Multimedia', name: 'Multimedia' },
-  { id: 'Otros', name: 'Otros' },
-];
+} from "react-admin";
+import { Box, Button } from "@mui/material";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 
 const CustomToolbar = () => {
   const redirect = useRedirect();
@@ -41,10 +25,10 @@ const CustomToolbar = () => {
   return (
     <Toolbar
       sx={{
-        display: 'flex',
-        flexDirection: { xs: 'column-reverse', sm: 'row' },
-        alignItems: { xs: 'stretch', sm: 'center' },
-        justifyContent: 'space-between',
+        display: "flex",
+        flexDirection: { xs: "column-reverse", sm: "row" },
+        alignItems: { xs: "stretch", sm: "center" },
+        justifyContent: "space-between",
         gap: { xs: 1.5, sm: 2 },
         mt: { xs: 2, sm: 0 },
       }}
@@ -52,15 +36,12 @@ const CustomToolbar = () => {
       <Button
         variant="outlined"
         startIcon={<ArrowBackIcon />}
-        onClick={() => redirect('list', resource ?? 'users')}
-        sx={{ minWidth: { xs: '100%', sm: 'auto' } }}
+        onClick={() => redirect("list", resource ?? "users")}
+        sx={{ minWidth: { xs: "100%", sm: "auto" } }}
       >
         Volver a lista
       </Button>
-      <SaveButton
-        label="Guardar usuario"
-        sx={{ width: { xs: '100%', sm: 'auto' } }}
-      />
+      <SaveButton label="Guardar usuario" sx={{ width: { xs: "100%", sm: "auto" } }} />
     </Toolbar>
   );
 };
@@ -69,15 +50,15 @@ export const UserCreate = (props: any) => (
   <Create {...props}>
     <SimpleForm
       toolbar={<CustomToolbar />}
-      defaultValues={{ role: 'STAFF' }}
+      defaultValues={{ role: "STAFF" }}
       sx={{
-        maxWidth: { xs: '100%', sm: '95%', md: '85%', lg: 1200 },
-        mx: 'auto',
+        maxWidth: { xs: "100%", sm: "95%", md: "85%", lg: 1200 },
+        mx: "auto",
         px: { xs: 1.5, sm: 3, md: 4 },
-        '& .MuiTextField-root': {
+        "& .MuiTextField-root": {
           mb: 2,
         },
-        '& .MuiFormControl-root': {
+        "& .MuiFormControl-root": {
           mb: 2,
         },
       }}
@@ -85,24 +66,34 @@ export const UserCreate = (props: any) => (
       {/* Primera fila: Username y Password */}
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fit, minmax(280px, 1fr))' },
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "repeat(auto-fit, minmax(280px, 1fr))" },
           gap: { xs: 1.5, sm: 2.5 },
-          width: '100%',
+          width: "100%",
           mb: { xs: 2, sm: 2.5 },
         }}
       >
         <TextInput source="username" validate={required()} fullWidth />
-        <PasswordInput source="password" validate={required()} fullWidth />
+        <PasswordInput
+          source="password"
+          validate={[
+            required(),
+            (value) =>
+              value && value.length < USER_POLICY.passwordMin
+                ? `Mínimo ${USER_POLICY.passwordMin} caracteres`
+                : undefined,
+          ]}
+          fullWidth
+        />
       </Box>
 
       {/* Segunda fila: Name y DNI */}
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fit, minmax(280px, 1fr))' },
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "repeat(auto-fit, minmax(280px, 1fr))" },
           gap: { xs: 1.5, sm: 2.5 },
-          width: '100%',
+          width: "100%",
           mb: { xs: 2, sm: 2.5 },
         }}
       >
@@ -113,24 +104,24 @@ export const UserCreate = (props: any) => (
       {/* Tercera fila: Role y Area */}
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fit, minmax(280px, 1fr))' },
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "repeat(auto-fit, minmax(280px, 1fr))" },
           gap: { xs: 1.5, sm: 2.5 },
-          width: '100%',
+          width: "100%",
           mb: { xs: 2, sm: 2.5 },
         }}
       >
-        <SelectInput source="role" choices={roleChoices} validate={required()} fullWidth />
-        <SelectInput source="area" choices={areaChoices} validate={required()} fullWidth />
+        <ManagedRoleInput source="role" validate={required()} fullWidth />
+        <SelectInput source="area" choices={AREA_CHOICES} validate={required()} fullWidth />
       </Box>
 
       {/* Cuarta fila: WhatsApp y Birthday */}
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fit, minmax(280px, 1fr))' },
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "repeat(auto-fit, minmax(280px, 1fr))" },
           gap: { xs: 1.5, sm: 2.5 },
-          width: '100%',
+          width: "100%",
         }}
       >
         <TextInput source="whatsapp" label="WhatsApp" validate={required()} fullWidth />

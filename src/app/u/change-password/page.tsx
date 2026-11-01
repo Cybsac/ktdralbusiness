@@ -1,13 +1,15 @@
 "use client";
 import React, { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { safeLocalRedirect } from "@/lib/users/redirect";
+import { USER_POLICY } from "@/lib/users/policy";
 
-export const dynamic = 'force-dynamic';
-export const fetchCache = 'force-no-store';
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 function ChangePasswordClient() {
   const params = useSearchParams();
-  const next = params ? params.get("next") || "/u" : "/u";
+  const next = safeLocalRedirect(params?.get("next"));
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -28,7 +30,7 @@ function ChangePasswordClient() {
       return;
     }
 
-    if (newPassword.length < 8) {
+    if (newPassword.length < USER_POLICY.passwordMin) {
       setError("La nueva contraseña debe tener al menos 8 caracteres");
       setPending(false);
       return;
@@ -38,7 +40,7 @@ function ChangePasswordClient() {
       const res = await fetch("/api/user/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword })
+        body: JSON.stringify({ currentPassword, newPassword }),
       });
 
       if (!res.ok) {
@@ -63,8 +65,18 @@ function ChangePasswordClient() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center space-y-4">
           <div className="inline-block rounded-full h-16 w-16 bg-green-100 flex items-center justify-center">
-            <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+            <svg
+              className="h-8 w-8 text-green-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M5 13l4 4L19 7"
+              />
             </svg>
           </div>
           <h2 className="text-xl font-semibold text-green-600">Contraseña cambiada exitosamente</h2>
@@ -98,16 +110,30 @@ function ChangePasswordClient() {
                 type="button"
                 aria-label={showCurrentPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
                 title={showCurrentPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
-                onClick={() => setShowCurrentPwd(v => !v)}
+                onClick={() => setShowCurrentPwd((v) => !v)}
                 className="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-500 hover:text-slate-700"
               >
                 {showCurrentPwd ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-5 w-5"
+                  >
                     <path d="M3 3l18 18" />
                     <path d="M10.58 10.58A2 2 0 0012 14a2 2 0 001.42-.58M9.88 4.24A9.53 9.53 0 0112 4c5 0 9 4 9 8 0 1.41-.43 2.73-1.17 3.86M6.17 6.17C4.43 7.27 3 9.1 3 12c0 4 4 8 9 8 1.41 0 2.73-.43 3.86-1.17" />
                   </svg>
                 ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-5 w-5"
+                  >
                     <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>
@@ -130,16 +156,30 @@ function ChangePasswordClient() {
                 type="button"
                 aria-label={showNewPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
                 title={showNewPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
-                onClick={() => setShowNewPwd(v => !v)}
+                onClick={() => setShowNewPwd((v) => !v)}
                 className="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-500 hover:text-slate-700"
               >
                 {showNewPwd ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-5 w-5"
+                  >
                     <path d="M3 3l18 18" />
                     <path d="M10.58 10.58A2 2 0 0012 14a2 2 0 001.42-.58M9.88 4.24A9.53 9.53 0 0112 4c5 0 9 4 9 8 0 1.41-.43 2.73-1.17 3.86M6.17 6.17C4.43 7.27 3 9.1 3 12c0 4 4 8 9 8 1.41 0 2.73-.43 3.86-1.17" />
                   </svg>
                 ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-5 w-5"
+                  >
                     <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>

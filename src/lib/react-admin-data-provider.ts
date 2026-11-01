@@ -1,280 +1,108 @@
 "use client";
-
-import { DataProvider, fetchUtils } from 'react-admin';
-import { stringify } from 'query-string';
-
-const apiUrl = typeof window !== 'undefined' ? '' : process.env.NEXT_PUBLIC_API_URL || '';
-
+import { DataProvider, fetchUtils } from "react-admin";
+const call = async (url: string, options: RequestInit = {}) => {
+  const { json } = await fetchUtils.fetchJson(url, {
+    ...options,
+    credentials: "include",
+    headers: new Headers({ "Content-Type": "application/json" }),
+  });
+  return json;
+};
+const record = (json: any) => json.user || json.data || json;
+const list = (json: any, resource: string) => {
+  const data = json.data || json.users || json.persons || json[resource] || [];
+  return { data, total: json.total ?? data.length };
+};
+const date = (value: unknown) => (value ? String(value).split("T")[0] : null);
+function userPayload(data: any, create = false) {
+  if (create)
+    return {
+      username: data.username,
+      password: data.password,
+      role: data.role,
+      person: {
+        name: data.personName,
+        dni: data.dni,
+        area: data.area,
+        whatsapp: data.whatsapp || null,
+        birthday: date(data.birthday),
+      },
+    };
+  const result: Record<string, unknown> = {};
+  for (const key of ["username", "dni", "personName", "role", "area"])
+    if (data[key] !== undefined) result[key] = data[key];
+  if (data.whatsapp !== undefined) result.whatsapp = data.whatsapp || null;
+  if (data.birthday !== undefined) result.birthday = date(data.birthday);
+  if (typeof data.password === "string" && data.password.trim()) result.password = data.password;
+  return result;
+}
+function listUrl(resource: string, params: any, reference = false) {
+  const pagination = params.pagination || { page: 1, perPage: 10 };
+  const sort = params.sort || { field: "id", order: "ASC" };
+  const filter = { ...params.filter, ...(reference ? { [params.target]: params.id } : {}) };
+  const query = new URLSearchParams({
+    sort: JSON.stringify([sort.field, sort.order]),
+    range: JSON.stringify([
+      (pagination.page - 1) * pagination.perPage,
+      pagination.page * pagination.perPage - 1,
+    ]),
+    filter: JSON.stringify(filter),
+  });
+  return `/api/admin/${resource}?${query}`;
+}
 export const dataProvider: DataProvider = {
-  getList: async (resource, params) => {
-    const { page, perPage } = params.pagination || { page: 1, perPage: 10 };
-    const { field, order } = params.sort || { field: 'id', order: 'ASC' };
-    const query = {
-      sort: JSON.stringify([field, order]),
-      range: JSON.stringify([(page - 1) * perPage, page * perPage - 1]),
-      filter: JSON.stringify(params.filter),
-    };
-    const url = `/api/admin/${resource}?${stringify(query)}`;
-
-    const { json } = await fetchUtils.fetchJson(url, {
-      method: 'GET',
-      headers: new Headers({
-        'Content-Type': 'application/json',
-      }),
-      credentials: 'include',
-    });
-
-    // Handle different response formats
-    const data = json.data || json.users || json.persons || json[resource] || [];
-    const total = json.total || json.data?.length || json.users?.length || json.persons?.length || json[resource]?.length || 0;
-
-    return {
-      data,
-      total,
-    };
-  },
-
-  getOne: async (resource, params) => {
-    const url = `/api/admin/${resource}/${params.id}`;
-
-    const { json } = await fetchUtils.fetchJson(url, {
-      method: 'GET',
-      headers: new Headers({
-        'Content-Type': 'application/json',
-      }),
-      credentials: 'include',
-    });
-
-    return {
-      data: json.data || json,
-    };
-  },
-
-  getMany: async (resource, params) => {
-    const query = {
-      filter: JSON.stringify({ id: params.ids }),
-    };
-    const url = `/api/admin/${resource}?${stringify(query)}`;
-
-    const { json } = await fetchUtils.fetchJson(url, {
-      method: 'GET',
-      headers: new Headers({
-        'Content-Type': 'application/json',
-      }),
-      credentials: 'include',
-    });
-
-    return {
-      data: json.data || json.users || json[resource] || [],
-    };
-  },
-
-  getManyReference: async (resource, params) => {
-    const { page, perPage } = params.pagination || { page: 1, perPage: 10 };
-    const { field, order } = params.sort || { field: 'id', order: 'ASC' };
-    const query = {
-      sort: JSON.stringify([field, order]),
-      range: JSON.stringify([(page - 1) * perPage, page * perPage - 1]),
-      filter: JSON.stringify({
-        ...params.filter,
-        [params.target]: params.id,
-      }),
-    };
-    const url = `/api/admin/${resource}?${stringify(query)}`;
-
-    const { json } = await fetchUtils.fetchJson(url, {
-      method: 'GET',
-      headers: new Headers({
-        'Content-Type': 'application/json',
-      }),
-      credentials: 'include',
-    });
-
-    return {
-      data: json.data || json.users || json[resource] || [],
-      total: json.total || json.data?.length || json.users?.length || json[resource]?.length || 0,
-    };
-  },
-
-  create: async (resource, params) => {
-    const url = `/api/admin/${resource}`;
-
-    // Transform data for the API
-    let dataToSend = params.data;
-
-    if (resource === 'users') {
-      // Transform React Admin data to match API expectations
-      dataToSend = {
-        username: params.data.username,
-        password: params.data.password,
-        role: params.data.role,
-        person: {
-          name: params.data.personName,
-          dni: params.data.dni,
-          area: params.data.area,
-          whatsapp: params.data.whatsapp,
-          birthday: params.data.birthday,
-        }
-      };
-    }
-
-    let json: any;
-    try {
-      const res = await fetchUtils.fetchJson(url, {
-        method: 'POST',
-        body: JSON.stringify(dataToSend),
-        headers: new Headers({
-          'Content-Type': 'application/json',
-        }),
-        credentials: 'include',
-      });
-      json = res.json;
-    } catch (err: any) {
-      const code = err?.body?.code || err?.body?.error || '';
-      const messages: Record<string, string> = {
-        USERNAME_TAKEN: 'El nombre de usuario ya existe',
-        DNI_TAKEN: 'Ya existe una persona con ese DNI',
-        CODE_TAKEN: 'Ya existe el código de persona',
-        INVALID_USERNAME: 'El username es inválido (3-50 chars, sin espacios)',
-        INVALID_PASSWORD: 'La contraseña debe tener al menos 8 caracteres',
-        INVALID_NAME: 'El nombre es inválido',
-        INVALID_DNI: 'El DNI es inválido',
-        INVALID_AREA: 'El área es inválida',
-        INVALID_WHATSAPP: 'El WhatsApp es inválido',
-        INVALID_BIRTHDAY: 'La fecha de cumpleaños es inválida',
-        UNAUTHORIZED: 'No autorizado',
-      };
-      throw new Error(messages[code] || `Error al crear: ${code || err?.message || 'Error desconocido'}`);
-    }
-
-    return {
-      data: json.user || json.data || json,
-    };
-  },
-
-  update: async (resource, params) => {
-    const url = `/api/admin/${resource}/${params.id}`;
-    const password = resource === 'users' && typeof params.data.password === 'string'
-      ? params.data.password.trim()
-      : '';
-
-    // Transform data for the API
-    let dataToSend = params.data;
-
-    if (resource === 'users') {
-      // Transform React Admin data to match PATCH API expectations
-      // Normalize birthday: React Admin may send a full ISO string ("2000-05-24T00:00:00.000Z"), keep only date part
-      const rawBirthday = params.data.birthday as string | null | undefined;
-      const normalizedBirthday = rawBirthday
-        ? String(rawBirthday).trim().replace(/T.*$/, '') || null
-        : null;
-
-      dataToSend = {
-        personName: params.data.personName,
-        role: params.data.role,
-        area: params.data.area,
-        whatsapp: params.data.whatsapp || null,
-        birthday: normalizedBirthday,
-      };
-
-    }
-
-    await fetchUtils.fetchJson(url, {
-      method: 'PATCH',
-      body: JSON.stringify(dataToSend),
-      headers: new Headers({
-        'Content-Type': 'application/json',
-      }),
-      credentials: 'include',
-    });
-
-    // Passwords use their dedicated endpoint so profile updates and password
-    // changes have a clear contract and consistent validation.
-    if (resource === 'users' && password) {
-      try {
-        await fetchUtils.fetchJson(`/api/admin/users/${params.id}/password`, {
-          method: 'PATCH',
-          body: JSON.stringify({ password }),
-          headers: new Headers({
-            'Content-Type': 'application/json',
-          }),
-          credentials: 'include',
-        });
-      } catch (error: any) {
-        const code = error?.body?.code || error?.body?.error || '';
-        const messages: Record<string, string> = {
-          INVALID_PASSWORD: 'La contraseña debe tener al menos 8 caracteres.',
-          NOT_FOUND: 'El usuario no existe.',
-          UNAUTHORIZED: 'No autorizado para cambiar esta contraseña.',
-        };
-        throw new Error(messages[code] || error?.message || 'No se pudo actualizar la contraseña.');
-      }
-    }
-
-    // After PATCH, fetch the fresh record so React Admin's cache has the correct data
-    if (resource === 'users') {
-      const { json: fresh } = await fetchUtils.fetchJson(`/api/admin/${resource}/${params.id}`, {
-        credentials: 'include',
-      });
-      const record = fresh.user || fresh.data || fresh;
-      return { data: { ...record, id: params.id } };
-    }
-
-    return {
-      data: { id: params.id, ...params.data },
-    };
-  },
-
+  getList: async (resource, params) => list(await call(listUrl(resource, params)), resource),
+  getOne: async (resource, params) => ({
+    data: record(await call(`/api/admin/${resource}/${encodeURIComponent(params.id)}`)),
+  }),
+  getMany: async (resource, params) =>
+    list(
+      await call(
+        `/api/admin/${resource}?${new URLSearchParams({ filter: JSON.stringify({ id: params.ids }) })}`
+      ),
+      resource
+    ),
+  getManyReference: async (resource, params) =>
+    list(await call(listUrl(resource, params, true)), resource),
+  create: async (resource, params) => ({
+    data: record(
+      await call(`/api/admin/${resource}`, {
+        method: "POST",
+        body: JSON.stringify(resource === "users" ? userPayload(params.data, true) : params.data),
+      })
+    ),
+  }),
+  update: async (resource, params) => ({
+    data: record(
+      await call(`/api/admin/${resource}/${encodeURIComponent(params.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(resource === "users" ? userPayload(params.data) : params.data),
+      })
+    ),
+  }),
   updateMany: async (resource, params) => {
-    const responses = await Promise.all(
-      params.ids.map(id =>
-        fetchUtils.fetchJson(`/api/admin/${resource}/${id}`, {
-          method: 'PATCH',
-          body: JSON.stringify(params.data),
-          headers: new Headers({
-            'Content-Type': 'application/json',
-          }),
-          credentials: 'include',
+    await Promise.all(
+      params.ids.map((id) =>
+        call(`/api/admin/${resource}/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(resource === "users" ? userPayload(params.data) : params.data),
         })
       )
     );
-
-    return {
-      data: responses.map(response => response.json.data || response.json),
-    };
+    return { data: params.ids };
   },
-
   delete: async (resource, params) => {
-    const url = `/api/admin/${resource}/${params.id}`;
-
-    const { json } = await fetchUtils.fetchJson(url, {
-      method: 'DELETE',
-      headers: new Headers({
-        'Content-Type': 'application/json',
-      }),
-      credentials: 'include',
+    const json = await call(`/api/admin/${resource}/${encodeURIComponent(params.id)}`, {
+      method: "DELETE",
     });
-
-    return {
-      data: json.data,
-    };
+    return { data: json.data || params.previousData || { id: params.id } };
   },
-
   deleteMany: async (resource, params) => {
-    const responses = await Promise.all(
-      params.ids.map(id =>
-        fetchUtils.fetchJson(`/api/admin/${resource}/${id}`, {
-          method: 'DELETE',
-          headers: new Headers({
-            'Content-Type': 'application/json',
-          }),
-          credentials: 'include',
-        })
+    await Promise.all(
+      params.ids.map((id) =>
+        call(`/api/admin/${resource}/${encodeURIComponent(id)}`, { method: "DELETE" })
       )
     );
-
-    return {
-      data: responses.map(response => response.json.data || response.json),
-    };
+    return { data: params.ids };
   },
 };

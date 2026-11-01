@@ -1,22 +1,22 @@
 "use client";
 import React, { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { safeLocalRedirect } from "@/lib/users/redirect";
 
-export const dynamic = 'force-dynamic';
-export const fetchCache = 'force-no-store';
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 function LoginClient() {
   const params = useSearchParams();
   const requestedNext = params ? params.get("next") || "" : "";
   const from = params ? params.get("from") || "" : "";
-  const emergency = from === 'emergency';
+  const emergency = from === "emergency";
   const [dniOrUser, setDniOrUser] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
-  // AVISO TEMPORAL: Modal de mantenimiento post incidente de datos
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,20 +27,20 @@ function LoginClient() {
       const res = await fetch("/api/user/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: dniOrUser, dni: dniOrUser, password })
+        body: JSON.stringify({ username: dniOrUser, dni: dniOrUser, password }),
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "LOGIN_FAIL");
+        throw new Error(data.message || data.code || data.error || "LOGIN_FAIL");
       }
 
-  const data = await res.json().catch(() => ({}));
-  const role: string | undefined = data.user?.role;
-  const defaultByRole = role === 'ADMIN' ? '/admin' : role === 'STAFF' ? '/u' : '/u';
-  const next = requestedNext && requestedNext.trim() !== '' ? requestedNext : defaultByRole;
-      
-      if (data.forcePasswordChange) {
+      const data = await res.json().catch(() => ({}));
+      const role: string | undefined = data.user?.role;
+      const defaultByRole = role === "ADMIN" ? "/admin" : "/u";
+      const next = safeLocalRedirect(requestedNext, defaultByRole);
+
+      if (data.user?.forcePasswordChange) {
         // Redirect to password change page
         setRedirecting(true);
         setTimeout(() => {
@@ -71,32 +71,15 @@ function LoginClient() {
   ) : (
     <main className="mx-auto max-w-sm space-y-8 py-16">
       <div className="space-y-2 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">{emergency ? 'Acceso administrativo de recuperación' : 'Acceso Colaborador'}</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">{emergency ? 'Solo se permite una cuenta ADMIN mientras el servicio está suspendido.' : 'Inicia sesión para usar el scanner.'}</p>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {emergency ? "Acceso administrativo de recuperación" : "Acceso Colaborador"}
+        </h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {emergency
+            ? "Solo se permite una cuenta ADMIN mientras el servicio está suspendido."
+            : "Inicia sesión para usar el scanner."}
+        </p>
       </div>
-
-      {!emergency && <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
-        <div className="flex items-start">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-          </div>
-          <div className="ml-3">
-            <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">
-              <p className="mb-2 font-semibold text-amber-900 dark:text-amber-100">
-                Todas las contraseñas han sido reseteadas al DNI/CE/PASAPORTE del usuario.
-              </p>
-              <p className="mb-2">
-                <strong>Si tu contraseña fue reseteada recientemente, el sistema te pedirá cambiarla después de ingresar.</strong>
-              </p>
-              <p className="text-xs">
-                Si ya cambiaste tu contraseña anteriormente, puedes ignorar este mensaje.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>}
 
       <form onSubmit={submit} className="space-y-6 card">
         <div className="card-body space-y-4">
@@ -125,16 +108,30 @@ function LoginClient() {
                 type="button"
                 aria-label={showPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
                 title={showPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
-                onClick={() => setShowPwd(v => !v)}
+                onClick={() => setShowPwd((v) => !v)}
                 className="absolute inset-y-0 right-0 flex items-center pr-2 text-slate-500 hover:text-slate-700"
               >
                 {showPwd ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-5 w-5"
+                  >
                     <path d="M3 3l18 18" />
                     <path d="M10.58 10.58A2 2 0 0012 14a2 2 0 001.42-.58M9.88 4.24A9.53 9.53 0 0112 4c5 0 9 4 9 8 0 1.41-.43 2.73-1.17 3.86M6.17 6.17C4.43 7.27 3 9.1 3 12c0 4 4 8 9 8 1.41 0 2.73-.43 3.86-1.17" />
                   </svg>
                 ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-5 w-5"
+                  >
                     <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>
@@ -149,14 +146,19 @@ function LoginClient() {
         </div>
       </form>
 
-      {!emergency && <div className="text-center">
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          ¿No tienes cuenta?{" "}
-          <a href="/u/register" className="text-[var(--color-accent)] hover:underline font-medium">
-            Crear cuenta
-          </a>
-        </p>
-      </div>}
+      {!emergency && (
+        <div className="text-center">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            ¿No tienes cuenta?{" "}
+            <a
+              href="/u/register"
+              className="text-[var(--color-accent)] hover:underline font-medium"
+            >
+              Crear cuenta
+            </a>
+          </p>
+        </div>
+      )}
     </main>
   );
 }

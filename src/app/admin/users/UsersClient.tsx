@@ -1,38 +1,52 @@
 "use client";
-import { useEffect, useState } from 'react';
-import { ALLOWED_AREAS } from '@/lib/areas';
+import { useEffect, useState } from "react";
 
-interface UsersClientProps { role: string; }
+interface UsersClientProps {
+  role: string;
+}
 
 export function UsersClient({ role }: UsersClientProps) {
-  const isStaff = role === 'STAFF';
-  const canDelete = role === 'ADMIN' || role === 'STAFF';
+  const isStaff = role === "STAFF";
+  const canDelete = role === "ADMIN" || role === "STAFF";
   const [users, setUsers] = useState<any[]>([]);
-  const [err, setErr] = useState<string|null>(null);
-  const [msg, setMsg] = useState<string|null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function load() {
-    setLoading(true); setErr(null);
-    try { const r = await fetch('/api/admin/users'); const j = await r.json(); if (r.ok && j?.ok) setUsers(j.users||[]); } catch {}
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/admin/users");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.message || j?.code || "Error al cargar usuarios");
+      setUsers(
+        (j.users || []).map((u: any) => ({ ...u, birthday: u.birthdayLabel || u.birthday }))
+      );
+    } catch (error: any) {
+      setErr(error.message || "Error al cargar usuarios");
+    }
     setLoading(false);
   }
-  useEffect(()=>{ load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   async function deleteUser(id: string) {
-    if (!confirm('¿Eliminar usuario?')) return;
-    setErr(null); setMsg(null);
+    if (!confirm("¿Eliminar usuario?")) return;
+    setErr(null);
+    setMsg(null);
     try {
-      const r = await fetch(`/api/admin/users/${id}`, { method: 'DELETE', credentials: 'include' });
+      const r = await fetch(`/api/admin/users/${id}`, { method: "DELETE", credentials: "include" });
       const j = await r.json();
       if (r.ok && j?.ok) {
-        setMsg('Usuario eliminado');
+        setMsg("Usuario eliminado");
         load(); // reload list
       } else {
-        setErr(j?.message || 'Error al eliminar');
+        setErr(j?.message || "Error al eliminar");
       }
     } catch (e: any) {
-      setErr(e?.message || 'Error');
+      setErr(e?.message || "Error");
     }
   }
 
@@ -42,11 +56,20 @@ export function UsersClient({ role }: UsersClientProps) {
         <h1 className="text-2xl font-semibold">Usuarios (Admin)</h1>
         {isStaff && <span className="text-xs rounded bg-slate-700/60 px-2 py-1">Modo STAFF</span>}
       </div>
-      {msg && <div className="border border-green-700 bg-green-950/30 text-green-200 rounded p-3 text-sm">{msg}</div>}
-      {err && <div className="border border-red-700 bg-red-950/30 text-red-200 rounded p-3 text-sm">{err}</div>}
+      {msg && (
+        <div className="border border-green-700 bg-green-950/30 text-green-200 rounded p-3 text-sm">
+          {msg}
+        </div>
+      )}
+      {err && (
+        <div className="border border-red-700 bg-red-950/30 text-red-200 rounded p-3 text-sm">
+          {err}
+        </div>
+      )}
       {!canDelete && (
         <div className="rounded border border-amber-500/40 bg-amber-900/20 p-4 text-xs">
-          La creación / edición completa permanece en la versión anterior (formulario completo). Este modo no permite modificaciones.
+          La creación / edición completa permanece en la versión anterior (formulario completo).
+          Este modo no permite modificaciones.
         </div>
       )}
 
@@ -68,19 +91,24 @@ export function UsersClient({ role }: UsersClientProps) {
               </tr>
             </thead>
             <tbody>
-              {users.map(u => (
+              {users.map((u) => (
                 <tr key={u.id} className="border-b last:border-0">
                   <td className="py-2 pr-4">{u.personCode}</td>
                   <td className="py-2 pr-4">{u.personName}</td>
-                  <td className="py-2 pr-4">{u.dni || '-'}</td>
-                  <td className="py-2 pr-4">{u.area || '-'}</td>
+                  <td className="py-2 pr-4">{u.dni || "-"}</td>
+                  <td className="py-2 pr-4">{u.area || "-"}</td>
                   <td className="py-2 pr-4">{u.username}</td>
-                  <td className="py-2 pr-4"><span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-700/60">{u.role}</span></td>
-                  <td className="py-2 pr-4">{u.whatsapp || '-'}</td>
-                  <td className="py-2 pr-4">{u.birthday || '-'}</td>
+                  <td className="py-2 pr-4">
+                    <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-700/60">
+                      {u.role}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4">{u.whatsapp || "-"}</td>
+                  <td className="py-2 pr-4">{u.birthday || "-"}</td>
                   {canDelete && (
                     <td className="py-2 pr-4">
                       <button
+                        disabled={isStaff && u.role !== "COLLAB"}
                         onClick={() => deleteUser(u.id)}
                         className="text-red-400 hover:text-red-300 text-sm underline"
                       >
@@ -90,8 +118,12 @@ export function UsersClient({ role }: UsersClientProps) {
                   )}
                 </tr>
               ))}
-              {users.length===0 && !loading && (
-                <tr><td className="py-3 text-gray-500" colSpan={canDelete ? 9 : 8}>Sin usuarios</td></tr>
+              {users.length === 0 && !loading && (
+                <tr>
+                  <td className="py-3 text-gray-500" colSpan={canDelete ? 9 : 8}>
+                    Sin usuarios
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
