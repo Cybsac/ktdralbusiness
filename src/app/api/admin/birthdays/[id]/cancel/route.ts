@@ -1,28 +1,17 @@
-import { NextRequest } from 'next/server';
-import { z } from 'zod';
-import { apiError, apiOk } from '@/lib/apiError';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
-import { cancelReservation } from '@/lib/birthdays/service';
-
-const BodySchema = z.object({ reason: z.string().max(500).optional() });
-
+import { NextRequest } from "next/server";
+import { apiOk, apiError } from "@/lib/apiError";
+import { birthdayManager } from "@/lib/birthdays/managementAuth";
+import { birthdayFailure } from "@/lib/birthdays/http";
+import { cancelReservation } from "@/lib/birthdays/service";
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const adminCookie = getSessionCookieFromRequest(req as unknown as Request);
-  const userCookie = getUserSessionCookieFromRequest(req as unknown as Request);
-  const adminSession = await verifySessionCookie(adminCookie);
-  const userSession = await verifyUserSessionCookie(userCookie);
-  const session = adminSession || userSession;
-  if (!session) return apiError('UNAUTHORIZED', 'No session', undefined, 401);
-  // Allow ADMIN/STAFF from admin session, or COLLAB/STAFF from user session
-  const isAdmin = adminSession?.role && ['ADMIN', 'COORDINATOR', 'STAFF'].includes(adminSession.role);
-  const isUser = userSession?.role && ['COLLAB', 'STAFF'].includes(userSession.role);
-  if (!isAdmin && !isUser) return apiError('FORBIDDEN', 'Insufficient permissions', undefined, 403);
-
-  const json = await req.json().catch(() => ({}));
-  const parsed = BodySchema.safeParse(json);
-  if (!parsed.success) return apiError('INVALID_BODY', 'Validation failed', parsed.error.flatten(), 400);
-
-  const r = await cancelReservation(params.id, parsed.data.reason, session?.role);
-  return apiOk(r);
+  const session = await birthdayManager(req);
+  if (!session) return apiError("UNAUTHORIZED", "Sin acceso", undefined, 401);
+  try {
+    const body = await req.json().catch(() => ({}));
+    if (body.reason !== undefined && (typeof body.reason !== "string" || body.reason.length > 500))
+      return apiError("INVALID_BODY", "Motivo inválido", undefined, 400);
+    return apiOk(await cancelReservation(params.id, body.reason, session.userId));
+  } catch (error) {
+    return birthdayFailure(error);
+  }
 }

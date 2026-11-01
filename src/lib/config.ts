@@ -39,15 +39,6 @@ export function invalidateSystemConfigCache() {
 // ----------------------------------------------
 
 /**
- * Returns the TTL in hours for birthday invite claims.
- * Source: `process.env.BIRTHDAY_TOKEN_TTL_HOURS`; defaults to 72 when invalid or missing.
- */
-export function getBirthdayTokenTtlHours(): number {
-  const n = Number(process.env.BIRTHDAY_TOKEN_TTL_HOURS || 72);
-  return Number.isFinite(n) && n > 0 ? n : 72;
-}
-
-/**
  * Returns the base URL used when composing QR target URLs for birthday invites.
  * Priority:
  * 1) `process.env.BIRTHDAY_QR_BASE_URL` if set (recommended for non-interactive jobs)

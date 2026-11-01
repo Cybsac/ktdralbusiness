@@ -1,16 +1,7 @@
-import { NextRequest } from "next/server";
-
-import {
-  getSessionCookieFromRequest,
-  getUserSessionCookieFromRequest,
-  verifySessionCookie,
-  verifyUserSessionCookie,
-} from "@/lib/auth";
-
-export async function birthdayManager(req: NextRequest) {
-  const admin = await verifySessionCookie(getSessionCookieFromRequest(req));
-  if (admin && ["ADMIN", "COORDINATOR", "STAFF"].includes(admin.role)) return admin;
-  const user = await verifyUserSessionCookie(getUserSessionCookieFromRequest(req));
-  if (user && ["ADMIN", "COORDINATOR", "STAFF", "COLLAB"].includes(user.role)) return user;
-  return null;
+import { getPrizeOperator } from "@/lib/prize-authorization/service";
+/** Read/edit permissions stay shared with the collaborator portal; account activity is checked. */
+export const birthdayManager = (req: Request) => getPrizeOperator(req);
+export async function birthdayAdministrator(req: Request) {
+  const user = await birthdayManager(req);
+  return user && ["ADMIN", "COORDINATOR", "STAFF"].includes(user.role) ? user : null;
 }

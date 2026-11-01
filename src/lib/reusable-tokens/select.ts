@@ -1,0 +1,16 @@
+export const reusableGroupTokenSelect = {
+  id: true,
+  prizeId: true,
+  groupId: true,
+  maxUses: true,
+  usedCount: true,
+  expiresAt: true,
+  startTime: true,
+  endTime: true,
+  createdAt: true,
+  deliveryNote: true,
+  redeemedAt: true,
+  deliveredAt: true,
+  disabled: true,
+  prize: { select: { id: true, label: true, key: true, color: true } },
+} as const;

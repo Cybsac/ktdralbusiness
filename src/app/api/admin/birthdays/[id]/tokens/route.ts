@@ -1,3 +1,4 @@
+import { birthdayFailure } from "@/lib/birthdays/http";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 
@@ -28,6 +29,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return apiError("INVALID_QUERY", "Validation failed", parsed.error.flatten(), 400);
   const force = Boolean(parsed.data.force);
   const expectedUpdatedAt = parsed.data.expectedUpdatedAt;
-  const tokens = await generateInviteTokens(params.id, { force, expectedUpdatedAt }, session?.role);
-  return apiOk({ items: tokens });
+  try {
+    return apiOk({
+      items: await generateInviteTokens(params.id, { force, expectedUpdatedAt }, session.userId),
+    });
+  } catch (error) {
+    return birthdayFailure(error);
+  }
 }

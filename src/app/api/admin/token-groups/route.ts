@@ -1,43 +1,74 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
+import {reusableGroupTokenSelect} from "@/lib/reusable-tokens/select";
+import { getPublicBaseUrl } from "@/lib/config";
+import { REUSABLE_POLICY } from "@/lib/reusable-tokens/policy";
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   try {
     const sessionCookie = getSessionCookieFromRequest(req);
     const session = await verifySessionCookie(sessionCookie);
-    const auth = requireRole(session, ['STAFF', 'COORDINATOR', 'ADMIN']);
+    const auth = requireRole(session, [...REUSABLE_POLICY.managementRoles]);
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error || 'No autorizado' }, { status: 401 });
+      return NextResponse.json({ error: auth.error || "No autorizado" }, { status: 401 });
     }
 
+    if (new URL(req.url).searchParams.get("summary") === "1") {
+      const groups = await prisma.tokenGroup.findMany({
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          color: true,
+          locked: true,
+          sortOrder: true,
+          createdAt: true,
+          _count: { select: { tokens: true } },
+        },
+      });
+      const totals = await prisma.reusableToken.groupBy({
+        by: ["groupId"],
+        where: { groupId: { in: groups.map((group) => group.id) } },
+        _sum: { usedCount: true, maxUses: true },
+      });
+      const byGroup = new Map(totals.map((row) => [row.groupId, row._sum]));
+      return NextResponse.json(
+        groups.map((group) => ({
+          ...group,
+          tokens: [],
+          totalUsed: byGroup.get(group.id)?.usedCount || 0,
+          totalMax: byGroup.get(group.id)?.maxUses || 0,
+        })),
+        { headers: { "Cache-Control": "private, no-store" } }
+      );
+    }
     const groups = await prisma.tokenGroup.findMany({
       include: {
         tokens: {
-          include: {
-            prize: true
-          }
+          select: reusableGroupTokenSelect,
         },
         _count: {
-          select: { tokens: true }
-        }
+          select: { tokens: true },
+        },
       },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }]
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
     });
 
-    const qrBaseUrl = process.env.NEXT_PUBLIC_QR_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    const qrBaseUrl = getPublicBaseUrl(req.url);
     const groupsWithQrUrls = groups.map((group) => ({
       ...group,
       tokens: group.tokens.map((token) => ({
         ...token,
-        qrUrl: `${qrBaseUrl.replace(/\/$/, '')}/reusable/${token.id}`
-      }))
+        qrUrl: `${qrBaseUrl.replace(/\/$/, "")}/reusable/${token.id}`,
+      })),
     }));
 
     return NextResponse.json(groupsWithQrUrls);
   } catch (error) {
-    console.error('[token-groups] Error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error("[token-groups] Error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -45,15 +76,15 @@ export async function POST(request: NextRequest) {
   try {
     const sessionCookie = getSessionCookieFromRequest(request);
     const session = await verifySessionCookie(sessionCookie);
-    const auth = requireRole(session, ['STAFF', 'COORDINATOR', 'ADMIN']);
+    const auth = requireRole(session, [...REUSABLE_POLICY.managementRoles]);
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error || 'No autorizado' }, { status: 401 });
+      return NextResponse.json({ error: auth.error || "No autorizado" }, { status: 401 });
     }
 
     const { name, description, color } = await request.json();
 
     if (!name?.trim()) {
-      return NextResponse.json({ error: 'Name is required' }, { status: 400 });
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
     // Auto-assign sortOrder to end of list
@@ -65,14 +96,14 @@ export async function POST(request: NextRequest) {
         name: name.trim(),
         description: description?.trim() || null,
         color: color || null,
-        sortOrder: nextOrder
-      }
+        sortOrder: nextOrder,
+      },
     });
 
     return NextResponse.json(group);
   } catch (error) {
-    console.error('Error creating token group:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error("Error creating token group:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -81,14 +112,14 @@ export async function PUT(request: NextRequest) {
   try {
     const sessionCookie = getSessionCookieFromRequest(request);
     const session = await verifySessionCookie(sessionCookie);
-    const auth = requireRole(session, ['COORDINATOR', 'ADMIN']);
+    const auth = requireRole(session, [...REUSABLE_POLICY.managementRoles]);
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error || 'No autorizado' }, { status: 401 });
+      return NextResponse.json({ error: auth.error || "No autorizado" }, { status: 401 });
     }
 
     const { order } = await request.json();
     if (!Array.isArray(order)) {
-      return NextResponse.json({ error: 'order must be an array of group IDs' }, { status: 400 });
+      return NextResponse.json({ error: "order must be an array of group IDs" }, { status: 400 });
     }
 
     await prisma.$transaction(
@@ -99,7 +130,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error reordering groups:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error("Error reordering groups:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

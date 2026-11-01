@@ -1,124 +1,120 @@
-import { prisma } from '@/lib/prisma';
-import fs from 'fs';
-import path from 'path';
-import crypto from 'crypto';
-import { generateInviteCard } from '@/lib/birthdays/generateInviteCard';
-import { generateInviteTokens } from '@/lib/birthdays/service';
-import { uploadFileToSupabase, safeDeleteFile, getTempFilePath, BIRTHDAY_CARDS_BUCKET } from '@/lib/supabase-server';
-
-// Shadow type until prisma generate creates the official InviteTokenCard delegate
-type InviteTokenCardRow = { id: string; inviteTokenId: string; kind: 'host' | 'guest'; filePath: string; storageProvider?: string; storageKey?: string; storageUrl?: string; createdAt: Date };
-
-export async function ensureBirthdayCards(reservationId: string, baseUrl: string, options: { regenerate?: boolean } = {}) {
-  // Fetch tokens (only guest now)
-  const tokens = await prisma.inviteToken.findMany({ where: { reservationId }, orderBy: { code: 'asc' } });
-  if (!tokens.length) {
-    // Generate tokens idempotently
-    await generateInviteTokens(reservationId, { force: false });
-  }
-  const updatedTokens = tokens.length ? tokens : await prisma.inviteToken.findMany({ where: { reservationId }, orderBy: { code: 'asc' } });
-  const guest = updatedTokens.find(t => t.kind === 'guest');
-  if (!guest) {
-    throw new Error('MISSING_GUEST_TOKEN');
-  }
-
-  // Check existing cards via raw query (only for guest)
-  let existing: InviteTokenCardRow[] = [];
+import { assertBirthdayCardAvailable } from "./card-policy";
+import { enqueueBirthdayCleanup, tryBirthdayStorageCleanup } from "./storage-cleanup";
+import { BIRTHDAY_POLICY as P } from "./policy";
+import { randomUUID } from "crypto";
+import { tmpdir } from "os";
+import path from "path";
+import { writeFile, unlink } from "fs/promises";
+import { prisma } from "@/lib/prisma";
+import { uploadFileToSupabase, BIRTHDAY_CARDS_BUCKET } from "@/lib/supabase-server";
+import { generateInviteCard } from "./generateInviteCard";
+import { generateInviteTokens } from "./invitations";
+import { universalInvitation } from "./universal";
+import { lockBirthdayReservation } from "./locking";
+export async function ensureBirthdayCards(
+  reservationId: string,
+  baseUrl: string,
+  options: { regenerate?: boolean } = {}
+) {
+  const tokens = await generateInviteTokens(reservationId);
+  const token = universalInvitation(tokens);
+  if (!token) throw new Error("MISSING_GUEST_TOKEN");
+  const reservation = await prisma.birthdayReservation.findUniqueOrThrow({
+    where: { id: reservationId },
+  });
+  assertBirthdayCardAvailable(reservation);
+  const previous = await prisma.inviteTokenCard.findUnique({ where: { inviteTokenId: token.id } });
+  const priorUrl =
+    previous?.storageUrl ||
+    (previous?.filePath ? `/${previous.filePath.replace(/^[\/]+/, "")}` : null);
+  if (previous && !options.regenerate && priorUrl)
+    return { already: true, paths: { guest: priorUrl } };
+  const buffer = await generateInviteCard(
+    "guest",
+    token.code,
+    `${baseUrl}/b/${encodeURIComponent(token.code)}`,
+    "png",
+    reservation.celebrantName,
+    reservation.date.toISOString()
+  );
+  const temp = path.join(tmpdir(), `birthday-card-${randomUUID()}.png`);
+  const storageKey = `${reservationId}/guest-${randomUUID()}.png`;
+  await enqueueBirthdayCleanup(prisma, [storageKey], new Date(Date.now() + P.cleanupLeaseMs));
+  let uploaded: Awaited<ReturnType<typeof uploadFileToSupabase>>;
   try {
-    existing = await prisma.$queryRawUnsafe<InviteTokenCardRow[]>(
-      'SELECT id, "inviteTokenId", kind, "filePath", "storageProvider", "storageKey", "storageUrl", "createdAt" FROM "InviteTokenCard" WHERE "inviteTokenId" = $1',
-      guest.id
-    );
-  } catch (e) {
-    // Table may not exist yet; proceed with creation which will fail similarly until migration applied.
-    existing = [];
-  }
-  const hasGuest = existing.some(c => c.inviteTokenId === guest.id);
-  if (hasGuest && !options.regenerate) {
-    return {
-      already: true,
-      paths: existing.reduce<Record<string,string>>((acc, c) => {
-        // Prefer storageUrl if available, fallback to filePath
-        const url = c.storageUrl || (c.filePath ? '/' + c.filePath.replace(/^[\\/]+/, '') : '');
-        acc[c.kind] = url;
-        return acc;
-      }, {}),
-    };
-  }
-
-  // Compose directory
-  const relDir = path.posix.join('birthday-cards', reservationId);
-  const absDir = path.resolve(process.cwd(), 'public', relDir);
-  await fs.promises.mkdir(absDir, { recursive: true });
-
-  // Redeem URL (single for universal token)
-  const guestUrl = `${baseUrl}/b/${encodeURIComponent(guest.code)}`;
-  // celebrant first name for personalization
-  const reservation = await prisma.birthdayReservation.findUnique({ where: { id: reservationId } });
-  const celebrantFull = reservation?.celebrantName || '';
-  const celebrantFirst = celebrantFull.trim().split(/\s+/)[0] || celebrantFull;
-  const reservationDateISO = reservation?.date?.toISOString();
-
-  const createdPaths: Record<string, string> = {};
-
-  async function create(kind: 'guest', tokenId: string, code: string, url: string) {
-    // If card exists skip
-    const prior = existing.find(c => c.inviteTokenId === tokenId);
-    if (prior && !options.regenerate) {
-      createdPaths[kind] = prior.storageUrl || (prior.filePath ? '/' + prior.filePath.replace(/^[\\/]+/, '') : '');
-      return;
-    }
-
-    // Generate image (use 'guest' kind for the card, but it's universal)
-    const buf = await generateInviteCard(kind, code, url, 'png', celebrantFirst, reservationDateISO);
-
-    // Create temp file
-    const tempFilePath = getTempFilePath('birthday-card', 'png');
-    await fs.promises.writeFile(tempFilePath, buf as unknown as Uint8Array);
-
-    // Upload to Supabase
-    const storageKey = `${reservationId}/${kind}-${crypto.randomUUID()}.png`;
-    const { url: storageUrl, storageKey: finalStorageKey } = await uploadFileToSupabase(
-      tempFilePath,
-      storageKey,
-      BIRTHDAY_CARDS_BUCKET
-    );
-
-    // Save to database
+    await writeFile(temp, new Uint8Array(buffer));
+    uploaded = await uploadFileToSupabase(temp, storageKey, BIRTHDAY_CARDS_BUCKET);
+  } catch (error) {
+    await unlink(temp).catch(() => undefined);
     try {
-      await prisma.$executeRawUnsafe(
-        'INSERT INTO "InviteTokenCard" (id, "inviteTokenId", kind, "filePath", "storageProvider", "storageKey", "storageUrl", "createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7, NOW()) ON CONFLICT ("inviteTokenId") DO UPDATE SET "filePath" = EXCLUDED."filePath", "storageProvider" = EXCLUDED."storageProvider", "storageKey" = EXCLUDED."storageKey", "storageUrl" = EXCLUDED."storageUrl", "createdAt" = EXCLUDED."createdAt"',
-        crypto.randomUUID(), tokenId, kind, `${reservationId}/${kind}.png`, 'supabase', finalStorageKey, storageUrl
-      );
-    } catch (e) {
-      // Propagate persistence errors so the UI can offer a retry.
-      throw e;
+      await enqueueBirthdayCleanup(prisma, [storageKey]);
+    } catch {
+      /* The pre-upload cleanup intent is already durable. */
     }
-
-    createdPaths[kind] = storageUrl;
+    await tryBirthdayStorageCleanup([storageKey]);
+    throw error;
   }
-
-  if (!hasGuest || options.regenerate) await create('guest', guest.id, guest.code, guestUrl);
-
-  return { already: false, paths: createdPaths };
-}
-
-export async function getBirthdayCards(reservationId: string) {
-  const tokens = await prisma.inviteToken.findMany({ where: { reservationId } });
-  if (!tokens.length) return { paths: {}, tokens: [] };
-  let cards: InviteTokenCardRow[] = [];
+  let committed = false;
   try {
-    cards = await prisma.$queryRawUnsafe<InviteTokenCardRow[]>(
-      `SELECT id, "inviteTokenId", kind, "filePath", "storageProvider", "storageKey", "storageUrl", "createdAt" FROM "InviteTokenCard" WHERE "inviteTokenId" IN (${tokens.map((_, i) => '$' + (i + 1)).join(',')})`,
-      ...tokens.map(t => t.id)
-    );
-  } catch (e) {
-    cards = [];
+    const card = await prisma.$transaction(async (tx) => {
+      await lockBirthdayReservation(tx, reservationId);
+      const current = await tx.birthdayReservation.findUniqueOrThrow({
+        where: { id: reservationId },
+      });
+      assertBirthdayCardAvailable(current);
+      if (
+        current.celebrantName !== reservation.celebrantName ||
+        current.date.getTime() !== reservation.date.getTime()
+      )
+        throw new Error("CARD_DATA_CHANGED");
+      const latest = await tx.inviteTokenCard.findUnique({ where: { inviteTokenId: token.id } });
+      if ((latest?.storageKey || null) !== (previous?.storageKey || null)) {
+        if (latest?.storageUrl) return latest;
+        throw new Error("CARD_DATA_CHANGED");
+      }
+      const data = {
+        kind: "guest",
+        filePath: null,
+        storageProvider: "supabase",
+        storageKey: uploaded.storageKey,
+        storageUrl: uploaded.url,
+        createdAt: new Date(),
+      };
+      const owned = await tx.birthdayStorageCleanup.deleteMany({
+        where: { storageKey: uploaded.storageKey, attempts: 0 },
+      });
+      if (owned.count !== 1) throw new Error("CARD_DATA_CHANGED");
+      if (previous?.storageKey) await enqueueBirthdayCleanup(tx, [previous.storageKey]);
+      return tx.inviteTokenCard.upsert({
+        where: { inviteTokenId: token.id },
+        create: { inviteTokenId: token.id, ...data },
+        update: data,
+      });
+    });
+    committed = card.storageKey === uploaded.storageKey;
+    await tryBirthdayStorageCleanup(previous?.storageKey ? [previous.storageKey] : []);
+    return { already: !committed, paths: { guest: card.storageUrl! } };
+  } finally {
+    if (!committed) {
+      try {
+        await enqueueBirthdayCleanup(prisma, [uploaded.storageKey]);
+      } catch (error) {
+        console.warn("Uploaded birthday card remains queued for cleanup", error);
+      }
+      await tryBirthdayStorageCleanup([uploaded.storageKey]);
+    }
   }
-  const paths: Record<string,string> = {};
-  for (const c of cards) {
-    // Prefer storageUrl if available, fallback to filePath
-    paths[c.kind] = c.storageUrl || (c.filePath ? '/' + c.filePath.replace(/^[\\/]+/, '') : '');
-  }
-  return { paths, tokens };
+}
+export async function getBirthdayCards(reservationId: string) {
+  const tokens = await prisma.inviteToken.findMany({
+    where: { reservationId },
+    orderBy: { createdAt: "asc" },
+  });
+  const token = universalInvitation(tokens);
+  const card = token
+    ? await prisma.inviteTokenCard.findUnique({ where: { inviteTokenId: token.id } })
+    : null;
+  const url =
+    card?.storageUrl || (card?.filePath ? `/${card.filePath.replace(/^[\/]+/, "")}` : null);
+  return { paths: url ? { guest: url } : {}, tokens };
 }

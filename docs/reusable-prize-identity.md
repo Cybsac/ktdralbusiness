@@ -25,3 +25,5 @@ su funcionamiento.
 Verificación: `npx vitest run tests/reusable-prizes` simula Prisma y no escribe
 en base de datos. Incluye claves, secuencias de colores, conflictos y conservación
 de identidad durante edición.
+
+El flujo actualizado de generación, vigencia, consumo y cargas del panel se documenta en [Flujo de tokens reutilizables](reusable-token-flow.md).

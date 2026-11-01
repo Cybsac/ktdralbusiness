@@ -1,33 +1,21 @@
+import { readStaticPrizeCatalog } from "@/lib/batch/static-catalog";
 import { prisma } from "@/lib/prisma";
 import PrizestaticsClient from "./PrizestaticsClient";
 
-export const metadata = { title: 'Tokens Estáticos' };
+export const metadata = { title: "Tokens Estáticos" };
 export const dynamic = "force-dynamic";
 
 async function getPrizesWithStats() {
-  // Excluir premios del sistema de ruleta (retry, lose)
-  const prizes = await prisma.prize.findMany({
-    where: { staticEnabled: true, key: { notIn: ['retry', 'lose'] } },
-    orderBy: { createdAt: "asc" },
-    select: {
-      id: true,
-      label: true,
-      color: true,
-      active: true,
-      stock: true,
-      key: true,
-      emittedTotal: true,
-    }
-  });
+  const prizes = await readStaticPrizeCatalog();
 
   // Último lote estático por premio (solo batches con actionType definido)
   const lastTokens = await prisma.token.findMany({
     where: {
-      prizeId: { in: prizes.map(p => p.id) },
-      batch: { actionType: { not: null } },
+      prizeId: { in: prizes.map((p) => p.id) },
+      batch: { staticTargetUrl: { not: null } },
     },
-    orderBy: [{ prizeId: 'asc' }, { createdAt: 'desc' }],
-    distinct: ['prizeId'],
+    orderBy: [{ prizeId: "asc" }, { createdAt: "desc" }],
+    distinct: ["prizeId"],
     select: { prizeId: true, batch: { select: { id: true, description: true, createdAt: true } } },
   });
   const lastBatch: Record<string, { id: string; name: string; createdAt: Date }> = {};
@@ -43,19 +31,19 @@ async function getPrizesWithStats() {
 
   // Solo lotes estáticos (actionType definido) — excluye lotes de ruleta
   const recentBatches = await prisma.batch.findMany({
-    where: { actionType: { not: null } },
-    orderBy: { createdAt: 'desc' },
+    where: { staticTargetUrl: { not: null } },
+    orderBy: { createdAt: "desc" },
     take: 12,
-    select: { id: true, description: true, createdAt: true }
+    select: { id: true, description: true, createdAt: true },
   });
   const batchPrizeStats = [];
   if (recentBatches.length) {
     const grouped = await prisma.token.groupBy({
-      by: ['batchId', 'prizeId'],
-      where: { batchId: { in: recentBatches.map(b => b.id) } },
+      by: ["batchId", "prizeId"],
+      where: { batchId: { in: recentBatches.map((b) => b.id) } },
       _count: { _all: true },
     });
-    const prizeMap = new Map(prizes.map(p => [p.id, p]));
+    const prizeMap = new Map(prizes.map((p) => [p.id, p]));
     const perBatch: Record<string, any[]> = {};
     for (const row of grouped) {
       if (!perBatch[row.batchId]) perBatch[row.batchId] = [];
@@ -65,8 +53,6 @@ async function getPrizesWithStats() {
         label: p?.label || row.prizeId,
         color: p?.color || null,
         count: row._count._all,
-        expired: 0,
-        valid: 0
       });
     }
     for (const b of recentBatches) {

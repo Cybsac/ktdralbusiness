@@ -1,3 +1,6 @@
+import { readStaticPrizeCatalog } from "@/lib/batch/static-catalog";
+import { staticPrizeCreateFields } from "@/lib/batch/static-prizes";
+import { nextStaticPrizeColor } from "@/lib/batch/static-prize-colors";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 
@@ -20,6 +23,12 @@ const prizeSchema = z.object({
 });
 
 export async function GET(req: Request) {
+  if (new URL(req.url).searchParams.get("scope") === "static") {
+    const gate = await requirePrizeManagement(req);
+    if (gate) return gate;
+    return apiOk(await readStaticPrizeCatalog(), 200, { "Cache-Control": "private, no-store" });
+  }
+
   if (new URL(req.url).searchParams.get("scope") === "game") {
     const gate = await requirePrizeManagement(req);
     if (gate) return gate;
@@ -35,7 +44,7 @@ export async function GET(req: Request) {
     );
   }
   const prizes = await prisma.prize.findMany({
-    where: new URL(req.url).searchParams.get("scope") === "static" ? { staticEnabled: true } : {},
+    where: {},
     orderBy: { createdAt: "asc" },
   });
   return apiOk(prizes, 200);
@@ -50,7 +59,16 @@ export async function POST(req: Request) {
   if (managementGate) return managementGate;
   const query = new URL(req.url).searchParams;
   const isGame = query.get("scope") === "game";
+  const isStatic = query.get("scope") === "static";
   const json = await req.json().catch(() => null);
+  if (
+    isStatic &&
+    !z
+      .object({ label: prizeSchema.shape.label, stock: prizeSchema.shape.stock })
+      .strict()
+      .safeParse(json).success
+  )
+    return apiError("INVALID_BODY", "Nombre o stock inválido", undefined, 400);
   if (isGame) {
     const valid = gamePrizeSchema.safeParse(json);
     if (!valid.success)
@@ -79,7 +97,10 @@ export async function POST(req: Request) {
     while (used.has(i)) i++;
     return `premio${i}`;
   }
-  const nextKey = () => (isGame ? Promise.resolve(`game_${randomUUID()}`) : computeNextKey());
+  const nextKey = () =>
+    isGame || isStatic
+      ? Promise.resolve(`${isGame ? "game" : "static"}_${randomUUID()}`)
+      : computeNextKey();
   let key = await nextKey();
   let color = parsed.data.color;
   if (color != null) {
@@ -114,11 +135,26 @@ export async function POST(req: Request) {
             },
             { isolationLevel: "Serializable" }
           )
-        : await prisma.prize.create({ data: { key, ...parsed.data, color } });
+        : isStatic
+          ? await prisma.$transaction(
+              async (tx) =>
+                tx.prize.create({
+                  data: {
+                    key,
+                    label: parsed.data.label,
+                    stock: parsed.data.stock,
+                    active: true,
+                    ...staticPrizeCreateFields,
+                    color: await nextStaticPrizeColor(tx),
+                  },
+                }),
+              { isolationLevel: "Serializable" }
+            )
+          : await prisma.prize.create({ data: { key, ...parsed.data, color } });
       return apiOk(isGame ? { ...prize, stock: parsed.data.stock! } : prize, 201);
     } catch (e: any) {
       const code = e?.code || e?.errorCode || e?.meta?.code;
-      if (isGame && code === "P2034") continue;
+      if ((isGame || isStatic) && code === "P2034") continue;
       const target = Array.isArray(e?.meta?.target) ? e.meta.target.join(",") : e?.meta?.target;
       // Prisma P2002 = Unique constraint failed on the {constraint}
       if (

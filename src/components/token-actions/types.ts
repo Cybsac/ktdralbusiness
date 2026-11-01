@@ -90,4 +90,9 @@ export const ACTION_DESCRIPTIONS: Record<ActionType, string> = {
 };
 
 export const FEEDBACK_LIMITS = { minLength: 5, maxLength: 500, storageMaxLength: 2000 } as const;
-export const DEFAULT_RAFFLE_PARTICIPANTS = 999;
+export const RAFFLE_LIMITS = {
+  minParticipants: 1,
+  maxParticipants: 9999,
+  defaultParticipants: 999,
+} as const;
+export const DEFAULT_RAFFLE_PARTICIPANTS = RAFFLE_LIMITS.defaultParticipants;

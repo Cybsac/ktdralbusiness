@@ -1,20 +1,20 @@
-import { NextRequest } from 'next/server';
-import { apiError, apiOk } from '@/lib/apiError';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import { purgeReservations } from '@/lib/birthdays/service';
-
+import { NextRequest } from "next/server";
+import { z } from "zod";
+import { apiError, apiOk } from "@/lib/apiError";
+import { birthdayAdministrator } from "@/lib/birthdays/managementAuth";
+import { purgeBirthdayCards } from "@/lib/birthdays/retention";
+import { birthdayFailure } from "@/lib/birthdays/http";
 export async function POST(req: NextRequest) {
-  const cookie = getSessionCookieFromRequest(req as unknown as Request);
-  const session = await verifySessionCookie(cookie);
-  const authz = requireRole(session, ['ADMIN','STAFF']);
-  if (!authz.ok) return apiError(authz.error!, undefined, undefined, authz.error === 'UNAUTHORIZED'?401:403);
+  const session = await birthdayAdministrator(req);
+  if (!session) return apiError("UNAUTHORIZED", "Sin acceso", undefined, 401);
+  const parsed = z
+    .object({ reservationIds: z.array(z.string().min(1)).min(1) })
+    .safeParse(await req.json().catch(() => null));
+  if (!parsed.success)
+    return apiError("INVALID_BODY", "Selecciona reservas válidas", undefined, 400);
   try {
-    const body = await req.json().catch(()=>({}));
-    const ids: string[] = Array.isArray(body?.reservationIds) ? body.reservationIds.filter((x:any)=>typeof x==='string') : [];
-    if (!ids.length) return apiError('INVALID_BODY','reservationIds required');
-    const result = await purgeReservations(ids, session?.userId);
-    return apiOk({ ok:true, ...result });
-  } catch(e:any) {
-    return apiError('INTERNAL_ERROR','No se pudo purgar',{ raw: String(e?.message||e) });
+    return apiOk(await purgeBirthdayCards(parsed.data.reservationIds, session.userId));
+  } catch (error) {
+    return birthdayFailure(error);
   }
 }

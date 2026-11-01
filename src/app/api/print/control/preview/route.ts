@@ -1,3 +1,4 @@
+import { PRINT_CONTROL_POLICY } from "@/lib/print/control-policy";
 export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
@@ -200,7 +201,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > PRINT_CONTROL_POLICY.maxTemplateBytes) {
       return apiError('FILE_TOO_LARGE', 'La plantilla es demasiado grande', undefined, 400);
     }
     const sharp = (await import('sharp')).default;

@@ -1,3 +1,4 @@
+import { RAFFLE_LIMITS } from "@/components/token-actions/types";
 import { DateTime } from "luxon";
 import { z } from "zod";
 
@@ -45,7 +46,12 @@ const payloadSchemas = {
   raffle: z.object({
     raffleName: text,
     autoNumber: z.boolean(),
-    maxParticipants: z.number().int().positive().optional(),
+    maxParticipants: z
+      .number()
+      .int()
+      .min(RAFFLE_LIMITS.minParticipants)
+      .max(RAFFLE_LIMITS.maxParticipants)
+      .optional(),
   }),
   message: z
     .object({ htmlContent: text, ctaLabel: optionalText, ctaUrl: httpUrl.optional() })

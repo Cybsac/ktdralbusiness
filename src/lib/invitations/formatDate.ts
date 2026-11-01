@@ -1,69 +1,24 @@
-/** Shared Lima-time date formatters for the invitations module. */
-
-const LIMA_OFFSET_MS = 5 * 3600 * 1000;
-
-/** Returns "YYYY-MM-DD" in Lima time */
-export function fmtLimaDate(iso?: string | null): string {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    const lima = new Date(d.getTime() - LIMA_OFFSET_MS);
-    const y = lima.getUTCFullYear();
-    const m = String(lima.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(lima.getUTCDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  } catch { return ''; }
+import { invitationDay } from "./calendar";
+import { DateTime } from "luxon";
+import { INVITATION_POLICY as P } from "./policy";
+function format(value: string | null | undefined, pattern: string, calendar = false) {
+  if (!value) return "";
+  const date = calendar ? invitationDay(value) : DateTime.fromISO(value, { zone: P.timezone });
+  return date.isValid ? date.setLocale("es").toFormat(pattern) : "";
 }
-
-/** Returns "YYYY-MM-DD HH:MM" in Lima time */
-export function fmtLimaDateTime(iso?: string | null): string {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    const lima = new Date(d.getTime() - LIMA_OFFSET_MS);
-    const y = lima.getUTCFullYear();
-    const m = String(lima.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(lima.getUTCDate()).padStart(2, '0');
-    const hh = String(lima.getUTCHours()).padStart(2, '0');
-    const mm = String(lima.getUTCMinutes()).padStart(2, '0');
-    return `${y}-${m}-${day} ${hh}:${mm}`;
-  } catch { return ''; }
-}
-
-const MONTHS_ABBR = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-const MONTHS_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-
-/** Returns "7 May 2024" (abbreviated month) in Lima time */
-export function fmtLimaDateShort(iso?: string | null): string {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    const lima = new Date(d.getTime() - LIMA_OFFSET_MS);
-    return `${lima.getUTCDate()} ${MONTHS_ABBR[lima.getUTCMonth()]} ${lima.getUTCFullYear()}`;
-  } catch { return ''; }
-}
-
-/** Returns "7 de Mayo" (day + full month, no year) in Lima time */
-export function fmtLimaDateDayMonth(iso?: string | null): string {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    const lima = new Date(d.getTime() - LIMA_OFFSET_MS);
-    return `${lima.getUTCDate()} de ${MONTHS_FULL[lima.getUTCMonth()]}`;
-  } catch { return ''; }
-}
-
-/** Returns "7 de Mayo 2024" (full month) in Lima time */
-export function fmtLimaDateLong(iso?: string | null): string {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    const lima = new Date(d.getTime() - LIMA_OFFSET_MS);
-    return `${lima.getUTCDate()} de ${MONTHS_FULL[lima.getUTCMonth()]} ${lima.getUTCFullYear()}`;
-  } catch { return ''; }
-}
+export const fmtLimaDate = (iso?: string | null) => format(iso, "yyyy-MM-dd", true);
+export const fmtLimaDateTime = (iso?: string | null) => format(iso, "yyyy-MM-dd HH:mm");
+export const fmtLimaDateShort = (iso?: string | null) =>
+  format(iso, "d LLL yyyy", true)
+    .replace(/\./g, "")
+    .replace(/(^|\s)([a-záéíóúñ])/g, (_match, prefix, letter) => prefix + letter.toUpperCase());
+export const fmtLimaDateDayMonth = (iso?: string | null) =>
+  format(iso, "d 'de' LLLL", true).replace(
+    /(de )([a-záéíóúñ])/g,
+    (_match, prefix, letter) => prefix + letter.toUpperCase()
+  );
+export const fmtLimaDateLong = (iso?: string | null) =>
+  format(iso, "d 'de' LLLL yyyy", true).replace(
+    /(de )([a-záéíóúñ])/g,
+    (_match, prefix, letter) => prefix + letter.toUpperCase()
+  );

@@ -1,10 +1,12 @@
 "use client";
+import { REUSABLE_POLICY, REUSABLE_TIMEZONE } from "@/lib/reusable-tokens/policy";
 import { PrizeDeliveryAction } from "@/components/prize-authorization/PrizeDeliveryAction";
-import { generateQrPngDataUrl } from '@/lib/qr';
-import { prizeAuthorizedFetch } from '@/lib/prize-authorization/client';
-import React, { useEffect, useState } from "react";
+import { generateQrPngDataUrl } from "@/lib/qr";
+import { prizeAuthorizedFetch } from "@/lib/prize-authorization/client";
+import React, { useEffect, useState, useRef } from "react";
+import { reusableAvailability } from "@/lib/reusable-tokens/validity";
 import { DateTime } from "luxon";
-import Link from 'next/link';
+import Link from "next/link";
 
 type TokenData = {
   id: string;
@@ -12,11 +14,7 @@ type TokenData = {
     key: string;
     label: string;
     color: string | null;
-  };
-  batch: {
-    id: string;
-    description: string;
-    isReusable: boolean;
+    active?: boolean;
   };
   expiresAt: string;
   maxUses: number | null;
@@ -40,12 +38,12 @@ function ExpirationCountdown({ expiresAt }: { expiresAt: string }) {
 
   useEffect(() => {
     const updateCountdown = () => {
-      const now = DateTime.now().setZone('America/Lima');
-      const expiry = DateTime.fromISO(expiresAt).setZone('America/Lima');
+      const now = DateTime.now().setZone(REUSABLE_TIMEZONE);
+      const expiry = DateTime.fromISO(expiresAt).setZone(REUSABLE_TIMEZONE);
       // @ts-ignore - diff method exists in Luxon DateTime
       const diff = expiry.diff(now);
 
-      if (diff.as('milliseconds') <= 0) {
+      if (diff.as("milliseconds") <= 0) {
         // Token expiró - solo marcar como expirado, NO recargar
         setHasExpired(true);
         setIsVisible(false);
@@ -53,10 +51,10 @@ function ExpirationCountdown({ expiresAt }: { expiresAt: string }) {
       }
 
       // @ts-ignore - as method exists in Luxon Duration
-      const totalHours = diff.as('hours');
+      const totalHours = diff.as("hours");
       const hours = Math.floor(totalHours);
       // @ts-ignore - as method exists in Luxon Duration
-      const minutes = Math.floor(diff.as('minutes') % 60);
+      const minutes = Math.floor(diff.as("minutes") % 60);
 
       // Mostrar contador solo si quedan menos de 24 horas
       const shouldShow = totalHours < 24;
@@ -101,20 +99,20 @@ function ExpirationCountdown({ expiresAt }: { expiresAt: string }) {
 }
 
 function getCookie(name: string): string | null {
-  if (typeof document === 'undefined') return null;
+  if (typeof document === "undefined") return null;
   const value = `; ${document.cookie}`;
   const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+  if (parts.length === 2) return parts.pop()?.split(";").shift() || null;
   return null;
 }
 
 function decodeSessionCookie(raw: string | null): string | null {
   if (!raw) return null;
-  const parts = raw.split('.');
+  const parts = raw.split(".");
   if (parts.length !== 2) return null;
   try {
     const payload = parts[0];
-    const data = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    const data = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
     return data.role || null;
   } catch {
     return null;
@@ -135,7 +133,7 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
   useEffect(() => {
     async function checkStaff() {
       try {
-        const res = await fetch('/api/static/session');
+        const res = await fetch("/api/static/session");
         const data = await res.json();
         const newIsStaff = data.canDeliverWithoutOtp === true;
         const newIsAdmin = data.isAdmin === true;
@@ -156,9 +154,9 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
   }, []);
 
   const [markingDelivery, setMarkingDelivery] = useState(false);
-  const [deliveryError, setDeliveryError] = useState<string|null>(null);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
-  const [qrSrc, setQrSrc] = useState('');
+  const [qrSrc, setQrSrc] = useState("");
 
   useEffect(() => {
     async function loadTokenData() {
@@ -171,12 +169,12 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.message || 'Error al cargar el token');
+          throw new Error(data.message || "Error al cargar el token");
         }
 
         setTokenData(data.token);
       } catch (err: any) {
-        setError(err.message || 'Error desconocido');
+        setError(err.message || "Error desconocido");
       } finally {
         setLoading(false);
       }
@@ -187,77 +185,83 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
     }
 
     // Construir URL del QR solo para la sesión pública (cliente)
-    if (typeof window !== 'undefined' && sessionResolved && !isStaff && !isAdmin) {
+    if (typeof window !== "undefined" && sessionResolved && !isStaff && !isAdmin) {
       try {
         const fullUrl = window.location.href;
         // Generate locally; no QR service receives the token URL.
-        generateQrPngDataUrl(fullUrl).then(setQrSrc).catch(() => setQrSrc(''));
+        generateQrPngDataUrl(fullUrl)
+          .then(setQrSrc)
+          .catch(() => setQrSrc(""));
       } catch (e) {
         // silence
       }
     } else {
-      setQrSrc('');
+      setQrSrc("");
     }
   }, [tokenId, sessionResolved, isStaff, isAdmin]);
 
+  const deliveryOperation = useRef<string | null>(null);
+  const deliveryLock = useRef(false);
   async function handleMarkDelivered() {
+    if (deliveryLock.current) return;
+    deliveryLock.current = true;
+    deliveryOperation.current ??= crypto.randomUUID();
     setMarkingDelivery(true);
     setDeliveryError(null);
     try {
       const res = await prizeAuthorizedFetch(`/api/admin/reusable-tokens/${tokenId}/deliver`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operationKey: deliveryOperation.current }),
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || data.error || 'Error al marcar entrega');
+        throw new Error(data.message || data.error || "Error al marcar entrega");
       }
+      deliveryOperation.current = null;
       // Entrega exitosa, mostrar modal de confirmación
       setShowDeliveryModal(true);
       const refreshed = await fetch(`/api/reusable/${tokenId}`);
       if (refreshed.ok) setTokenData((await refreshed.json()).token);
     } catch (err: any) {
-      setDeliveryError(err.message || 'Error desconocido');
+      setDeliveryError(err.message || "Error desconocido");
     } finally {
+      deliveryLock.current = false;
       setMarkingDelivery(false);
     }
   }
 
-
-  const now = DateTime.now().setZone('America/Lima');
+  const [availabilityNow, setAvailabilityNow] = useState(() => new Date());
+  useEffect(() => {
+    const update = () => setAvailabilityNow(new Date());
+    const timer = setInterval(update, REUSABLE_POLICY.availabilityRefreshMs);
+    window.addEventListener("focus", update);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", update);
+    };
+  }, []);
   let isExpired = false;
   let isDisabled = false;
   let maxUses = 1;
   let canRedeem = false;
-  let formattedExpiry = '';
+  let formattedExpiry = "";
 
   if (tokenData) {
-    const expiryDate = DateTime.fromISO(tokenData.expiresAt).setZone('America/Lima');
-    const isExpiredByDate = expiryDate <= now;
-
-    let isOutsideTimeWindow = false;
-    if (tokenData.startTime && tokenData.endTime) {
-      const start = DateTime.fromISO(tokenData.startTime).setZone('America/Lima');
-      const end = DateTime.fromISO(tokenData.endTime).setZone('America/Lima');
-      // @ts-ignore
-      const currentHour = now.hour;
-      // @ts-ignore
-      const startHour = start.hour;
-      // @ts-ignore
-      const endHour = end.hour;
-      isOutsideTimeWindow = currentHour < startHour || currentHour >= endHour;
-    }
-
-    isExpired = isExpiredByDate || isOutsideTimeWindow;
-    isDisabled = tokenData.disabled;
+    const availability = reusableAvailability(
+      { ...tokenData, maxUses: tokenData.maxUses || 1 },
+      availabilityNow
+    );
+    isExpired = availability === "TOKEN_EXPIRED" || availability === "OUTSIDE_TIME_WINDOW";
+    isDisabled = availability === "TOKEN_DISABLED" || availability === "PRIZE_INACTIVE";
     maxUses = tokenData.maxUses || 1;
     canRedeem = !isExpired && !isDisabled && tokenData.usedCount < maxUses;
-    formattedExpiry = DateTime.fromJSDate(new Date(tokenData.expiresAt)).setZone('America/Lima').toLocaleString(DateTime.DATETIME_SHORT, { locale: 'es-ES' });
+    formattedExpiry = DateTime.fromJSDate(new Date(tokenData.expiresAt))
+      .setZone(REUSABLE_TIMEZONE)
+      .toLocaleString(DateTime.DATETIME_SHORT, { locale: "es-ES" });
   }
 
   const isOperationalView = sessionResolved && isLoggedIn;
-
 
   if (loading) {
     return (
@@ -274,43 +278,67 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-red-900/20 rounded-full blur-[100px]" />
 
         <div className="relative z-10 max-w-sm sm:max-w-md w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 text-center">
-            <div className="text-4xl sm:text-6xl mb-4 sm:mb-6">❌</div>
-            <h1 className="text-xl sm:text-2xl font-bold mb-2 text-white">Error</h1>
-            <p className="text-white/60 mb-6 sm:mb-8 text-sm leading-relaxed">
-                {error || 'Token no encontrado'}
-            </p>
-            <Link
-              href="/"
-              className="text-white/40 hover:text-white text-sm transition-colors flex items-center justify-center gap-2 w-full"
+          <div className="text-4xl sm:text-6xl mb-4 sm:mb-6">❌</div>
+          <h1 className="text-xl sm:text-2xl font-bold mb-2 text-white">Error</h1>
+          <p className="text-white/60 mb-6 sm:mb-8 text-sm leading-relaxed">
+            {error || "Token no encontrado"}
+          </p>
+          <Link
+            href="/"
+            className="text-white/40 hover:text-white text-sm transition-colors flex items-center justify-center gap-2 w-full"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-              Volver al inicio
-            </Link>
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            Volver al inicio
+          </Link>
         </div>
       </div>
     );
   }
 
   // Si el token está deshabilitado, mostrar UI especial
-  if (tokenData.disabled) {
+  if (isDisabled) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#0E0606] text-white p-4 sm:p-6 relative overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-gray-600/20 rounded-full blur-[100px]" />
 
         <div className="relative z-10 max-w-sm sm:max-w-md w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 text-center">
-            <div className="text-4xl sm:text-6xl mb-4 sm:mb-6 grayscale opacity-50">🚫</div>
-            <h1 className="text-xl sm:text-2xl font-bold mb-2 text-white">Token Deshabilitado</h1>
-            <p className="text-white/60 mb-6 sm:mb-8 text-sm leading-relaxed">
-                Este token ha sido invalidado por la administración.
-            </p>
-            <ExpirationCountdown expiresAt={tokenData.expiresAt} />
-            <Link
-              href={isAdmin ? "/admin" : isStaff ? "/u" : "/"}
-              className="text-white/40 hover:text-white text-sm transition-colors flex items-center justify-center gap-2 w-full"
+          <div className="text-4xl sm:text-6xl mb-4 sm:mb-6 grayscale opacity-50">🚫</div>
+          <h1 className="text-xl sm:text-2xl font-bold mb-2 text-white">Token Deshabilitado</h1>
+          <p className="text-white/60 mb-6 sm:mb-8 text-sm leading-relaxed">
+            Este token ha sido invalidado por la administración.
+          </p>
+          <ExpirationCountdown expiresAt={tokenData.expiresAt} />
+          <Link
+            href={isAdmin ? "/admin" : isStaff ? "/u" : "/"}
+            className="text-white/40 hover:text-white text-sm transition-colors flex items-center justify-center gap-2 w-full"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-              Volver
-            </Link>
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            Volver
+          </Link>
         </div>
       </div>
     );
@@ -323,22 +351,34 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-green-600/20 rounded-full blur-[100px]" />
 
         <div className="relative z-10 max-w-sm sm:max-w-md w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 text-center">
-            <div className="text-4xl sm:text-6xl mb-4 sm:mb-6">✅</div>
-            <h1 className="text-xl sm:text-2xl font-bold mb-2 text-white">¡Token Agotado!</h1>
-            <p className="text-white/60 mb-4 sm:mb-6 text-sm leading-relaxed">
-                Este token ha alcanzado el límite de usos disponibles. ¡Gracias por participar!
-            </p>
-            <div className="inline-block bg-green-500/10 border border-green-500/20 rounded-lg px-3 sm:px-4 py-2 text-xs text-green-400 mb-6 sm:mb-8">
-                Usos completados: {tokenData.usedCount}/{maxUses}
-            </div>
-            <ExpirationCountdown expiresAt={tokenData.expiresAt} />
-            <Link
-              href={isAdmin ? "/admin" : isStaff ? "/u" : "/"}
-              className="text-white/40 hover:text-white text-sm transition-colors flex items-center justify-center gap-2 w-full"
+          <div className="text-4xl sm:text-6xl mb-4 sm:mb-6">✅</div>
+          <h1 className="text-xl sm:text-2xl font-bold mb-2 text-white">¡Token Agotado!</h1>
+          <p className="text-white/60 mb-4 sm:mb-6 text-sm leading-relaxed">
+            Este token ha alcanzado el límite de usos disponibles. ¡Gracias por participar!
+          </p>
+          <div className="inline-block bg-green-500/10 border border-green-500/20 rounded-lg px-3 sm:px-4 py-2 text-xs text-green-400 mb-6 sm:mb-8">
+            Usos completados: {tokenData.usedCount}/{maxUses}
+          </div>
+          <ExpirationCountdown expiresAt={tokenData.expiresAt} />
+          <Link
+            href={isAdmin ? "/admin" : isStaff ? "/u" : "/"}
+            className="text-white/40 hover:text-white text-sm transition-colors flex items-center justify-center gap-2 w-full"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-              Volver
-            </Link>
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            Volver
+          </Link>
         </div>
       </div>
     );
@@ -351,22 +391,34 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-red-900/20 rounded-full blur-[100px]" />
 
         <div className="relative z-10 max-w-sm sm:max-w-md w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 text-center">
-            <div className="text-4xl sm:text-6xl mb-4 sm:mb-6 grayscale opacity-50">⏰</div>
-            <h1 className="text-xl sm:text-2xl font-bold mb-2 text-white">Token Expirado</h1>
-            <p className="text-white/60 mb-4 sm:mb-6 text-sm leading-relaxed">
-                Lo sentimos, el tiempo para canjear este token ha finalizado.
-            </p>
-            <div className="inline-block bg-white/5 rounded-lg px-3 sm:px-4 py-2 text-xs text-white/40 mb-6 sm:mb-8">
-                Expiró el: {formattedExpiry}
-            </div>
-            <ExpirationCountdown expiresAt={tokenData.expiresAt} />
-            <Link
-              href={isAdmin ? "/admin" : isStaff ? "/u" : "/"}
-              className="text-white/40 hover:text-white text-sm transition-colors flex items-center justify-center gap-2 w-full"
+          <div className="text-4xl sm:text-6xl mb-4 sm:mb-6 grayscale opacity-50">⏰</div>
+          <h1 className="text-xl sm:text-2xl font-bold mb-2 text-white">Token Expirado</h1>
+          <p className="text-white/60 mb-4 sm:mb-6 text-sm leading-relaxed">
+            Lo sentimos, el tiempo para canjear este token ha finalizado.
+          </p>
+          <div className="inline-block bg-white/5 rounded-lg px-3 sm:px-4 py-2 text-xs text-white/40 mb-6 sm:mb-8">
+            Expiró el: {formattedExpiry}
+          </div>
+          <ExpirationCountdown expiresAt={tokenData.expiresAt} />
+          <Link
+            href={isAdmin ? "/admin" : isStaff ? "/u" : "/"}
+            className="text-white/40 hover:text-white text-sm transition-colors flex items-center justify-center gap-2 w-full"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-              Volver
-            </Link>
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            Volver
+          </Link>
         </div>
       </div>
     );
@@ -383,11 +435,23 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
       <div className="w-full max-w-sm sm:max-w-md mx-auto relative z-10 flex flex-col gap-4 sm:gap-6">
         {/* Header / Back */}
         <div className="flex justify-between items-center px-2">
-           <Link
+          <Link
             href={isAdmin ? "/admin" : isStaff ? "/u" : "/"}
             className="flex items-center gap-2 text-sm text-white/60 hover:text-white transition-colors"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="m15 18-6-6 6-6" />
+            </svg>
             Volver
           </Link>
           <div className="text-sm font-bold text-white/40 tracking-widest">GO LOUNGE</div>
@@ -395,162 +459,201 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
 
         {/* Main Card */}
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-4 sm:p-8 shadow-2xl flex flex-col items-center text-center relative overflow-hidden group">
-            {/* Card shine effect */}
-            <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+          {/* Card shine effect */}
+          <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
-            <div className="mb-4 sm:mb-6 relative">
-                <div className="absolute inset-0 bg-[#FF4D2E] blur-2xl opacity-20 rounded-full" />
-                <h1 className="relative break-words text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-sm">
-                  {isOperationalView ? (
-                    <>TOKEN<br/><span className="text-[#FF4D2E]">VERIFICADO</span></>
-                  ) : (
-                    <>TOKEN<br/><span className="text-[#FF4D2E]">DISPONIBLE</span></>
-                  )}
-                </h1>
-            </div>
-
-            {/* QR Code Section - Primera posición para máxima relevancia */}
-            {qrSrc && sessionResolved && !isOperationalView && canRedeem && (
+          <div className="mb-4 sm:mb-6 relative">
+            <div className="absolute inset-0 bg-[#FF4D2E] blur-2xl opacity-20 rounded-full" />
+            <h1 className="relative break-words text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-sm">
+              {isOperationalView ? (
                 <>
-                <p className="text-white/80 text-sm sm:text-base leading-relaxed mb-4 text-center">
-                  ¡Felicidades! Acércate a la barra, muestra este código QR y canjea tu token.
-                </p>
-                <div className="bg-white max-w-full p-3 sm:p-5 rounded-2xl shadow-2xl mb-6 sm:mb-8 transform transition-transform hover:scale-105 duration-300 border-4 border-[#FF4D2E]/30">
-                    <img
-                        src={qrSrc}
-                        alt="QR Canje"
-                        className="w-44 max-w-full h-auto aspect-square sm:w-52 lg:w-60 object-contain mx-auto"
-                    />
-                    <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-black/10">
-                        <div className="text-black/70 text-[10px] sm:text-xs font-bold uppercase tracking-wide sm:tracking-widest">📲 Escanear en barra</div>
-                        <button
-                            onClick={async () => {
-                                try {
-                                    const response = await fetch(qrSrc);
-                                    const blob = await response.blob();
-                                    const url = URL.createObjectURL(blob);
-                                    const link = document.createElement('a');
-                                    link.href = url;
-                                    link.download = `token-${tokenId.slice(0,8)}.png`;
-                                    link.click();
-                                    URL.revokeObjectURL(url);
-                                } catch (e) {
-                                    // Fallback: open in new tab
-                                    window.open(qrSrc, '_blank');
-                                }
-                            }}
-                            className="text-black/50 hover:text-black/70 transition-colors p-1.5 rounded-lg hover:bg-black/5"
-                            title="Descargar QR"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                <polyline points="7,10 12,15 17,10"/>
-                                <line x1="12" y1="15" x2="12" y2="3"/>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
+                  TOKEN
+                  <br />
+                  <span className="text-[#FF4D2E]">VERIFICADO</span>
                 </>
-            )}
+              ) : (
+                <>
+                  TOKEN
+                  <br />
+                  <span className="text-[#FF4D2E]">DISPONIBLE</span>
+                </>
+              )}
+            </h1>
+          </div>
 
-            <div className="w-full bg-gradient-to-b from-white/10 to-transparent rounded-2xl p-4 sm:p-6 border border-white/5 mb-4 sm:mb-6">
-                <div className="text-xs sm:text-sm text-white/60 uppercase tracking-wider font-medium mb-2">{isOperationalView ? 'ENTREGA' : 'RECLAMA'}</div>
-                <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-white mb-2 break-words leading-tight">
-                  {tokenData.prize.label}
-                </h2>
-                {isOperationalView && (
-                  <>
-                  <div className="h-1 w-12 sm:w-16 bg-[#FF4D2E] mx-auto rounded-full my-3 sm:my-4" />
-                  <p className="text-white/80 text-xs sm:text-sm leading-relaxed px-2 sm:px-0">
-                    ✓ Token verificado. Entrega el premio al cliente y confirma abajo.
-                  </p>
-                  </>
-                )}
+          {/* QR Code Section - Primera posición para máxima relevancia */}
+          {qrSrc && sessionResolved && !isOperationalView && canRedeem && (
+            <>
+              <p className="text-white/80 text-sm sm:text-base leading-relaxed mb-4 text-center">
+                ¡Felicidades! Acércate a la barra, muestra este código QR y canjea tu token.
+              </p>
+              <div className="bg-white max-w-full p-3 sm:p-5 rounded-2xl shadow-2xl mb-6 sm:mb-8 transform transition-transform hover:scale-105 duration-300 border-4 border-[#FF4D2E]/30">
+                <img
+                  src={qrSrc}
+                  alt="QR Canje"
+                  className="w-44 max-w-full h-auto aspect-square sm:w-52 lg:w-60 object-contain mx-auto"
+                />
+                <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-black/10">
+                  <div className="text-black/70 text-[10px] sm:text-xs font-bold uppercase tracking-wide sm:tracking-widest">
+                    📲 Escanear en barra
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const response = await fetch(qrSrc);
+                        const blob = await response.blob();
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement("a");
+                        link.href = url;
+                        link.download = `token-${tokenId.slice(0, 8)}.png`;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                      } catch (e) {
+                        // Fallback: open in new tab
+                        window.open(qrSrc, "_blank");
+                      }
+                    }}
+                    className="text-black/50 hover:text-black/70 transition-colors p-1.5 rounded-lg hover:bg-black/5"
+                    title="Descargar QR"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7,10 12,15 17,10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="w-full bg-gradient-to-b from-white/10 to-transparent rounded-2xl p-4 sm:p-6 border border-white/5 mb-4 sm:mb-6">
+            <div className="text-xs sm:text-sm text-white/60 uppercase tracking-wider font-medium mb-2">
+              {isOperationalView ? "ENTREGA" : "RECLAMA"}
             </div>
-
-            {/* Usage Progress - Solo visible para admin y staff */}
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-white mb-2 break-words leading-tight">
+              {tokenData.prize.label}
+            </h2>
             {isOperationalView && (
-                <div className="w-full bg-white/5 rounded-2xl p-3 sm:p-4 border border-white/10 mb-3 sm:mb-4">
-                    <div className="text-xs sm:text-sm text-white/60 uppercase tracking-wider font-medium mb-2">DISPONIBILIDAD</div>
-                    <div className="text-2xl sm:text-3xl font-bold text-[#FF4D2E] mb-2">
-                      {tokenData.usedCount} / {maxUses}
-                    </div>
-                    <div className="w-full bg-white/10 rounded-full h-2 sm:h-3">
-                      <div
-                        className="bg-[#FF4D2E] h-2 sm:h-3 rounded-full transition-all duration-500"
-                        style={{ width: `${(tokenData.usedCount / maxUses) * 100}%` }}
-                      ></div>
-                    </div>
-                </div>
+              <>
+                <div className="h-1 w-12 sm:w-16 bg-[#FF4D2E] mx-auto rounded-full my-3 sm:my-4" />
+                <p className="text-white/80 text-xs sm:text-sm leading-relaxed px-2 sm:px-0">
+                  ✓ Token verificado. Entrega el premio al cliente y confirma abajo.
+                </p>
+              </>
             )}
+          </div>
 
-            <div className="flex items-center justify-center gap-2 text-sm text-blue-400/80 bg-blue-400/10 px-3 py-2 rounded-full border border-blue-400/20 mb-4">
-              <span>Expira: {formattedExpiry}</span>
+          {/* Usage Progress - Solo visible para admin y staff */}
+          {isOperationalView && (
+            <div className="w-full bg-white/5 rounded-2xl p-3 sm:p-4 border border-white/10 mb-3 sm:mb-4">
+              <div className="text-xs sm:text-sm text-white/60 uppercase tracking-wider font-medium mb-2">
+                DISPONIBILIDAD
+              </div>
+              <div className="text-2xl sm:text-3xl font-bold text-[#FF4D2E] mb-2">
+                {tokenData.usedCount} / {maxUses}
+              </div>
+              <div className="w-full bg-white/10 rounded-full h-2 sm:h-3">
+                <div
+                  className="bg-[#FF4D2E] h-2 sm:h-3 rounded-full transition-all duration-500"
+                  style={{ width: `${(tokenData.usedCount / maxUses) * 100}%` }}
+                ></div>
+              </div>
             </div>
+          )}
 
-            {/* Time window info */}
-            {tokenData.startTime && tokenData.endTime && (
-                <div className="flex items-center gap-2 text-xs text-blue-400/80 bg-blue-400/10 px-3 py-1.5 rounded-full border border-blue-400/20">
-                    <span>🕐</span>
-                    {/* @ts-ignore */}
-                    <span>Válido: {DateTime.fromISO(tokenData.startTime).setZone('America/Lima').toFormat('HH:mm')} - {DateTime.fromISO(tokenData.endTime).setZone('America/Lima').toFormat('HH:mm')} (Lima)</span>
-                </div>
-            )}
+          <div className="flex items-center justify-center gap-2 text-sm text-blue-400/80 bg-blue-400/10 px-3 py-2 rounded-full border border-blue-400/20 mb-4">
+            <span>Expira: {formattedExpiry}</span>
+          </div>
 
-            {/* Staff Actions */}
-            {sessionResolved && (
-                <div className="w-full mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-white/10">
-                    {tokenData.usedCount >= maxUses ? (
-                        <div className="w-full py-3 sm:py-4 rounded-xl bg-gray-600/50 border border-gray-600/30 text-gray-300 text-center font-medium text-sm sm:text-base cursor-not-allowed">
-                            🚫 Token completamente usado ({tokenData.usedCount}/{maxUses})
-                        </div>
-                    ) : (
-                        <PrizeDeliveryAction authenticated={isOperationalView} onClick={handleMarkDelivered} disabled={markingDelivery || !canRedeem} busy={markingDelivery} />
-                    )}
-                    {isOperationalView && tokenData.deliveredAt && (
-                        <div className="w-full mt-3 p-2 bg-green-600/10 border border-green-600/20 rounded-lg text-green-300 text-center text-xs">
-                            Última entrega: {new Date(tokenData.deliveredAt).toLocaleString('es-ES', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                            })}
-                        </div>
-                    )}
-                    {deliveryError && (
-                        <div className="mt-2 sm:mt-3 p-2 sm:p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-200 text-xs text-left">
-                            ⚠️ {deliveryError}
-                        </div>
-                    )}
-                </div>
-            )}
+          {/* Time window info */}
+          {tokenData.startTime && tokenData.endTime && (
+            <div className="flex items-center gap-2 text-xs text-blue-400/80 bg-blue-400/10 px-3 py-1.5 rounded-full border border-blue-400/20">
+              <span>🕐</span>
+              {/* @ts-ignore */}
+              <span>
+                Válido:{" "}
+                {DateTime.fromISO(tokenData.startTime).setZone(REUSABLE_TIMEZONE).toFormat("HH:mm")}{" "}
+                - {DateTime.fromISO(tokenData.endTime).setZone(REUSABLE_TIMEZONE).toFormat("HH:mm")}{" "}
+                (Lima)
+              </span>
+            </div>
+          )}
 
-            {/* Status Messages */}
-            {!canRedeem && (
-                <div className="w-full mt-4 sm:mt-6 p-3 sm:p-4 rounded-xl bg-white/5 border border-white/10 text-left">
-                    <div className="text-base sm:text-lg font-bold text-white mb-1">
-                        {isDisabled ? '🚫 Token deshabilitado' :
-                        isExpired ? '⏰ Token expirado' :
-                        '🎯 Sin usos disponibles'}
-                    </div>
-                    <p className="text-xs sm:text-sm text-white/60">
-                        {isDisabled ? 'Este token ha sido invalidado.' :
-                        isExpired ? 'El tiempo para canjear este token ha finalizado.' :
-                        'Este token ha alcanzado el límite de usos.'}
-                    </p>
+          {/* Staff Actions */}
+          {sessionResolved && (
+            <div className="w-full mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-white/10">
+              {tokenData.usedCount >= maxUses ? (
+                <div className="w-full py-3 sm:py-4 rounded-xl bg-gray-600/50 border border-gray-600/30 text-gray-300 text-center font-medium text-sm sm:text-base cursor-not-allowed">
+                  🚫 Token completamente usado ({tokenData.usedCount}/{maxUses})
                 </div>
-            )}
+              ) : (
+                <PrizeDeliveryAction
+                  authenticated={isOperationalView}
+                  onClick={handleMarkDelivered}
+                  disabled={markingDelivery || !canRedeem}
+                  busy={markingDelivery}
+                />
+              )}
+              {isOperationalView && tokenData.deliveredAt && (
+                <div className="w-full mt-3 p-2 bg-green-600/10 border border-green-600/20 rounded-lg text-green-300 text-center text-xs">
+                  Última entrega:{" "}
+                  {new Date(tokenData.deliveredAt).toLocaleString("es-ES", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </div>
+              )}
+              {deliveryError && (
+                <div className="mt-2 sm:mt-3 p-2 sm:p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-200 text-xs text-left">
+                  ⚠️ {deliveryError}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Status Messages */}
+          {!canRedeem && (
+            <div className="w-full mt-4 sm:mt-6 p-3 sm:p-4 rounded-xl bg-white/5 border border-white/10 text-left">
+              <div className="text-base sm:text-lg font-bold text-white mb-1">
+                {isDisabled
+                  ? "🚫 Token deshabilitado"
+                  : isExpired
+                    ? "⏰ Token expirado"
+                    : "🎯 Sin usos disponibles"}
+              </div>
+              <p className="text-xs sm:text-sm text-white/60">
+                {isDisabled
+                  ? "Este token ha sido invalidado."
+                  : isExpired
+                    ? "El tiempo para canjear este token ha finalizado."
+                    : "Este token ha alcanzado el límite de usos."}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Footer Info */}
         <div className="text-center space-y-1 sm:space-y-2">
-            {isOperationalView && (
-                <div className="inline-block px-2 sm:px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[9px] sm:text-[10px] font-mono text-white/40">
-                    ID: {tokenData.id.split('-')[0]}...
-                </div>
-            )}
-            <p className="text-[10px] sm:text-xs text-white/30">© 2025 Go Lounge Experience</p>
+          {isOperationalView && (
+            <div className="inline-block px-2 sm:px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[9px] sm:text-[10px] font-mono text-white/40">
+              ID: {tokenData.id.split("-")[0]}...
+            </div>
+          )}
+          <p className="text-[10px] sm:text-xs text-white/30">© 2025 Go Lounge Experience</p>
         </div>
       </div>
 
@@ -563,7 +666,9 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
             <p className="text-white/80 text-sm sm:text-base mb-4">
               La entrega del token ha sido registrada exitosamente.
             </p>
-            <button className="btn w-full" onClick={() => setShowDeliveryModal(false)}>Cerrar</button>
+            <button className="btn w-full" onClick={() => setShowDeliveryModal(false)}>
+              Cerrar
+            </button>
           </div>
         </div>
       )}

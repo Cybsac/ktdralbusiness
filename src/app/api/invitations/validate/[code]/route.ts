@@ -1,33 +1,38 @@
-import { NextRequest } from 'next/server';
-import { apiError, apiOk } from '@/lib/apiError';
-import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
-import { findInvitationByCode, markArrival, getEventStats } from '@/lib/invitations/service';
-import { prisma } from '@/lib/prisma';
+import { invitationDay, invitationToday } from "@/lib/invitations/calendar";
+export const dynamic = "force-dynamic";
+import { NextRequest } from "next/server";
+import { apiError, apiOk } from "@/lib/apiError";
+import { invitationOperator } from "@/lib/invitations/auth";
+import { invitationFailure } from "@/lib/invitations/http";
+import { findInvitationByCode, markArrival, getEventStats } from "@/lib/invitations/service";
+import { prisma } from "@/lib/prisma";
 
 async function getLastArrival(eventId: string) {
   const lastArrival = await prisma.specialInvitation.findFirst({
     where: { eventId, arrivedAt: { not: null } },
-    orderBy: { arrivedAt: 'desc' },
+    orderBy: { arrivedAt: "desc" },
     select: { arrivedAt: true, guestName: true },
   });
-  return lastArrival ? {
-    arrivedAt: lastArrival.arrivedAt?.toISOString(),
-    guestName: lastArrival.guestName,
-  } : null;
+  return lastArrival
+    ? {
+        arrivedAt: lastArrival.arrivedAt?.toISOString(),
+        guestName: lastArrival.guestName,
+      }
+    : null;
 }
 
 export async function GET(req: NextRequest, { params }: { params: { code: string } }) {
   try {
     const inv = await findInvitationByCode(params.code);
-    if (!inv) return apiError('NOT_FOUND', 'Invitation not found', undefined, 404);
+    if (!inv) return apiError("NOT_FOUND", "Invitation not found", undefined, 404);
 
-    const userCookie = getUserSessionCookieFromRequest(req as unknown as Request);
-    const session = await verifyUserSessionCookie(userCookie);
-    const isStaff = session?.role && ['ADMIN', 'COORDINATOR', 'STAFF', 'COLLAB'].includes(session.role);
+    const session = await invitationOperator(req);
+    const isStaff = !!session;
 
     // Public data (always visible)
     const publicData: any = {
       code: inv.code,
+      eventStatus: inv.event.status,
       guestName: inv.guestName,
       eventName: inv.event.name,
       eventDate: inv.event.date.toISOString(),
@@ -40,6 +45,13 @@ export async function GET(req: NextRequest, { params }: { params: { code: string
       // expiresAt is needed by the public UI to render the "expired" banner
       expiresAt: inv.expiresAt?.toISOString() ?? null,
       isStaff: !!isStaff,
+      canRegisterArrival:
+        inv.event.status === "active" &&
+        inv.status === "confirmed" &&
+        !inv.arrivedAt &&
+        !!inv.expiresAt &&
+        inv.expiresAt > new Date() &&
+        invitationDay(inv.event.date).hasSame(invitationToday(), "day"),
     };
 
     // Extended data for staff
@@ -62,32 +74,25 @@ export async function GET(req: NextRequest, { params }: { params: { code: string
       };
     }
 
-    return apiOk(publicData);
-  } catch (e: any) {
-    return apiError('INTERNAL_ERROR', String(e?.message || e), undefined, 500);
+    return apiOk(publicData, 200, { "Cache-Control": "private, no-store" });
+  } catch (error) {
+    return invitationFailure(error);
   }
 }
 
 export async function POST(req: NextRequest, { params }: { params: { code: string } }) {
   try {
-    const userCookie = getUserSessionCookieFromRequest(req as unknown as Request);
-    const session = await verifyUserSessionCookie(userCookie);
-    if (!session) return apiError('UNAUTHORIZED', 'No session', undefined, 401);
-    if (!session.role || !['ADMIN', 'COORDINATOR', 'STAFF', 'COLLAB'].includes(session.role))
-      return apiError('FORBIDDEN', 'Only staff can validate arrivals', undefined, 403);
+    const session = await invitationOperator(req);
+    if (!session) return apiError("UNAUTHORIZED", "Sin acceso", undefined, 401);
 
-    const result = await markArrival(params.code, session.userId || session.role);
+    const result = await markArrival(params.code, session.userId);
     return apiOk({
       ok: true,
       guestName: result.guestName,
       arrivedAt: result.arrivedAt?.toISOString(),
       eventName: result.event.name,
     });
-  } catch (e: any) {
-    const msg = String(e?.message || e);
-    if (msg.includes('INVITATION_NOT_FOUND')) return apiError('NOT_FOUND', 'Invitation not found', undefined, 404);
-    if (msg.includes('ALREADY_ARRIVED')) return apiError('ALREADY_ARRIVED', 'Guest already arrived', undefined, 409);
-    if (msg.includes('INVITATION_CANCELLED')) return apiError('CANCELLED', 'Invitation is cancelled', undefined, 410);
-    return apiError('VALIDATE_ERROR', msg, undefined, 500);
+  } catch (error) {
+    return invitationFailure(error);
   }
 }

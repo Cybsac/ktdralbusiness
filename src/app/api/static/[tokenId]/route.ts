@@ -1,13 +1,16 @@
-import { prisma } from '@/lib/prisma';
-import { apiError, apiOk } from '@/lib/apiError';
-import { logEvent } from '@/lib/log';
+import { sanitizeStaticContent } from "@/lib/batch/static-content";
+import { prisma } from "@/lib/prisma";
+import { apiError, apiOk } from "@/lib/apiError";
+import { logEvent } from "@/lib/log";
 
 export async function GET(_: Request, { params }: { params: { tokenId: string } }) {
   const { tokenId } = params;
-  if (!tokenId || tokenId.length < 10) return apiError('BAD_TOKEN', 'Token inválido', undefined, 400);
+  if (!tokenId || tokenId.length < 10)
+    return apiError("BAD_TOKEN", "Token inválido", undefined, 400);
 
   // Raw query to avoid potential stale generated types
-  const rows: any[] = await prisma.$queryRawUnsafe(`
+  const rows: any[] = await prisma.$queryRawUnsafe(
+    `
     SELECT
       t.id, t."prizeId", t.disabled, t."expiresAt", t."validFrom", t."batchId", t."deliveredAt", t."revealedAt",
       t."clientResponse",
@@ -18,15 +21,18 @@ export async function GET(_: Request, { params }: { params: { tokenId: string } 
     JOIN "Prize" p ON p.id = t."prizeId"
     WHERE t.id = $1
     LIMIT 1
-  `, tokenId);
+  `,
+    tokenId
+  );
 
-  if (!rows.length) return apiError('NOT_FOUND', 'Token no encontrado', undefined, 404);
+  if (!rows.length) return apiError("NOT_FOUND", "Token no encontrado", undefined, 404);
 
   const rec = rows[0];
   // Note: staticTargetUrl is now optional for static batches
   // Don't reject tokens that are not yet valid - let the UI handle the display
-  if (rec.disabled) return apiError('DISABLED', 'Token deshabilitado', undefined, 403);
-  if (new Date(rec.expiresAt).getTime() < Date.now()) return apiError('EXPIRED', 'Expirado', undefined, 410);
+  if (rec.disabled) return apiError("DISABLED", "Token deshabilitado", undefined, 403);
+  if (new Date(rec.expiresAt).getTime() < Date.now())
+    return apiError("EXPIRED", "Expirado", undefined, 410);
 
   // Two-phase redemption: Auto-reveal for static tokens
   let wasJustRevealed = false;
@@ -36,8 +42,8 @@ export async function GET(_: Request, { params }: { params: { tokenId: string } 
         where: { id: tokenId },
         data: {
           revealedAt: new Date(),
-          assignedPrizeId: rec.prizeId // For static batches, assigned prize is the token's prize
-        }
+          assignedPrizeId: rec.prizeId, // For static batches, assigned prize is the token's prize
+        },
       });
       wasJustRevealed = true;
       rec.revealedAt = new Date().toISOString(); // Update local copy
@@ -46,10 +52,10 @@ export async function GET(_: Request, { params }: { params: { tokenId: string } 
         tokenId,
         batchId: rec.batchId,
         prizeId: rec.prizeId,
-        autoReveal: true
+        autoReveal: true,
       });
     } catch (error) {
-      console.error('Error auto-revealing static token:', error);
+      console.error("Error auto-revealing static token:", error);
       // Continue anyway - don't block the user experience
     }
   }
@@ -57,7 +63,11 @@ export async function GET(_: Request, { params }: { params: { tokenId: string } 
   // Parse actionPayload safely
   let parsedActionPayload: any = null;
   if (rec.actionPayload) {
-    try { parsedActionPayload = JSON.parse(rec.actionPayload); } catch { parsedActionPayload = null; }
+    try {
+      parsedActionPayload = JSON.parse(rec.actionPayload);
+    } catch {
+      parsedActionPayload = null;
+    }
   }
 
   const tokenData = {
@@ -65,15 +75,15 @@ export async function GET(_: Request, { params }: { params: { tokenId: string } 
     prize: {
       key: rec.key,
       label: rec.label,
-      color: rec.color
+      color: rec.color,
     },
     batch: {
       id: rec.batchId,
       description: rec.description,
       staticTargetUrl: rec.staticTargetUrl,
       createdAt: rec.createdAt,
-      actionType: rec.actionType || 'prize',
-      actionPayload: parsedActionPayload,
+      actionType: rec.actionType || "prize",
+      actionPayload: sanitizeStaticContent(rec.actionType, parsedActionPayload),
     },
     expiresAt: rec.expiresAt,
     validFrom: rec.validFrom,
@@ -81,7 +91,7 @@ export async function GET(_: Request, { params }: { params: { tokenId: string } 
     deliveredAt: rec.deliveredAt,
     revealedAt: rec.revealedAt,
     clientResponse: rec.clientResponse || null,
-    wasJustRevealed
+    wasJustRevealed,
   };
 
   return apiOk({ token: tokenData });

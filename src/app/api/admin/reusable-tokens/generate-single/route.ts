@@ -1,132 +1,53 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from "@/lib/auth";
 import { getPublicBaseUrl } from "@/lib/config";
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import { apiError } from '@/lib/apiError';
-import { DateTime } from 'luxon';
-import { randomBytes } from 'crypto';
-
-export const dynamic = 'force-dynamic';
-
+import { apiError } from "@/lib/apiError";
+import { REUSABLE_POLICY } from "@/lib/reusable-tokens/policy";
+import { reusableGenerationSchema } from "@/lib/reusable-tokens/request";
+import { generateReusableToken } from "@/lib/reusable-tokens/generation";
+import { reusableFailure } from "@/lib/reusable-tokens/http";
+export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
+  const session = await verifySessionCookie(getSessionCookieFromRequest(req));
+  const auth = requireRole(session, [...REUSABLE_POLICY.managementRoles]);
+  if (!auth.ok || !session) return apiError("UNAUTHORIZED", "No autorizado", undefined, 401);
+  const parsed = reusableGenerationSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success)
+    return apiError("INVALID_INPUT", "Revisa los datos del token", parsed.error.flatten(), 400);
   try {
-    // Auth check - require STAFF or ADMIN role
-    const sessionCookie = getSessionCookieFromRequest(req);
-    const session = await verifySessionCookie(sessionCookie);
-    const auth = requireRole(session, ['STAFF', 'ADMIN']);
-    if (!auth.ok) {
-      return apiError('UNAUTHORIZED', auth.error || 'No autorizado');
-    }
-
-    const body = await req.json();
-    const { prizeId, maxUses, description, validity, groupId } = body;
-
-    // Validation
-    if (!prizeId || !maxUses || maxUses <= 0 || maxUses > 1000) {
-      return NextResponse.json(
-        { error: 'Invalid parameters: prizeId and maxUses (1-1000) required' },
-        { status: 400 }
-      );
-    }
-
-    // Verify prize exists in ReusablePrize table
-    const prize = await prisma.reusablePrize.findUnique({
-      where: { id: prizeId },
-      select: { id: true, label: true }
-    });
-
-    if (!prize) {
-      return NextResponse.json({ error: 'Prize not found' }, { status: 404 });
-    }
-
-    // Generate unique token ID
-    const tokenId = randomBytes(8).toString('hex').toUpperCase();
-    const fullTokenId = `rt_${tokenId}`;
-
-    // Calculate expiration and time window
-    let expiresAt: Date;
-    let startTime: Date | null = null;
-    let endTime: Date | null = null;
-
-    if (validity?.type === 'expires_at' && validity.expiresAt) {
-      // Parse the provided date as Lima timezone
-      expiresAt = DateTime.fromISO(validity.expiresAt, { zone: 'America/Lima' }).toJSDate();
-    } else if (validity?.type === 'duration_days' && validity.durationDays) {
-      expiresAt = DateTime.now().setZone('America/Lima').plus({ days: validity.durationDays }).toJSDate();
-    } else if (validity?.type === 'time_window' && validity.startTime && validity.endTime) {
-      // Time window validation - expires in 1 year but only valid during specified hours
-      expiresAt = DateTime.now().setZone('America/Lima').plus({ years: 1 }).toJSDate();
-
-      // Parse start and end times as today in Lima timezone
-      const today = DateTime.now().setZone('America/Lima').startOf('day');
-      startTime = today.set({
-        hour: parseInt(validity.startTime.split(':')[0]),
-        minute: parseInt(validity.startTime.split(':')[1])
-      }).toJSDate();
-      endTime = today.set({
-        hour: parseInt(validity.endTime.split(':')[0]),
-        minute: parseInt(validity.endTime.split(':')[1])
-      }).toJSDate();
-    } else {
-      // Default to 1 year if no validity specified
-      expiresAt = DateTime.now().setZone('America/Lima').plus({ years: 1 }).toJSDate();
-    }
-
-    // Verify group exists if provided
-    if (groupId) {
-      const group = await prisma.tokenGroup.findUnique({ where: { id: groupId } });
-      if (!group) {
-        return NextResponse.json({ error: 'Group not found' }, { status: 404 });
-      }
-    }
-
-    // Create reusable token directly (no batch needed)
-    const token = await prisma.reusableToken.create({
-      data: {
-        id: fullTokenId,
-        prizeId,
-        groupId: groupId || null,
-        maxUses,
-        usedCount: 0,
-        expiresAt,
-        startTime,
-        endTime,
-        signature: `reusable_sig_${tokenId}`,
-        signatureVersion: 1,
-        deliveryNote: description || `Token individual - ${prize.label}`
-      },
-      select: {
-        id: true,
-        prizeId: true,
-        maxUses: true,
-        usedCount: true,
-        expiresAt: true,
-        startTime: true,
-        endTime: true,
-        deliveryNote: true
-      }
-    });
-
-    // Generate QR URL
-    const baseUrl = getPublicBaseUrl(req.url);
-    const qrUrl = `${baseUrl}/reusable/${token.id}`;
-
-    return NextResponse.json({
-      success: true,
-      token: {
-        id: token.id,
-        qrUrl,
-        prize: prize,
-        maxUses: token.maxUses,
-        expiresAt: token.expiresAt
-      }
-    });
-
-  } catch (error) {
-    console.error('Error creating individual reusable token:', error);
+    const token = await generateReusableToken(parsed.data, session.userId);
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      {
+        success: true,
+        token: {
+          id: token.id,
+          qrUrl: `${getPublicBaseUrl(req.url)}/reusable/${token.id}`,
+          prize: {
+            id: token.prize.id,
+            key: token.prize.key,
+            label: token.prize.label,
+            color: token.prize.color,
+          },
+          group: token.group,
+          maxUses: token.maxUses,
+          usedCount: token.usedCount,
+          expiresAt: token.expiresAt,
+          startTime: token.startTime,
+          endTime: token.endTime,
+          createdAt: token.createdAt,
+          deliveryNote: token.deliveryNote,
+          redeemedAt: token.redeemedAt,
+          deliveredAt: token.deliveredAt,
+        },
+      },
+      { headers: { "Cache-Control": "private, no-store" } }
     );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      ["INVALID_EXPIRATION", "EMPTY_TIME_WINDOW", "INVALID_TIME"].includes(error.message)
+    )
+      return apiError(error.message, "Vigencia inválida o vencida", undefined, 400);
+    return reusableFailure(error);
   }
 }

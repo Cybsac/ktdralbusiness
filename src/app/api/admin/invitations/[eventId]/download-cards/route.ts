@@ -1,93 +1,129 @@
-import { NextRequest } from 'next/server';
-import { apiError, apiOk } from '@/lib/apiError';
-import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
-import { getEvent, listGuests } from '@/lib/invitations/service';
-import { generateInvitationCard } from '@/lib/invitations/generateCard';
-import archiver from 'archiver';
-
+import { getPublicBaseUrl } from "@/lib/config";
+import { NextRequest } from "next/server";
+import { createReadStream, createWriteStream } from "fs";
+import { mkdtemp, unlink, rmdir } from "fs/promises";
+import { tmpdir } from "os";
+import path from "path";
+import { Readable } from "stream";
+import { pipeline } from "stream/promises";
+import archiver from "archiver";
+import { apiError } from "@/lib/apiError";
+import { invitationOperator } from "@/lib/invitations/auth";
+import { invitationFailure } from "@/lib/invitations/http";
+import { assertEventAvailable } from "@/lib/invitations/calendar";
+import { getEvent } from "@/lib/invitations/events";
+import { generateInvitationCard, prepareInvitationCard } from "@/lib/invitations/generateCard";
+import { checkRateLimit } from "@/lib/rateLimit";
+export const runtime = "nodejs";
+function disposition(name: string) {
+  const safe = name.normalize("NFKD").replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
 export async function GET(req: NextRequest, { params }: { params: { eventId: string } }) {
+  let cleanup: (() => Promise<void>) | undefined;
   try {
-    const userCookie = getUserSessionCookieFromRequest(req as unknown as Request);
-    const session = await verifyUserSessionCookie(userCookie);
-    if (!session) return apiError('UNAUTHORIZED', 'No session', undefined, 401);
-    if (!session.role || !['ADMIN', 'COORDINATOR', 'STAFF'].includes(session.role))
-      return apiError('FORBIDDEN', 'Insufficient permissions', undefined, 403);
-
+    const operator = await invitationOperator(req, true);
+    if (!operator) return apiError("UNAUTHORIZED", "Sin acceso", undefined, 401);
+    const limit = checkRateLimit(`invitation:download:${operator.userId}`);
+    if (!limit.ok) return apiError("RATE_LIMITED", "Intenta nuevamente", undefined, 429);
     const event = await getEvent(params.eventId);
-    if (!event) return apiError('NOT_FOUND', 'Event not found', undefined, 404);
-
-    const guests = event.invitations.filter((inv) => inv.code);
-    if (guests.length === 0) return apiError('NO_CODES', 'No invitations with codes generated yet', undefined, 400);
-
-    const baseUrl = req.headers.get('x-forwarded-proto')
-      ? `${req.headers.get('x-forwarded-proto')}://${req.headers.get('host')}`
-      : new URL(req.url).origin;
-
-    // ── Single guest download (individual card PNG) ───────────────────
-    const guestId = req.nextUrl.searchParams.get('guestId');
-    if (guestId) {
-      const inv = guests.find((g) => g.id === guestId);
-      if (!inv) return apiError('GUEST_NOT_FOUND', 'Guest not found or has no code', undefined, 404);
-
-      const redeemUrl = `${baseUrl}/i/${inv.code}`;
-      const cardBuf = await generateInvitationCard({
-        redeemUrl,
-        guestName: inv.guestName,
+    if (!event) throw new Error("EVENT_NOT_FOUND");
+    assertEventAvailable(event);
+    const guests = event.invitations.filter((g) => g.code && g.status !== "cancelled");
+    if (!guests.length)
+      return apiError("NO_CODES", "No hay invitaciones con código", undefined, 400);
+    const protocol = req.headers.get("x-forwarded-proto")?.split(",")[0].trim();
+    const host = (req.headers.get("x-forwarded-host") || req.headers.get("host"))
+      ?.split(",")[0]
+      .trim();
+    const origin =
+      host && (protocol === "https" || protocol === "http")
+        ? new URL(`${protocol}://${host}`).origin
+        : req.url;
+    const base = getPublicBaseUrl(origin);
+    const prepared = await prepareInvitationCard(event.templateUrl);
+    const render = (guest: (typeof guests)[number]) =>
+      generateInvitationCard({
+        redeemUrl: `${base}/i/${encodeURIComponent(guest.code!)}`,
+        guestName: guest.guestName,
         eventDate: event.date,
         templateUrl: event.templateUrl,
-        format: 'png',
+        prepared,
       });
-      const safeName = inv.guestName.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_');
-      return new Response(new Uint8Array(cardBuf), {
-        status: 200,
+    const guestId = req.nextUrl.searchParams.get("guestId");
+    if (guestId) {
+      const guest = guests.find((g) => g.id === guestId);
+      if (!guest) throw new Error("INVITATION_NOT_FOUND");
+      const buffer = await render(guest);
+      return new Response(new Uint8Array(buffer), {
         headers: {
-          'Content-Type': 'image/png',
-          'Content-Disposition': `attachment; filename="${safeName}_${inv.code}.png"`,
-          'Content-Length': String(cardBuf.length),
+          "Content-Type": "image/png",
+          "Content-Disposition": disposition(`${guest.guestName}_${guest.code}.png`),
+          "Cache-Control": "no-store",
         },
       });
     }
-
-    // ── All guests → ZIP ─────────────────────────────────────────────
-    const chunks: Uint8Array[] = [];
-    const archive = archiver('zip', { zlib: { level: 6 } });
-    archive.on('data', (chunk: Buffer) => chunks.push(new Uint8Array(chunk)));
-
-    const done = new Promise<void>((resolve, reject) => {
-      archive.on('end', resolve);
-      archive.on('error', reject);
-    });
-
-    for (const inv of guests) {
-      try {
-        const redeemUrl = `${baseUrl}/i/${inv.code}`;
-        const cardBuf = await generateInvitationCard({
-          redeemUrl,
-          guestName: inv.guestName,
-          eventDate: event.date,
-          templateUrl: event.templateUrl,
-          format: 'png',
+    const directory = await mkdtemp(path.join(tmpdir(), "invitation-export-")),
+      file = path.join(directory, "cards.zip");
+    cleanup = async () => {
+      await unlink(file).catch(() => undefined);
+      await rmdir(directory).catch(() => undefined);
+    };
+    const archive = archiver("zip", { zlib: { level: 6 } }),
+      output = createWriteStream(file);
+    const writing = pipeline(archive, output, { signal: req.signal });
+    // Attach a rejection handler immediately while individual cards are rendered.
+    void writing.catch(() => undefined);
+    try {
+      for (const guest of guests) {
+        req.signal.throwIfAborted();
+        const buffer = await render(guest);
+        await new Promise<void>((resolve, reject) => {
+          const done = () => {
+            archive.off("error", failed);
+            resolve();
+          };
+          const failed = (error: Error) => {
+            archive.off("entry", done);
+            reject(error);
+          };
+          archive.once("entry", done);
+          archive.once("error", failed);
+          archive.append(buffer, {
+            name: `${guest.guestName.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, "").replace(/\s+/g, "_")}_${guest.code}.png`,
+          });
         });
-        const safeName = inv.guestName.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '_');
-        archive.append(cardBuf, { name: `${safeName}_${inv.code}.png` });
-      } catch (err) {
-        console.error(`[download-cards] Error generating card for ${inv.id}:`, err);
       }
+      await archive.finalize();
+      await writing;
+    } catch (error) {
+      archive.destroy(error instanceof Error ? error : new Error("EXPORT_FAILED"));
+      await writing.catch(() => undefined);
+      throw error;
     }
-
-    archive.finalize();
-    await done;
-
-    const zipBuffer = Buffer.concat(chunks);
-    return new Response(new Uint8Array(zipBuffer), {
-      status: 200,
+    const input = createReadStream(file);
+    const release = cleanup;
+    let closed = false;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      req.signal.removeEventListener("abort", abort);
+      void release();
+    };
+    const abort = () => input.destroy();
+    input.once("close", finish);
+    req.signal.addEventListener("abort", abort, { once: true });
+    if (req.signal.aborted) abort();
+    cleanup = undefined;
+    return new Response(Readable.toWeb(input) as ReadableStream, {
       headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="event-${event.name.replace(/[^a-zA-Z0-9]/g, '_')}-cards.zip"`,
-        'Content-Length': String(zipBuffer.length),
+        "Content-Type": "application/zip",
+        "Content-Disposition": disposition(`event-${event.name}-cards.zip`),
+        "Cache-Control": "no-store",
       },
     });
-  } catch (e: any) {
-    return apiError('DOWNLOAD_ERROR', String(e?.message || e), undefined, 500);
+  } catch (error) {
+    await cleanup?.();
+    return invitationFailure(error);
   }
 }

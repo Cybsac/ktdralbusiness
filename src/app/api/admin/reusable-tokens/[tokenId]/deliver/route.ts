@@ -1,74 +1,42 @@
-import { requirePrizeAuthorization, getPrizeActor } from '@/lib/prize-authorization/service';
-import { NextRequest } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { apiError, apiOk } from '@/lib/apiError';
-
-// POST /api/admin/reusable-tokens/[tokenId]/deliver
-// Marca un token reutilizable como entregado (solo para STAFF/ADMIN)
-
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { requirePrizeAuthorization, getPrizeActor } from "@/lib/prize-authorization/service";
+import { apiError } from "@/lib/apiError";
+import { consumeReusableToken } from "@/lib/reusable-tokens/consumption";
+import { reusableFailure } from "@/lib/reusable-tokens/http";
 export async function POST(req: NextRequest, { params }: { params: { tokenId: string } }) {
-  const prizeGate = await requirePrizeAuthorization(req, 'reusable');
-  if (prizeGate) return prizeGate;
-
+  const gate = await requirePrizeAuthorization(req, "reusable");
+  if (gate) return gate;
+  const body = await req.json().catch(() => ({}));
+  const parsed = z.object({ operationKey: z.string().uuid().optional() }).safeParse(body);
+  if (!parsed.success) return apiError("INVALID_INPUT", "Operación inválida", undefined, 400);
   try {
-    const { tokenId } = params;
-    if (!tokenId) {
-      return apiError('TOKEN_ID_REQUIRED', 'tokenId requerido', undefined, 400);
-    }
-
-    const session = getPrizeActor(req);
-
-    // Verificar que el token existe y es reutilizable
-    const token = await prisma.reusableToken.findUnique({
-      where: { id: tokenId },
-      include: {
-        prize: { select: { active: true, key: true, label: true } }
-      }
-    });
-
-    if (!token) {
-      return apiError('TOKEN_NOT_FOUND', 'Token no encontrado', undefined, 404);
-    }
-
-    if (!token.prize.active) return apiError('PRIZE_INACTIVE', 'Premio inactivo', undefined, 410);
-
-    // No permitir marcar como entregado si ya está completamente usado
-    if (token.usedCount >= token.maxUses) {
-      return apiError('TOKEN_EXHAUSTED', `Token completamente usado (${token.usedCount}/${token.maxUses})`, undefined, 400);
-    }
-
-    // Marcar como entregado (permitir re-entregas)
-    const deliveredAt = new Date();
-    const updateData: any = {
-      deliveredAt,
-      deliveredByUserId: session.userId,
-      redeemedAt: deliveredAt
-    };
-
-    // Incrementar usedCount cada vez que se marca como entregado
-    // Esto refleja el número real de entregas realizadas
-    updateData.usedCount = { increment: 1 };
-
-    await prisma.$transaction(async tx => {
-      const changed = await tx.reusableToken.updateMany({
-        where: { id: tokenId, disabled: false, expiresAt: { gt: deliveredAt }, usedCount: { lt: token.maxUses } },
-        data: updateData,
-      });
-      if (!changed.count) throw new Error('TOKEN_UNAVAILABLE');
-      await tx.reusableTokenRedemption.create({ data: { tokenId, type: 'deliver', userId: session.userId, note: JSON.stringify({ authorizationMethod: session.method, responsibleName: session.name, credentialId: session.credentialId, credentialRevision: session.revision }) } });
-    });
-
-    return apiOk({
-      tokenId,
-      prizeId: token.prizeId,
-      prize: token.prize,
-      deliveredAt,
-      deliveredBy: session.userId
-    });
-
+    const token = await consumeReusableToken(
+      params.tokenId,
+      getPrizeActor(req),
+      parsed.data.operationKey,
+      "deliver"
+    );
+    return NextResponse.json(
+      {
+        success: true,
+        ok: true,
+        tokenId: token.id,
+        prizeId: token.prizeId,
+        prize: token.prize,
+        deliveredAt: token.deliveredAt,
+        deliveredBy: token.deliveredByUserId,
+        token: {
+          id: token.id,
+          prize: token.prize,
+          usedCount: token.usedCount,
+          maxUses: token.maxUses,
+          remainingUses: token.maxUses - token.usedCount,
+        },
+      },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
   } catch (error) {
-    if (error instanceof Error && error.message === 'TOKEN_UNAVAILABLE') return apiError('TOKEN_UNAVAILABLE', 'El QR está agotado, vencido o deshabilitado.', undefined, 409);
-    console.error('Error marking reusable token as delivered:', error);
-    return apiError('INTERNAL_ERROR', 'Error interno del servidor');
+    return reusableFailure(error);
   }
 }

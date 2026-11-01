@@ -1,3 +1,9 @@
+import { sanitizeStaticContent } from "@/lib/batch/static-content";
+import {
+  STATIC_CONTENT_PRIZE_KEY,
+  staticPrizeWhere,
+  staticPrizeCreateFields,
+} from "@/lib/batch/static-prizes";
 import { Readable } from "stream";
 
 import { PRIZELESS_ACTIONS } from "@/components/token-actions/types";
@@ -66,19 +72,19 @@ export async function POST(req: Request) {
         400
       );
     }
-    // Pick any active prize as a carrier (stock won't be consumed)
-    const placeholder = await prisma.prize.findFirst({
-      where: { active: true },
+    // Content-only batches have their own hidden carrier and never borrow commercial inventory.
+    const placeholder = await prisma.prize.upsert({
+      where: { key: STATIC_CONTENT_PRIZE_KEY },
+      update: { active: true },
+      create: {
+        key: STATIC_CONTENT_PRIZE_KEY,
+        label: "Contenido sin premio",
+        stock: 0,
+        active: true,
+        ...staticPrizeCreateFields,
+      },
       select: { id: true },
     });
-    if (!placeholder) {
-      return apiError(
-        "NO_ACTIVE_PRIZE",
-        "Se requiere al menos un premio activo como referencia",
-        undefined,
-        400
-      );
-    }
     prizes = [{ prizeId: placeholder.id, count: tokenCount }];
   } else if (prizes.length === 0) {
     return apiError("BAD_REQUEST", "Se requiere al menos un premio", undefined, 400);
@@ -87,7 +93,11 @@ export async function POST(req: Request) {
   // Validate prizes existence & fetch minimal info
   const prizeIds = [...new Set(prizes.map((p) => p.prizeId))];
   const dbPrizes = await prisma.prize.findMany({
-    where: { id: { in: prizeIds }, active: true },
+    where: {
+      ...(skipStock ? { staticEnabled: true, isReusable: false } : staticPrizeWhere),
+      id: { in: prizeIds },
+      active: true,
+    },
     select: { id: true, key: true, label: true, color: true, stock: true },
   });
   if (dbPrizes.length !== prizeIds.length) {
@@ -127,7 +137,10 @@ export async function POST(req: Request) {
       expirationDays: baseExpirationDays,
       skipStock,
       actionType,
-      actionPayload,
+      actionPayload:
+        actionType === "message"
+          ? JSON.stringify(sanitizeStaticContent(actionType, JSON.parse(actionPayload!)))
+          : actionPayload,
       staticTargetUrl: targetUrl || "",
       overrideExpiresAt: windowEnd || undefined,
       overrideValidFrom: windowStart || undefined,

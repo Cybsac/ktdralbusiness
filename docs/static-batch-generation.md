@@ -34,8 +34,7 @@ La entrega también rechaza tokens cuya ventana aún no empieza.
 La transacción agrupa metadata del lote, stock e inserción de todos los tokens;
 si falla una parte se revierte. Las entradas repetidas de premio se agregan antes
 de validar stock. Se respeta stock ilimitado (null). Frase/mensaje no consumen
-stock; conservan una referencia a un premio activo por la estructura existente
-Token.prizeId, que no se migra ni se elimina.
+stock; los lotes nuevos sin premio utilizan una referencia interna propia, oculta del catálogo comercial. No requieren crear antes un premio de inventario. Las referencias de tokens anteriores se conservan.
 
 ## Variantes públicas
 
@@ -51,3 +50,16 @@ siete tipos, fechas, ZIP con PNG obligatorio, re-descarga y rollback simulado.
 No ejecuta suites de base de datos ni genera lotes reales. Los fallos de red o
 disco durante el empaquetado posterior a la transacción no revierten un lote ya
 creado: puede descargarse de nuevo desde la administración.
+
+## Auditoría de lógica de `/admin/prizesstatics`
+
+- Se retiró la paleta y su estado, validaciones y escrituras de color. Las altas usan `scope=static`; el servidor asigna una identidad única y elige un color con el algoritmo compartido de distancia perceptual respecto a los colores recientes. Editar nombre, cantidad o actividad conserva el color anterior.
+- La consulta inicial y el refresco usan el mismo catálogo tipado. No incluyen premios de sistema, referencias internas sin premio ni reutilizables. Las escrituras con ámbito estático verifican la pertenencia del premio y no aceptan cambiar opciones de otros módulos.
+- Se mantiene la distribución y los controles de la pantalla, salvo la paleta solicitada. El guardado utiliza un bloqueo real durante la operación asíncrona; la generación también evita dobles pulsaciones simultáneas.
+- Tras generar, se actualizan stock, tablas y lotes desde el servidor y se vacían las cantidades consumidas. Eliminar o agotar un premio retira cantidades antiguas de la selección.
+- Las fechas operativas proceden de la vigencia seleccionada, nunca de texto del nombre. Se eliminaron la extracción de fechas mediante expresiones regulares y el ordenamiento con valores centinela.
+- Revelados pendientes, entregados y expirados consultan registros reales; el indicador de expiración ya no es un «Sí» fijo vinculado a la actividad del premio. La cantidad emitida al seleccionar un lote corresponde a ese lote.
+- Sorteos comparten límites entre formulario y servidor. Los mensajes mantienen su HTML de formato, limpiando contenido ejecutable tanto al generar como al servir mensajes anteriores; los enlaces de llamada a la acción admiten HTTP/HTTPS.
+- Los límites y variantes existentes (premio, trivia, frase, reto, sorteo, mensaje y feedback), QR obligatorio y modalidades de vigencia se conservan. No hay migración ni actualización masiva de premios existentes.
+
+Validación de esta auditoría: revisión de tipos y comprobaciones aisladas de solicitudes, creación, generación, ausencia de inventario para contenido y limpieza de HTML. Las pruebas permanecen en local; no se generan lotes de prueba ni se ejecutan borrados en la base conectada.

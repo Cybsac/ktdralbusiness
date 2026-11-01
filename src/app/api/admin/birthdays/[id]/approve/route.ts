@@ -1,21 +1,14 @@
-import { NextRequest } from 'next/server';
-import { apiError, apiOk } from '@/lib/apiError';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
-import { approveReservation } from '@/lib/birthdays/service';
-
+import { NextRequest } from "next/server";
+import { apiOk, apiError } from "@/lib/apiError";
+import { birthdayManager } from "@/lib/birthdays/managementAuth";
+import { birthdayFailure } from "@/lib/birthdays/http";
+import { approveReservation } from "@/lib/birthdays/service";
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const adminCookie = getSessionCookieFromRequest(req as unknown as Request);
-  const userCookie = getUserSessionCookieFromRequest(req as unknown as Request);
-  const adminSession = await verifySessionCookie(adminCookie);
-  const userSession = await verifyUserSessionCookie(userCookie);
-  const session = adminSession || userSession;
-  if (!session) return apiError('UNAUTHORIZED', 'No session', undefined, 401);
-  // Allow ADMIN/STAFF from admin session, or COLLAB/STAFF from user session
-  const isAdmin = adminSession?.role && ['ADMIN', 'COORDINATOR', 'STAFF'].includes(adminSession.role);
-  const isUser = userSession?.role && ['COLLAB', 'STAFF'].includes(userSession.role);
-  if (!isAdmin && !isUser) return apiError('FORBIDDEN', 'Insufficient permissions', undefined, 403);
-  const id = params.id;
-  const r = await approveReservation(id, session?.role);
-  return apiOk(r);
+  const session = await birthdayManager(req);
+  if (!session) return apiError("UNAUTHORIZED", "Sin acceso", undefined, 401);
+  try {
+    return apiOk(await approveReservation(params.id, session.userId));
+  } catch (error) {
+    return birthdayFailure(error);
+  }
 }

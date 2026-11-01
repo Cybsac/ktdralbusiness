@@ -1,3 +1,4 @@
+import { PRINT_CONTROL_POLICY } from "@/lib/print/control-policy";
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
@@ -119,8 +120,8 @@ async function generatePdf(req: Request) {
     let defaultQrMeta = { xMm: 150, yMm: 230, widthMm: 30, rotationDeg: 0 };
     if (formData) {
       if (!(file instanceof File) || !file.size) return apiError('FILE_REQUIRED', 'Archivo requerido', undefined, 400);
-      if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return apiError('INVALID_IMAGE_TYPE', 'La plantilla debe ser PNG, JPG o WebP', undefined, 400);
-      if (file.size > 10 * 1024 * 1024) return apiError('FILE_TOO_LARGE', 'La plantilla es demasiado grande', undefined, 400);
+      if (!PRINT_CONTROL_POLICY.imageTypes.some(type => type === file.type)) return apiError('INVALID_IMAGE_TYPE', 'La plantilla debe ser PNG, JPG o WebP', undefined, 400);
+      if (file.size > PRINT_CONTROL_POLICY.maxTemplateBytes) return apiError('FILE_TOO_LARGE', 'La plantilla es demasiado grande', undefined, 400);
       const sharp = (await import('sharp')).default;
       templateBuffer = await sharp(Buffer.from(await file.arrayBuffer())).rotate().png({ compressionLevel: 9 }).toBuffer();
     } else {
@@ -275,6 +276,7 @@ async function generatePdf(req: Request) {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
+        'Cache-Control': 'private, no-store',
         'Content-Disposition': `attachment; filename="${filename}"`,
         'X-Tokens-Processed': String(tokenData.length),
         'X-Tokens-Requested': String(originalTokenCount),

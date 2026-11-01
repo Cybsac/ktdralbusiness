@@ -1,43 +1,44 @@
+import { REUSABLE_POLICY } from "@/lib/reusable-tokens/policy";
 import { getPublicBaseUrl } from "@/lib/config";
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import { apiError } from '@/lib/apiError';
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from "@/lib/auth";
+import { apiError } from "@/lib/apiError";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
     const sessionCookie = getSessionCookieFromRequest(req);
     const session = await verifySessionCookie(sessionCookie);
-    const auth = requireRole(session, ['STAFF', 'ADMIN']);
+    const auth = requireRole(session, [...REUSABLE_POLICY.managementRoles]);
     if (!auth.ok) {
-      return apiError('UNAUTHORIZED', auth.error || 'No autorizado');
+      return apiError("UNAUTHORIZED", auth.error || "No autorizado");
     }
 
     // Obtener todos los tokens reutilizables
     const tokens = await prisma.reusableToken.findMany({
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       include: {
         prize: {
           select: {
             id: true,
             label: true,
             key: true,
-            color: true
-          }
-        }
-      }
+            color: true,
+          },
+        },
+      },
     });
 
-    const formattedTokens = tokens.map(token => ({
+    const formattedTokens = tokens.map((token) => ({
       id: token.id,
       qrUrl: `${getPublicBaseUrl(req.url)}/reusable/${token.id}`,
       prize: {
         id: token.prize.id,
         label: token.prize.label,
         key: token.prize.key,
-        color: token.prize.color
+        color: token.prize.color,
       },
       maxUses: token.maxUses,
       usedCount: token.usedCount,
@@ -46,12 +47,12 @@ export async function GET(req: NextRequest) {
       endTime: token.endTime,
       createdAt: token.createdAt,
       deliveryNote: token.deliveryNote,
-      disabled: token.disabled
+      disabled: token.disabled,
     }));
 
     return NextResponse.json({ tokens: formattedTokens });
   } catch (error) {
-    console.error('Error fetching all reusable tokens:', error);
-    return apiError('INTERNAL_ERROR', 'Error interno');
+    console.error("Error fetching all reusable tokens:", error);
+    return apiError("INTERNAL_ERROR", "Error interno");
   }
 }

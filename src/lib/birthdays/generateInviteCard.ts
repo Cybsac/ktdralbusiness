@@ -1,30 +1,41 @@
-import fs from 'fs/promises';
-import path from 'path';
-import sharp from 'sharp';
-import { inviteTemplates, InviteTemplateKind } from './inviteTemplates';
-import { generateQrPngBuffer } from '@/lib/qr-server';
+import fs from "fs/promises";
+import path from "path";
+import sharp from "sharp";
+import { birthdayInviteTemplate, type InviteTemplateKind } from "./inviteTemplates";
+import { generateQrPngBuffer } from "@/lib/qr-server";
 
-function clamp(n: number, min: number, max: number) { return Math.min(max, Math.max(min, n)); }
-function escapeXml(s: string) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] as string)); }
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+function escapeXml(s: string) {
+  return s.replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string
+  );
+}
 function formatFecha(iso: string) {
   try {
     let d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    const dia = d.toLocaleDateString('es-PE', { day: '2-digit', timeZone: 'America/Lima' });
-    const mes = d.toLocaleDateString('es-PE', { month: 'long', timeZone: 'America/Lima' }).toLowerCase();
+    if (isNaN(d.getTime())) return "";
+    const dia = d.toLocaleDateString("es-PE", { day: "2-digit", timeZone: "America/Lima" });
+    const mes = d
+      .toLocaleDateString("es-PE", { month: "long", timeZone: "America/Lima" })
+      .toLowerCase();
     return `${dia} ${mes}`;
-  } catch { return ''; }
+  } catch {
+    return "";
+  }
 }
 
 export async function generateInviteCard(
-  kind: InviteTemplateKind,
+  _kind: InviteTemplateKind,
   code: string,
   redeemUrl: string,
-  format: 'webp' | 'png' = 'webp',
+  format: "webp" | "png" = "webp",
   celebrantName?: string,
-  reservationDateISO?: string,
+  reservationDateISO?: string
 ) {
-  const tpl = inviteTemplates[kind];
+  const tpl = birthdayInviteTemplate;
   let templateInput: Buffer | null = null;
 
   try {
@@ -38,9 +49,19 @@ export async function generateInviteCard(
   } catch (e: any) {
     if (!process.env.SILENCE_INVITE_CARD_LOGS) {
       // eslint-disable-next-line no-console
-      console.warn('[inviteCard] no se pudo descargar plantilla desde Supabase, usando fondo plano', { path: tpl.path, error: e?.message });
+      console.warn(
+        "[inviteCard] no se pudo descargar plantilla desde Supabase, usando fondo plano",
+        { path: tpl.path, error: e?.message }
+      );
     }
-    templateInput = await sharp({ create: { width: tpl.width, height: tpl.height, channels: 4, background: { r: 12, g: 12, b: 12, alpha: 1 } } })
+    templateInput = await sharp({
+      create: {
+        width: tpl.width,
+        height: tpl.height,
+        channels: 4,
+        background: { r: 12, g: 12, b: 12, alpha: 1 },
+      },
+    })
       .png()
       .toBuffer();
   }
@@ -55,23 +76,33 @@ export async function generateInviteCard(
   } catch (e: any) {
     if (!process.env.SILENCE_INVITE_CARD_LOGS) {
       // eslint-disable-next-line no-console
-      console.error('[inviteCard] fallo generando QR', { code, redeemUrl, err: e?.message });
+      console.error("[inviteCard] fallo generando QR", { code, redeemUrl, err: e?.message });
     }
-  throw e;
+    throw e;
   }
   const cornerR = Math.round(qrSize * 0.08);
-  const qrMaskSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?><svg width="${qrSize}" height="${qrSize}" viewBox="0 0 ${qrSize} ${qrSize}" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="${qrSize}" height="${qrSize}" rx="${cornerR}" ry="${cornerR}" fill="white"/></svg>`);
-  const roundedQr = await sharp(qrPng).composite([{ input: qrMaskSvg, blend: 'dest-in' }]).png().toBuffer();
+  const qrMaskSvg = Buffer.from(
+    `<?xml version="1.0" encoding="UTF-8"?><svg width="${qrSize}" height="${qrSize}" viewBox="0 0 ${qrSize} ${qrSize}" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="${qrSize}" height="${qrSize}" rx="${cornerR}" ry="${cornerR}" fill="white"/></svg>`
+  );
+  const roundedQr = await sharp(qrPng)
+    .composite([{ input: qrMaskSvg, blend: "dest-in" }])
+    .png()
+    .toBuffer();
 
-  const composites: sharp.OverlayOptions[] = [ { input: roundedQr, top, left } ];
+  const composites: sharp.OverlayOptions[] = [{ input: roundedQr, top, left }];
 
   // Variables para la fecha (se posicionará después del nameBar)
   let datePillTop = 0;
   let dateSvgRaster: Buffer | null = null;
 
-  if ((kind === 'guest' || kind === 'host') && celebrantName && (tpl as any).nameBar) {
-    const nb = (tpl as any).nameBar as { leftRatio: number; widthRatio: number; topRatio: number; heightRatio: number };
-  let barWidth = Math.round(tpl.width * nb.widthRatio);
+  if (celebrantName && tpl.nameBar) {
+    const nb = (tpl as any).nameBar as {
+      leftRatio: number;
+      widthRatio: number;
+      topRatio: number;
+      heightRatio: number;
+    };
+    let barWidth = Math.round(tpl.width * nb.widthRatio);
     const baseBarHeight = Math.round(tpl.height * nb.heightRatio);
     let barLeft = Math.round(tpl.width * nb.leftRatio);
     if (barWidth > tpl.width) barWidth = tpl.width;
@@ -80,19 +111,13 @@ export async function generateInviteCard(
     const baseBarTop = Math.round(tpl.height * nb.topRatio);
     const first = celebrantName.trim().split(/\s+/)[0];
     const firstUpper = first.toUpperCase();
-    const fechaTxt = reservationDateISO ? formatFecha(reservationDateISO) : '';
+    const fechaTxt = reservationDateISO ? formatFecha(reservationDateISO) : "";
     const maxWidth = barWidth - 40;
     const approxChar = (h: number) => h * 0.58;
     const singleFont = (h: number) => clamp(Math.floor(h * 0.65), 30, 80); // Aumentar tamaño de fuente
     let barHeight = baseBarHeight;
-    let phraseLines: string[];
-    if (kind === 'host') {
-      phraseLines = [firstUpper];
-      barHeight = Math.round(baseBarHeight * 1.8); // Aumentar altura para fuente más grande
-    } else { // guest
-      phraseLines = [firstUpper];
-      barHeight = Math.round(baseBarHeight * 1.8); // Aumentar altura para fuente más grande
-    }
+    const phraseLines = [firstUpper];
+    barHeight = Math.round(baseBarHeight * 1.8);
     let f1 = singleFont(barHeight);
     const longest = phraseLines.reduce((m, l) => Math.max(m, l.length), 0);
     let widthEstimate = longest * approxChar(f1);
@@ -100,22 +125,22 @@ export async function generateInviteCard(
       barHeight = Math.round(barHeight * 1.2);
       f1 = clamp(Math.floor(barHeight * 0.55), 25, 70); // Aumentar tamaño de fuente
     } else {
-      f1 = clamp(Math.floor(barHeight * 0.60), 25, 75); // Aumentar tamaño de fuente
+      f1 = clamp(Math.floor(barHeight * 0.6), 25, 75); // Aumentar tamaño de fuente
     }
-    const f2 = clamp(Math.floor(barHeight * 0.30), 16, 42);
+    const f2 = clamp(Math.floor(barHeight * 0.3), 16, 42);
     const gap = clamp(Math.floor(barHeight * 0.09), 4, 24);
     const effectiveGap = phraseLines.length > 1 ? Math.max(4, Math.floor(gap * 0.8)) : gap;
     const strokeW = clamp(Math.round(barHeight * 0.05), 2, 8);
     const radius = Math.min(Math.round(barHeight * 0.45), 38);
     const bottomY = baseBarTop + baseBarHeight;
-  let barTop = baseBarTop; // Usar directamente el topRatio definido en el template
+    let barTop = baseBarTop; // Usar directamente el topRatio definido en el template
     // Nota: Se elimina la lógica de reposicionamiento automático por margen inferior
     // para respetar el topRatio definido en inviteTemplates.ts
     const inset = strokeW / 2;
-    const dateColor = '#c8c8c8';
+    const dateColor = "#c8c8c8";
     const linesHeight = phraseLines.length * f1 + (phraseLines.length - 1) * effectiveGap;
     const blockHeight = linesHeight + effectiveGap + f2;
-  // Padding interno configurable
+    // Padding interno configurable
     const bottomPadRatioEnv = process.env.INVITE_CARD_FOOTER_TEXT_BOTTOM_PAD_RATIO;
     const bottomPadPxEnv = process.env.INVITE_CARD_FOOTER_TEXT_BOTTOM_PAD_PX;
     let bottomPadding = Math.round(barHeight * 0.06);
@@ -137,20 +162,20 @@ export async function generateInviteCard(
       topPadding = MIN_TOP;
       bottomPadding = Math.max(MIN_BOTTOM, barHeight - blockHeight - topPadding);
     }
-    let cursorY = topPadding + Math.round(f1 * 0.90);
+    let cursorY = topPadding + Math.round(f1 * 0.9);
     // Debug layout eliminado para limpieza (activar reinsertando bloque si se requiere)
-    const highlightColor = 'white'; // Cambiar a blanco para que todo el nombre sea blanco
-    let embeddedFontCss = '';
+    const highlightColor = "white"; // Cambiar a blanco para que todo el nombre sea blanco
+    let embeddedFontCss = "";
     try {
       // Intentar múltiples paths posibles para la fuente
       const possiblePaths = [
-        path.resolve(process.cwd(), 'public', 'fonts', 'StretchPro.woff2'),
-        path.resolve(process.cwd(), 'fonts', 'StretchPro.woff2'),
-        path.resolve(__dirname, '..', '..', '..', 'public', 'fonts', 'StretchPro.woff2'),
+        path.resolve(process.cwd(), "public", "fonts", "StretchPro.woff2"),
+        path.resolve(process.cwd(), "fonts", "StretchPro.woff2"),
+        path.resolve(__dirname, "..", "..", "..", "public", "fonts", "StretchPro.woff2"),
       ];
 
       let fontBuf: Buffer | null = null;
-      let loadedPath = '';
+      let loadedPath = "";
 
       for (const fontPath of possiblePaths) {
         try {
@@ -163,21 +188,25 @@ export async function generateInviteCard(
       }
 
       if (fontBuf) {
-        embeddedFontCss = `@font-face{font-family:'StretchProEmbed';src:url(data:font/woff2;base64,${fontBuf.toString('base64')}) format('woff2');font-weight:400 700;font-display:swap;}`;
+        embeddedFontCss = `@font-face{font-family:'StretchProEmbed';src:url(data:font/woff2;base64,${fontBuf.toString("base64")}) format('woff2');font-weight:400 700;font-display:swap;}`;
         if (!process.env.SILENCE_INVITE_CARD_LOGS) {
           // eslint-disable-next-line no-console
-          console.info('[inviteCard] fuente Stretch Pro cargada desde:', loadedPath);
+          console.info("[inviteCard] fuente Stretch Pro cargada desde:", loadedPath);
         }
       } else {
-        throw new Error('No se pudo encontrar el archivo de fuente en ningún path');
+        throw new Error("No se pudo encontrar el archivo de fuente en ningún path");
       }
     } catch (e: any) {
       if (!process.env.SILENCE_INVITE_CARD_LOGS) {
         // eslint-disable-next-line no-console
-        console.error('[inviteCard] error cargando fuente Stretch Pro:', e?.message, 'usando fallback');
+        console.error(
+          "[inviteCard] error cargando fuente Stretch Pro:",
+          e?.message,
+          "usando fallback"
+        );
       }
     }
-    let textSvg = embeddedFontCss ? `  <style>${embeddedFontCss}</style>\n` : '';
+    let textSvg = embeddedFontCss ? `  <style>${embeddedFontCss}</style>\n` : "";
     for (const line of phraseLines) {
       const idx = line.indexOf(firstUpper);
       if (idx >= 0) {
@@ -190,9 +219,14 @@ export async function generateInviteCard(
       }
       cursorY += f1 + effectiveGap;
     }
-  textSvg += `  <text x="50%" y="${cursorY + f2 * 0.85}" text-anchor="middle" fill="${dateColor}" font-family="'InterEmbed','Inter','Arial',sans-serif" font-weight="700" font-size="${f2}px" letter-spacing="1">${escapeXml(fechaTxt)}</text>\n`;
-    const nameBarSvg = Buffer.from(`<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg width=\"${barWidth}\" height=\"${barHeight}\" viewBox=\"0 0 ${barWidth} ${barHeight}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <defs>\n    <linearGradient id=\"ograd\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"0%\">\n      <stop offset=\"0%\" stop-color=\"#FF7A00\"/>\n      <stop offset=\"40%\" stop-color=\"#FFA630\"/>\n      <stop offset=\"60%\" stop-color=\"#FFB347\"/>\n      <stop offset=\"100%\" stop-color=\"#FF7A00\"/>\n    </linearGradient>\n  </defs>\n${textSvg}</svg>`);
-    let nameBarRaster = await sharp(nameBarSvg, { density: 230 }).resize(barWidth, barHeight).png().toBuffer();
+    textSvg += `  <text x="50%" y="${cursorY + f2 * 0.85}" text-anchor="middle" fill="${dateColor}" font-family="'InterEmbed','Inter','Arial',sans-serif" font-weight="700" font-size="${f2}px" letter-spacing="1">${escapeXml(fechaTxt)}</text>\n`;
+    const nameBarSvg = Buffer.from(
+      `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg width=\"${barWidth}\" height=\"${barHeight}\" viewBox=\"0 0 ${barWidth} ${barHeight}\" xmlns=\"http://www.w3.org/2000/svg\">\n  <defs>\n    <linearGradient id=\"ograd\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"0%\">\n      <stop offset=\"0%\" stop-color=\"#FF7A00\"/>\n      <stop offset=\"40%\" stop-color=\"#FFA630\"/>\n      <stop offset=\"60%\" stop-color=\"#FFB347\"/>\n      <stop offset=\"100%\" stop-color=\"#FF7A00\"/>\n    </linearGradient>\n  </defs>\n${textSvg}</svg>`
+    );
+    let nameBarRaster = await sharp(nameBarSvg, { density: 230 })
+      .resize(barWidth, barHeight)
+      .png()
+      .toBuffer();
     // Debug size eliminado
     composites.push({ input: nameBarRaster, left: barLeft, top: barTop });
 
@@ -219,17 +253,17 @@ export async function generateInviteCard(
       if (pillTop + pillHeight > tpl.height) pillTop = tpl.height - pillHeight - 8;
 
       const radius = Math.round(pillHeight / 2);
-      let pillFontEmbed = '';
+      let pillFontEmbed = "";
       try {
         // Intentar múltiples paths posibles para la fuente
         const possiblePaths = [
-          path.resolve(process.cwd(), 'public', 'fonts', 'StretchPro.woff2'),
-          path.resolve(process.cwd(), 'fonts', 'StretchPro.woff2'),
-          path.resolve(__dirname, '..', '..', '..', 'public', 'fonts', 'StretchPro.woff2'),
+          path.resolve(process.cwd(), "public", "fonts", "StretchPro.woff2"),
+          path.resolve(process.cwd(), "fonts", "StretchPro.woff2"),
+          path.resolve(__dirname, "..", "..", "..", "public", "fonts", "StretchPro.woff2"),
         ];
 
         let fontBuf: Buffer | null = null;
-        let loadedPath = '';
+        let loadedPath = "";
 
         for (const fontPath of possiblePaths) {
           try {
@@ -242,22 +276,31 @@ export async function generateInviteCard(
         }
 
         if (fontBuf) {
-          pillFontEmbed = `@font-face{font-family:'StretchProEmbed';src:url(data:font/woff2;base64,${fontBuf.toString('base64')}) format('woff2');font-weight:400 700;font-display:swap;}`;
+          pillFontEmbed = `@font-face{font-family:'StretchProEmbed';src:url(data:font/woff2;base64,${fontBuf.toString("base64")}) format('woff2');font-weight:400 700;font-display:swap;}`;
           if (!process.env.SILENCE_INVITE_CARD_LOGS) {
             // eslint-disable-next-line no-console
-            console.info('[inviteCard] fuente Stretch Pro para fecha cargada desde:', loadedPath);
+            console.info("[inviteCard] fuente Stretch Pro para fecha cargada desde:", loadedPath);
           }
         } else {
-          throw new Error('No se pudo encontrar el archivo de fuente en ningún path');
+          throw new Error("No se pudo encontrar el archivo de fuente en ningún path");
         }
       } catch (e: any) {
         if (!process.env.SILENCE_INVITE_CARD_LOGS) {
           // eslint-disable-next-line no-console
-          console.error('[inviteCard] error cargando fuente Stretch Pro para fecha:', e?.message, 'usando fallback');
+          console.error(
+            "[inviteCard] error cargando fuente Stretch Pro para fecha:",
+            e?.message,
+            "usando fallback"
+          );
         }
       }
-      const dateSvg = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>\n<svg width="${pillWidth}" height="${pillHeight}" viewBox="0 0 ${pillWidth} ${pillHeight}" xmlns="http://www.w3.org/2000/svg">\n  ${pillFontEmbed ? `<style>${pillFontEmbed}</style>` : ''}\n  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="'StretchProEmbed','Stretch Pro','Arial',sans-serif" font-size="${pillFont}px" font-weight="600" fill="white" letter-spacing="1">${escapeXml(fechaSmall)}<\/text>\n</svg>`);
-      dateSvgRaster = await sharp(dateSvg, { density: 220 }).resize(pillWidth, pillHeight).png().toBuffer();
+      const dateSvg = Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8"?>\n<svg width="${pillWidth}" height="${pillHeight}" viewBox="0 0 ${pillWidth} ${pillHeight}" xmlns="http://www.w3.org/2000/svg">\n  ${pillFontEmbed ? `<style>${pillFontEmbed}</style>` : ""}\n  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="'StretchProEmbed','Stretch Pro','Arial',sans-serif" font-size="${pillFont}px" font-weight="600" fill="white" letter-spacing="1">${escapeXml(fechaSmall)}<\/text>\n</svg>`
+      );
+      dateSvgRaster = await sharp(dateSvg, { density: 220 })
+        .resize(pillWidth, pillHeight)
+        .png()
+        .toBuffer();
       composites.push({ input: dateSvgRaster, left: pillLeft, top: pillTop });
     }
   }
@@ -265,11 +308,11 @@ export async function generateInviteCard(
   let base = sharp(templateInput);
   const metadata = await base.metadata();
   if (metadata.width !== tpl.width || metadata.height !== tpl.height) {
-    base = base.resize(tpl.width, tpl.height, { fit: 'cover' });
+    base = base.resize(tpl.width, tpl.height, { fit: "cover" });
   }
   const composite = base.composite(composites);
 
-  if (format === 'png') {
+  if (format === "png") {
     return await composite.png({ compressionLevel: 9 }).toBuffer();
   }
   return await composite.webp({ quality: 92 }).toBuffer();

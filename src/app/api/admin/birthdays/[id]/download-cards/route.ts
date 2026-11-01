@@ -1,3 +1,5 @@
+import { birthdayCardAvailable } from "@/lib/birthdays/card-policy";
+import { universalInvitation } from "@/lib/birthdays/universal";
 import { randomUUID } from "crypto";
 import { unlink, writeFile } from "fs/promises";
 import { NextRequest, NextResponse } from "next/server";
@@ -6,7 +8,6 @@ import path from "path";
 import { z } from "zod";
 
 import { apiError } from "@/lib/apiError";
-import { getBirthdayCards } from "@/lib/birthdays/cards";
 import { generateInviteCard } from "@/lib/birthdays/generateInviteCard";
 import { birthdayManager } from "@/lib/birthdays/managementAuth";
 import { getBirthdayQrBaseUrl } from "@/lib/config";
@@ -58,6 +59,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   });
   if (!reservation) return apiError("NOT_FOUND", "Reservation not found", undefined, 404);
 
+  if (!birthdayCardAvailable(reservation))
+    return apiError(
+      "RESERVATION_UNAVAILABLE",
+      "La reserva no tiene una tarjeta vigente",
+      undefined,
+      409
+    );
+
   const tokens = await prisma.inviteToken.findMany({
     where: { reservationId },
     orderBy: { code: "asc" },
@@ -65,19 +74,18 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!tokens.length)
     return apiError("NO_TOKENS", "No invite tokens for this reservation", undefined, 404);
 
-  // Expect: one 'host' and one 'guest' token in new model. Back-compat: if there are many guests, fallback to old behavior.
-  const host = tokens.find((t) => t.kind === "host");
-  const guest = tokens.find((t) => t.kind === "guest");
+  // One canonical invitation; historical codes remain valid for existing recipients.
+  const universal = universalInvitation(tokens);
+  if (!universal) return apiError("NO_TOKENS", "No hay invitación disponible", undefined, 404);
 
   // Try to get pre-generated birthday cards from storage
-  const { paths: storedCardUrls } = await getBirthdayCards(reservationId);
 
   // The universal invitation uses the birthday design with current reservation data.
   // Explicit print templates retain their existing export behavior below.
   if (!parsed.data.templateId) {
     const baseUrl = getBirthdayQrBaseUrl(req.url);
     const images = await Promise.all(
-      tokens.slice(0, limit).map(async (t) => ({
+      [universal].map(async (t) => ({
         code: t.code,
         buffer: await generateInviteCard(
           t.kind === "host" ? "host" : "guest",
@@ -113,12 +121,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (parsed.data.templateId) {
     template = await prisma.printTemplate.findUnique({
       where: { id: parsed.data.templateId },
-      select: { id: true, filePath: true, storageUrl: true, storageKey: true, meta: true },
-    });
-  } else {
-    // use latest template as default
-    template = await prisma.printTemplate.findFirst({
-      orderBy: { createdAt: "desc" },
       select: { id: true, filePath: true, storageUrl: true, storageKey: true, meta: true },
     });
   }
@@ -177,70 +179,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     try {
       const baseUrl = getBirthdayQrBaseUrl(req.url);
 
-      // Helper function to download stored card or generate on-demand
-      const getCardBuffer = async (
-        kind: "host" | "guest",
-        tokenCode: string,
-        redeemUrl: string
-      ): Promise<Buffer> => {
-        const storedUrl = storedCardUrls[kind];
-        if (storedUrl && storedUrl.startsWith("http")) {
-          // Download from Supabase
-          console.log(`Downloading stored ${kind} card from:`, storedUrl);
-          const response = await fetch(storedUrl);
-          if (response.ok) {
-            const arrayBuffer = await response.arrayBuffer();
-            return Buffer.from(arrayBuffer);
-          } else {
-            console.warn(`Failed to download stored ${kind} card, falling back to generation`);
-          }
-        }
-
-        // Generate on-demand
-        console.log(`Generating ${kind} card on-demand`);
-        const dataUrl = await generateQrPngDataUrl(redeemUrl);
-        const qrBuf = dataUrlToBuffer(dataUrl);
-        return await composeTemplateWithQr({
-          templatePath,
-          qrBuffer: qrBuf,
-          qrMetadata: qrMeta,
-          dpi,
-        });
-      };
-
-      if (host && guest) {
-        // 1 host card
-        const hostUrl = `${baseUrl}/b/${encodeURIComponent(host.code)}`;
-        const hostPng = await getCardBuffer("host", host.code, hostUrl);
-        archive.append(hostPng, { name: `invite-host-${host.code}.png` });
-
-        // N guest copies (limited by 'limit')
-        const maxCopies = Math.min(limit, (guest as any).maxUses || reservation.pack.qrCount || 1);
-        const guestUrl = `${baseUrl}/b/${encodeURIComponent(guest.code)}`;
-        const guestPng = await getCardBuffer("guest", guest.code, guestUrl);
-
-        for (let i = 1; i <= maxCopies; i++) {
-          archive.append(guestPng, {
-            name: `invite-guest-${guest.code}-${i.toString().padStart(2, "0")}.png`,
-          });
-        }
-      } else {
-        // Legacy fallback: print all tokens individually
-        const tokensSlice = tokens.slice(0, limit);
-        for (const t of tokensSlice) {
-          const redeemUrl = `${baseUrl}/b/${encodeURIComponent(t.code)}`;
-          const dataUrl = await generateQrPngDataUrl(redeemUrl);
-          const qrBuf = dataUrlToBuffer(dataUrl);
-          const composed = await composeTemplateWithQr({
-            templatePath,
-            qrBuffer: qrBuf,
-            qrMetadata: qrMeta,
-            dpi,
-          });
-          const filename = `invite-${t.code}.png`;
-          archive.append(composed, { name: filename });
-        }
-      }
+      const redeemUrl = `${baseUrl}/b/${encodeURIComponent(universal.code)}`;
+      const composed = await composeTemplateWithQr({
+        templatePath,
+        qrBuffer: dataUrlToBuffer(await generateQrPngDataUrl(redeemUrl)),
+        qrMetadata: qrMeta,
+        dpi,
+      });
+      archive.append(composed, { name: `invite-${universal.code}.png` });
       await archive.finalize();
     } catch (e) {
       archive.emit("error", e as any);

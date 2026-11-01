@@ -127,56 +127,6 @@ function buildPrizeTokens(args: BuildPrizeTokensArgs) {
   return { rows, tokens };
 }
 
-// --- functionalDate derivation (duplicated logic similar to restore & backfill) ---
-function limaMidnightUtc(y: number, m: number, d: number) {
-  const normalizedDate = new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10);
-  return limaCalendarDayWindowUtc(normalizedDate).startUtc;
-}
-
-const datePatterns: RegExp[] = [
-  /(\d{2})[./-](\d{2})[./-](\d{4})/,
-  /(\d{2})(\d{2})(\d{4})/,
-  /(\d{2})[./-](\d{2})[./-](\d{2})/,
-];
-function deriveFunctionalDate(description: string | null | undefined, createdAt: Date) {
-  let y: number | undefined, m: number | undefined, d: number | undefined;
-  if (description) {
-    // Collect ALL date matches and pick the latest one (handles descriptions with multiple dates)
-    let bestDate: Date | null = null;
-    for (const rg of datePatterns) {
-      const globalRg = new RegExp(rg.source, "g");
-      let mt: RegExpExecArray | null;
-      while ((mt = globalRg.exec(description)) !== null) {
-        let td: number, tm: number, ty: number;
-        if (mt[0].length === 8 && /\d{8}/.test(mt[0])) {
-          td = parseInt(mt[1], 10);
-          tm = parseInt(mt[2], 10);
-          ty = parseInt(mt[3], 10);
-        } else if (mt[3] && mt[3].length === 2) {
-          td = parseInt(mt[1], 10);
-          tm = parseInt(mt[2], 10);
-          ty = 2000 + parseInt(mt[3], 10);
-        } else {
-          td = parseInt(mt[1], 10);
-          tm = parseInt(mt[2], 10);
-          ty = parseInt(mt[3], 10);
-        }
-        const candidate = limaMidnightUtc(ty, tm, td);
-        if (!bestDate || candidate.getTime() > bestDate.getTime()) {
-          bestDate = candidate;
-          y = ty;
-          m = tm;
-          d = td;
-        }
-      }
-    }
-  }
-  if (y && m && d) return limaMidnightUtc(y, m, d);
-
-  const fallbackBusinessDay = computeBusinessDayFromUtc(createdAt, getConfiguredCutoffHour());
-  return limaCalendarDayWindowUtc(fallbackBusinessDay).startUtc;
-}
-
 /**
  * Static batch generation: create exactly the requested number of tokens per prize,
  * Atomically consumes the requested stock, unless skipStock is enabled.
@@ -220,7 +170,11 @@ export async function generateBatchStatic(
         },
       });
       try {
-        const fDate = deriveFunctionalDate(options.description, b.createdAt);
+        const fDate =
+          options.overrideValidFrom ||
+          limaCalendarDayWindowUtc(
+            computeBusinessDayFromUtc(b.createdAt, getConfiguredCutoffHour())
+          ).startUtc;
         await tx.batch.update({ where: { id: b.id }, data: { functionalDate: fDate } });
       } catch {
         throw new Error("FUNCTIONAL_DATE_UPDATE_FAILED");

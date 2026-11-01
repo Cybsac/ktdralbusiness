@@ -1,17 +1,29 @@
-import { NextRequest } from 'next/server';
-import { z } from 'zod';
-import { apiError, apiOk } from '@/lib/apiError';
-import { checkRateLimit } from '@/lib/rateLimit';
-import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
-import { listReservations, createReservation, parseDateStringToLima, limaDateTimeToJSDate } from '@/lib/birthdays/service';
-import { DateTime } from 'luxon';
+import { reservationCreateSchema } from "@/lib/birthdays/reservation-input";
+import { NextRequest } from "next/server";
+import { z } from "zod";
+import { apiError, apiOk } from "@/lib/apiError";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
+import {
+  listReservations,
+  createReservation,
+  parseDateStringToLima,
+  limaDateTimeToJSDate,
+} from "@/lib/birthdays/service";
+import { DateTime } from "luxon";
 
 // List reservations (STAFF via user_session)
 const ListSchema = z.object({
   status: z.string().optional(),
   packId: z.string().optional(),
-  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateFrom: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  dateTo: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   search: z.string().optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
@@ -21,80 +33,118 @@ export async function GET(req: NextRequest) {
   try {
     const raw = getUserSessionCookieFromRequest(req as unknown as Request);
     const session = await verifyUserSessionCookie(raw);
-    if (!session || !['STAFF', 'COORDINATOR', 'ADMIN'].includes(session.role)) return apiError('UNAUTHORIZED', undefined, undefined, 401);
-    const ip = req.headers.get('x-forwarded-for') || (req as any).ip || 'unknown';
+    if (!session || !["STAFF", "COORDINATOR", "ADMIN"].includes(session.role))
+      return apiError("UNAUTHORIZED", undefined, undefined, 401);
+    const ip = req.headers.get("x-forwarded-for") || (req as any).ip || "unknown";
     const rl = checkRateLimit(`staff:birthdays:list:${ip}`);
-    if (!rl.ok) return apiError('RATE_LIMITED', 'Too many requests', undefined, 429, { 'Retry-After': String(rl.retryAfterSeconds) });
+    if (!rl.ok)
+      return apiError("RATE_LIMITED", "Too many requests", undefined, 429, {
+        "Retry-After": String(rl.retryAfterSeconds),
+      });
     const { searchParams } = new URL(req.url);
     const parsed = ListSchema.safeParse({
-      status: searchParams.get('status') || undefined,
-      packId: searchParams.get('packId') || undefined,
-      dateFrom: searchParams.get('dateFrom') || undefined,
-      dateTo: searchParams.get('dateTo') || undefined,
-      search: searchParams.get('search') || undefined,
-      page: searchParams.get('page') || undefined,
-      pageSize: searchParams.get('pageSize') || undefined,
+      status: searchParams.get("status") || undefined,
+      packId: searchParams.get("packId") || undefined,
+      dateFrom: searchParams.get("dateFrom") || undefined,
+      dateTo: searchParams.get("dateTo") || undefined,
+      search: searchParams.get("search") || undefined,
+      page: searchParams.get("page") || undefined,
+      pageSize: searchParams.get("pageSize") || undefined,
     });
-    if (!parsed.success) return apiError('INVALID_QUERY', 'Validation failed', parsed.error.flatten(), 400);
+    if (!parsed.success)
+      return apiError("INVALID_QUERY", "Validation failed", parsed.error.flatten(), 400);
     const f = parsed.data;
     // STAFF y ADMIN mantienen la vista operativa de hoy en adelante.
     // COORDINATOR también necesita revisar el histórico reciente, pero siempre
     // usando la fecha de celebración y conservando las reservas futuras.
-    const todayLima = DateTime.now().setZone('America/Lima').startOf('day').toJSDate();
-    const requestedDateFrom = f.dateFrom ? new Date(f.dateFrom + 'T00:00:00.000Z') : undefined;
-    const requestedDateTo = f.dateTo ? new Date(f.dateTo + 'T23:59:59.999Z') : undefined;
+    const todayLima = DateTime.now().setZone("America/Lima").startOf("day").toJSDate();
+    const requestedDateFrom = f.dateFrom ? new Date(f.dateFrom + "T00:00:00.000Z") : undefined;
+    const requestedDateTo = f.dateTo ? new Date(f.dateTo + "T23:59:59.999Z") : undefined;
     const coordinatorMinDate = new Date(todayLima.getTime() - 28 * 24 * 60 * 60 * 1000);
-    const minimumDateFrom = session.role === 'COORDINATOR' ? coordinatorMinDate : todayLima;
-    const dateFrom = requestedDateFrom && requestedDateFrom > minimumDateFrom
-      ? requestedDateFrom
-      : minimumDateFrom;
-    const res = await listReservations({ status: f.status, packId: f.packId, dateFrom, dateTo: requestedDateTo, search: f.search }, { page: f.page, pageSize: f.pageSize || 30, sortBy: 'date' });
+    const minimumDateFrom = session.role === "COORDINATOR" ? coordinatorMinDate : todayLima;
+    const dateFrom =
+      requestedDateFrom && requestedDateFrom > minimumDateFrom
+        ? requestedDateFrom
+        : minimumDateFrom;
+    const res = await listReservations(
+      { status: f.status, packId: f.packId, dateFrom, dateTo: requestedDateTo, search: f.search },
+      { page: f.page, pageSize: f.pageSize || 30, sortBy: "date" }
+    );
     return apiOk(res);
-  } catch (e:any) {
+  } catch (e: any) {
     const msg = String(e?.message || e);
     if (/column .* does not exist/i.test(msg) || /no such column/i.test(msg)) {
-      return apiError('DB_SCHEMA_MISMATCH', 'Faltan migraciones en la base de datos.', { raw: msg }, 500);
+      return apiError(
+        "DB_SCHEMA_MISMATCH",
+        "Faltan migraciones en la base de datos.",
+        { raw: msg },
+        500
+      );
     }
-  return apiError('INTERNAL_ERROR', 'Error al listar reservas', { raw: msg }, 500);
+    return apiError("INTERNAL_ERROR", "Error al listar reservas", { raw: msg }, 500);
   }
 }
 
-const CreateSchema = z.object({
-  celebrantName: z.string().min(1).max(120),
-  phone: z.string().min(5).max(40),
-  documento: z.string().min(3).max(40),
-  email: z.string().email().optional().nullable(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  timeSlot: z.string().min(1).max(20),
-  packId: z.string().min(1),
-  guestsPlanned: z.number().int().min(1).max(200),
-  wantsPhotoSession: z.boolean().optional().default(false),
-});
+const CreateSchema = reservationCreateSchema;
 
 export async function POST(req: NextRequest) {
   const raw = getUserSessionCookieFromRequest(req as unknown as Request);
   const session = await verifyUserSessionCookie(raw);
-  if (!session || !['STAFF', 'COORDINATOR', 'ADMIN'].includes(session.role)) return apiError('UNAUTHORIZED', undefined, undefined, 401);
-  const ip = req.headers.get('x-forwarded-for') || (req as any).ip || 'unknown';
+  if (!session || !["STAFF", "COORDINATOR", "ADMIN"].includes(session.role))
+    return apiError("UNAUTHORIZED", undefined, undefined, 401);
+  const ip = req.headers.get("x-forwarded-for") || (req as any).ip || "unknown";
   const rl = checkRateLimit(`staff:birthdays:create:${ip}`);
-  if (!rl.ok) return apiError('RATE_LIMITED', 'Too many requests', undefined, 429, { 'Retry-After': String(rl.retryAfterSeconds) });
+  if (!rl.ok)
+    return apiError("RATE_LIMITED", "Too many requests", undefined, 429, {
+      "Retry-After": String(rl.retryAfterSeconds),
+    });
   try {
-    const body = await req.json().catch(()=>({}));
+    const body = await req.json().catch(() => ({}));
     const parsed = CreateSchema.safeParse(body);
-    if (!parsed.success) return apiError('INVALID_BODY','Validation failed', parsed.error.flatten(), 400);
-    const { celebrantName, phone, documento, email, date, timeSlot, packId, guestsPlanned, wantsPhotoSession } = parsed.data;
+    if (!parsed.success)
+      return apiError("INVALID_BODY", "Validation failed", parsed.error.flatten(), 400);
+    const {
+      celebrantName,
+      phone,
+      documento,
+      email,
+      date,
+      timeSlot,
+      packId,
+      guestsPlanned,
+      wantsPhotoSession,
+    } = parsed.data;
     const dt = limaDateTimeToJSDate(parseDateStringToLima(date));
-    if (!isFinite(dt.getTime())) return apiError('INVALID_DATE', 'invalid date', undefined, 400);
-    const created = await createReservation({ celebrantName, phone, documento, email: email || undefined, date: dt, timeSlot, packId, guestsPlanned, wantsPhotoSession, createdBy: session.role, createdByUserId: session.userId, reservationSource: 'USER_PORTAL', isAdmin: true });
+    if (!isFinite(dt.getTime())) return apiError("INVALID_DATE", "invalid date", undefined, 400);
+    const created = await createReservation({
+      celebrantName,
+      phone,
+      documento,
+      email: email || undefined,
+      date: dt,
+      timeSlot,
+      packId,
+      guestsPlanned,
+      wantsPhotoSession,
+      createdBy: session.userId,
+      createdByUserId: session.userId,
+      reservationSource: "USER_PORTAL",
+      isAdmin: true,
+    });
     const dto = {
       id: created.id,
       celebrantName: created.celebrantName,
       phone: created.phone,
       documento: created.documento,
       email: created.email ?? null,
-      date: created.date.toISOString().slice(0,10),
+      date: created.date.toISOString().slice(0, 10),
       timeSlot: created.timeSlot,
-      pack: { id: created.pack.id, name: created.pack.name, qrCount: created.pack.qrCount, bottle: created.pack.bottle },
+      pack: {
+        id: created.pack.id,
+        name: created.pack.name,
+        qrCount: created.pack.qrCount,
+        bottle: created.pack.bottle,
+      },
       guestsPlanned: created.guestsPlanned,
       wantsPhotoSession: created.wantsPhotoSession,
       reservationSource: created.reservationSource,
@@ -104,7 +154,7 @@ export async function POST(req: NextRequest) {
       createdAt: created.createdAt.toISOString(),
     };
     return apiOk({ ok: true, reservation: dto }, 201);
-  } catch(e:any) {
-    return apiError('CREATE_RESERVATION_ERROR', 'Failed to create reservation');
+  } catch (e: any) {
+    return apiError("CREATE_RESERVATION_ERROR", "Failed to create reservation");
   }
 }

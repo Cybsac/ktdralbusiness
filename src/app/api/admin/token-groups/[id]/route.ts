@@ -1,64 +1,68 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
+import { getPublicBaseUrl } from "@/lib/config";
+import { reusableGroupTokenSelect } from "@/lib/reusable-tokens/select";
+import { REUSABLE_POLICY } from "@/lib/reusable-tokens/policy";
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from "@/lib/auth";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const sessionCookie = getSessionCookieFromRequest(request);
     const session = await verifySessionCookie(sessionCookie);
-    const auth = requireRole(session, ['STAFF', 'ADMIN']);
+    const auth = requireRole(session, [...REUSABLE_POLICY.managementRoles]);
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error || 'No autorizado' }, { status: 401 });
+      return NextResponse.json({ error: auth.error || "No autorizado" }, { status: 401 });
     }
 
     const group = await prisma.tokenGroup.findUnique({
       where: { id: params.id },
       include: {
         tokens: {
-          include: {
-            prize: true
-          },
-          orderBy: { createdAt: 'desc' }
+          select: reusableGroupTokenSelect,
+          orderBy: { createdAt: "desc" },
         },
         _count: {
-          select: { tokens: true }
-        }
-      }
+          select: { tokens: true },
+        },
+      },
     });
 
     if (!group) {
-      return NextResponse.json({ error: 'Group not found' }, { status: 404 });
+      return NextResponse.json({ error: "Group not found" }, { status: 404 });
     }
 
-    return NextResponse.json(group);
+    return NextResponse.json(
+      {
+        ...group,
+        tokens: group.tokens.map((token) => ({
+          ...token,
+          qrUrl: `${getPublicBaseUrl(request.url)}/reusable/${token.id}`,
+        })),
+      },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
   } catch (error) {
-    console.error('Error fetching token group:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error("Error fetching token group:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const sessionCookie = getSessionCookieFromRequest(request);
     const session = await verifySessionCookie(sessionCookie);
-    const auth = requireRole(session, ['STAFF', 'ADMIN']);
+    const auth = requireRole(session, [...REUSABLE_POLICY.managementRoles]);
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error || 'No autorizado' }, { status: 401 });
+      return NextResponse.json({ error: auth.error || "No autorizado" }, { status: 401 });
     }
 
     const body = await request.json();
 
     // Toggle lock only
-    if (typeof body.locked === 'boolean' && Object.keys(body).length === 1) {
+    if (typeof body.locked === "boolean" && Object.keys(body).length === 1) {
       const group = await prisma.tokenGroup.update({
         where: { id: params.id },
-        data: { locked: body.locked }
+        data: { locked: body.locked },
       });
       return NextResponse.json(group);
     }
@@ -66,7 +70,7 @@ export async function PATCH(
     const { name, description, color } = body;
 
     if (!name?.trim()) {
-      return NextResponse.json({ error: 'Name is required' }, { status: 400 });
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
     const group = await prisma.tokenGroup.update({
@@ -74,43 +78,34 @@ export async function PATCH(
       data: {
         name: name.trim(),
         description: description?.trim() || null,
-        color: color || null
-      }
+        color: color || null,
+      },
     });
 
     return NextResponse.json(group);
   } catch (error) {
-    console.error('Error updating token group:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error("Error updating token group:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const sessionCookie = getSessionCookieFromRequest(request);
     const session = await verifySessionCookie(sessionCookie);
-    const auth = requireRole(session, ['STAFF', 'ADMIN']);
+    const auth = requireRole(session, [...REUSABLE_POLICY.managementRoles]);
     if (!auth.ok) {
-      return NextResponse.json({ error: auth.error || 'No autorizado' }, { status: 401 });
+      return NextResponse.json({ error: auth.error || "No autorizado" }, { status: 401 });
     }
 
-    // First, remove all tokens from this group
-    await prisma.reusableToken.updateMany({
-      where: { groupId: params.id },
-      data: { groupId: null }
-    });
-
-    // Then delete the group
-    await prisma.tokenGroup.delete({
-      where: { id: params.id }
-    });
+    await prisma.$transaction([
+      prisma.reusableToken.updateMany({ where: { groupId: params.id }, data: { groupId: null } }),
+      prisma.tokenGroup.delete({ where: { id: params.id } }),
+    ]);
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting token group:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error("Error deleting token group:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

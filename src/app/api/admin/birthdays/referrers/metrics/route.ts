@@ -1,109 +1,78 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
-
-export const dynamic = 'force-dynamic';
-
-export async function GET(request: NextRequest) {
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { birthdayAdministrator } from "@/lib/birthdays/managementAuth";
+import { BIRTHDAY_POLICY as P } from "@/lib/birthdays/policy";
+export const dynamic = "force-dynamic";
+export async function GET(req: NextRequest) {
+  if (!(await birthdayAdministrator(req)))
+    return NextResponse.json({ message: "Sin acceso" }, { status: 401 });
   try {
-    const systemConfig = await prisma.systemConfig.findUnique({ where: { id: 1 } }).catch(() => null);
-    const commissionAmount = Number(systemConfig?.birthdayReferrerCommissionAmount ?? 10);
-
-    // Get all referrers with their reservation stats
-    const referrers = await prisma.birthdayReferrer.findMany({
-      include: {
-        reservations: {
-          include: {
-            pack: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
-    // Calculate stats for each referrer
-    const referrerStats = referrers.map((referrer: any) => {
-      const totalReservations = referrer.reservations.length;
-      const completedReservations = referrer.reservations.filter((r: any) => r.status === 'completed').length;
-      
-      // Virtual earnings: all reservations (commission amount each)
-      const virtualEarnings = totalReservations * commissionAmount;
-      
-      // Real earnings: only completed reservations (commission amount each)
-      const realEarnings = completedReservations * commissionAmount;
-
-      // Calculate conversion rate (assuming all reservations are "converted" for now)
-      // In a real scenario, you might track visits vs conversions
-      const conversionRate = totalReservations > 0 ? 100 : 0;
-
-      // Get last reservation date
-      const lastReservation = referrer.reservations.length > 0
-        ? referrer.reservations[referrer.reservations.length - 1].createdAt.toISOString()
-        : null;
-
-      // Group reservations by month for trends
-      const reservationsByMonth = referrer.reservations.reduce((acc: { month: string; count: number }[], reservation: any) => {
-        const month = reservation.createdAt.toISOString().slice(0, 7); // YYYY-MM
-        const existing = acc.find((item: { month: string; count: number }) => item.month === month);
-        if (existing) {
-          existing.count++;
-        } else {
-          acc.push({ month, count: 1 });
-        }
-        return acc;
-      }, [] as { month: string; count: number }[]).sort((a: { month: string; count: number }, b: { month: string; count: number }) => a.month.localeCompare(b.month));
-
+    const [configuration, referrers, counts, months] = await Promise.all([
+      prisma.systemConfig.findUnique({
+        where: { id: 1 },
+        select: { birthdayReferrerCommissionAmount: true },
+      }),
+      prisma.birthdayReferrer.findMany({
+        orderBy: { createdAt: "desc" },
+        select: { id: true, name: true, slug: true, active: true, approvalStatus: true },
+      }),
+      prisma.birthdayReservation.groupBy({
+        by: ["referrerId", "status"],
+        where: { referrerId: { not: null } },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
+      prisma.$queryRaw<
+        Array<{ referrerId: string; month: string; count: bigint }>
+      >`SELECT "referrerId",to_char("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${P.timezone},'YYYY-MM') AS month,count(*) AS count FROM "BirthdayReservation" WHERE "referrerId" IS NOT NULL GROUP BY "referrerId",month ORDER BY month`,
+    ]);
+    const commissionAmount = Number(
+      configuration?.birthdayReferrerCommissionAmount ?? P.defaultReferralCommission
+    );
+    const rows = referrers.map((referrer) => {
+      const own = counts.filter((row) => row.referrerId === referrer.id);
+      const totalReservations = own.reduce((sum, row) => sum + row._count._all, 0);
+      const completedReservations = own
+        .filter((row) => row.status === "completed")
+        .reduce((sum, row) => sum + row._count._all, 0);
+      const latest = own
+        .flatMap((row) => (row._max.createdAt ? [row._max.createdAt] : []))
+        .sort((a, b) => b.getTime() - a.getTime())[0];
       return {
-        id: referrer.id,
-        name: referrer.name,
-        slug: referrer.slug,
-        active: referrer.active,
-        approvalStatus: referrer.approvalStatus,
+        ...referrer,
         totalReservations,
         completedReservations,
-        virtualEarnings,
-        realEarnings,
-        conversionRate,
-        lastReservation,
-        reservationsByMonth
+        virtualEarnings: totalReservations * commissionAmount,
+        realEarnings: completedReservations * commissionAmount,
+        conversionRate: totalReservations ? (completedReservations / totalReservations) * 100 : 0,
+        lastReservation: latest?.toISOString() || null,
+        reservationsByMonth: months
+          .filter((row) => row.referrerId === referrer.id)
+          .map((row) => ({ month: row.month, count: Number(row.count) })),
       };
     });
-
-    // Calculate overall stats
-    const totalReferrers = referrers.length;
-    const activeReferrers = referrers.filter((r: any) => r.active).length;
-    const totalReservations = referrerStats.reduce((sum: number, r: any) => sum + r.totalReservations, 0);
-    const totalCompletedReservations = referrerStats.reduce((sum: number, r: any) => sum + r.completedReservations, 0);
-    const totalVirtualEarnings = referrerStats.reduce((sum: number, r: any) => sum + r.virtualEarnings, 0);
-    const totalRealEarnings = referrerStats.reduce((sum: number, r: any) => sum + r.realEarnings, 0);
-    const averageConversionRate = referrerStats.length > 0
-      ? referrerStats.reduce((sum: number, r: any) => sum + r.conversionRate, 0) / referrerStats.length
-      : 0;
-
-    const overallStats = {
-      totalReferrers,
-      activeReferrers,
-      totalReservations,
-      totalCompletedReservations,
-      totalVirtualEarnings,
-      totalRealEarnings,
-      averageConversionRate,
-      commissionAmount
-    };
-
-    return NextResponse.json({
-      referrerStats,
-      overallStats
-    });
-
-  } catch (error) {
-    console.error('Error fetching referrer metrics:', error);
+    const totalReservations = rows.reduce((sum, row) => sum + row.totalReservations, 0),
+      totalCompletedReservations = rows.reduce((sum, row) => sum + row.completedReservations, 0);
     return NextResponse.json(
-      { message: 'Error interno del servidor' },
-      { status: 500 }
+      {
+        referrerStats: rows,
+        overallStats: {
+          totalReferrers: referrers.length,
+          activeReferrers: referrers.filter((row) => row.active).length,
+          totalReservations,
+          totalCompletedReservations,
+          totalVirtualEarnings: rows.reduce((sum, row) => sum + row.virtualEarnings, 0),
+          totalRealEarnings: rows.reduce((sum, row) => sum + row.realEarnings, 0),
+          averageConversionRate: rows.length
+            ? rows.reduce((sum, row) => sum + row.conversionRate, 0) / rows.length
+            : 0,
+          commissionAmount,
+        },
+      },
+      { headers: { "Cache-Control": "private, no-store" } }
     );
+  } catch (error) {
+    console.error("Birthday referral metrics failed", error);
+    return NextResponse.json({ message: "No se pudo consultar el resumen" }, { status: 500 });
   }
 }

@@ -65,6 +65,8 @@ model TokenGroup {
 
 model ReusableToken {
   id                String        @id @default(cuid())
+  generationKey     String?       @unique
+  generationHash    String?
   prizeId           String
   groupId           String?
   expiresAt         DateTime
@@ -95,6 +97,7 @@ model ReusableToken {
 
 model ReusableTokenRedemption {
   id        String   @id @default(cuid())
+  operationKey String?
   tokenId   String
   type      String   // "redeem" or "deliver"
   userId    String?
@@ -104,6 +107,7 @@ model ReusableTokenRedemption {
 
   @@index([tokenId])
   @@index([createdAt])
+  @@unique([tokenId, operationKey])
 }
 
 model Batch {
@@ -2510,4 +2514,31 @@ model StationReading {
   confirmedAt DateTime?
   station     OperationStation @relation(fields: [stationId], references: [id], onDelete: Cascade)
   @@index([stationId, confirmedAt, createdAt])
+}
+
+model BirthdayPackCatalog {
+  id String @id
+  snapshot Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BirthdayStorageCleanup {
+ id String @id @default(cuid())
+ storageKey String @unique
+ createdAt DateTime @default(now())
+ nextAttemptAt DateTime @default(now())
+ attempts Int @default(0)
+ lastError String?
+ @@index([nextAttemptAt])
+}
+model InvitationTemplateAsset {
+  id String @id @default(cuid())
+  storageKey String @unique
+  url String @unique
+  createdAt DateTime @default(now())
+  nextCheckAt DateTime
+  attempts Int @default(0)
+  lastError String?
+  @@index([nextCheckAt])
 }

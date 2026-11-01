@@ -1,3 +1,4 @@
+import { staticPrizeWhere } from "@/lib/batch/static-prizes";
 import { z } from "zod";
 
 import { apiError, apiOk } from "@/lib/apiError";
@@ -31,6 +32,25 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const valid = gameUpdateSchema.safeParse(body);
     if (!valid.success)
       return apiError("INVALID_BODY", "Stock o nombre inválido", valid.error.flatten(), 400);
+  }
+  if (query.get("scope") === "static") {
+    const valid = z
+      .object({
+        label: updateSchema.shape.label,
+        stock: updateSchema.shape.stock,
+        active: updateSchema.shape.active,
+      })
+      .strict()
+      .safeParse(body);
+    if (!valid.success)
+      return apiError("INVALID_BODY", "Datos inválidos", valid.error.flatten(), 400);
+    if (
+      !(await prisma.prize.findFirst({
+        where: { ...staticPrizeWhere, id: params.id },
+        select: { id: true },
+      }))
+    )
+      return apiError("NOT_FOUND", "Premio estático no encontrado", undefined, 404);
   }
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) {
@@ -81,6 +101,12 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   const managementGate = await requirePrizeManagement(_req);
   if (managementGate) return managementGate;
   const id = params.id;
+  if (
+    new URL(_req.url).searchParams.get("scope") === "static" &&
+    !(await prisma.prize.findFirst({ where: { ...staticPrizeWhere, id }, select: { id: true } }))
+  )
+    return apiError("NOT_FOUND", "Premio estático no encontrado", undefined, 404);
+
   if (new URL(_req.url).searchParams.get("scope") === "game") {
     try {
       if (

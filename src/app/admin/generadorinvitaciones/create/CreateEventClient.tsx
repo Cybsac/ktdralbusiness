@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 export function CreateEventClient() {
@@ -18,8 +18,16 @@ export function CreateEventClient() {
   const [templatePreview, setTemplatePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(
+    () => () => {
+      if (templatePreview) URL.revokeObjectURL(templatePreview);
+    },
+    [templatePreview]
+  );
+
   async function handleUploadTemplate(file: File) {
-    setUploading(true); setErr(null);
+    setUploading(true);
+    setErr(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -46,10 +54,11 @@ export function CreateEventClient() {
   }
 
   async function handleCreate() {
-    setCreating(true); setErr(null);
+    setCreating(true);
+    setErr(null);
     try {
-      if (!name.trim()) throw new Error('El nombre del evento es obligatorio');
-      if (!date) throw new Error('La fecha es obligatoria');
+      if (!name.trim()) throw new Error("El nombre del evento es obligatorio");
+      if (!date) throw new Error("La fecha es obligatoria");
 
       const payload: any = {
         name: name.trim(),
@@ -61,9 +70,9 @@ export function CreateEventClient() {
       if (maxGuests && parseInt(maxGuests)) payload.maxGuests = parseInt(maxGuests);
       if (templateUrl.trim()) payload.templateUrl = templateUrl.trim();
 
-      const res = await fetch('/api/admin/invitations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/admin/invitations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const j = await res.json();
@@ -81,11 +90,19 @@ export function CreateEventClient() {
     <div className="min-h-screen bg-[var(--color-bg)]">
       <div className="mx-auto max-w-3xl px-4 py-6 space-y-6">
         <div className="flex items-center gap-3">
-          <a href="/admin/generadorinvitaciones" className="text-blue-600 hover:underline text-sm">← Volver</a>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Crear Evento Especial</h1>
+          <a href="/admin/generadorinvitaciones" className="text-blue-600 hover:underline text-sm">
+            ← Volver
+          </a>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+            Crear Evento Especial
+          </h1>
         </div>
 
-        {err && <div className="border border-red-700 bg-red-950/30 text-red-200 rounded p-3 text-sm">{err}</div>}
+        {err && (
+          <div className="border border-red-700 bg-red-950/30 text-red-200 rounded p-3 text-sm">
+            {err}
+          </div>
+        )}
 
         <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-6 bg-white dark:bg-slate-800 shadow-sm space-y-4">
           <div>
@@ -192,7 +209,9 @@ export function CreateEventClient() {
                   className="w-20 h-36 object-cover rounded border border-slate-300 dark:border-slate-600"
                 />
                 <div className="flex-1 space-y-2">
-                  <p className="text-xs text-green-600 dark:text-green-400 font-medium">✅ Plantilla subida</p>
+                  <p className="text-xs text-green-600 dark:text-green-400 font-medium">
+                    ✅ Plantilla subida
+                  </p>
                   <p className="text-[10px] text-slate-400 break-all">{templateUrl}</p>
                   <button
                     type="button"
@@ -205,7 +224,10 @@ export function CreateEventClient() {
                   <button
                     type="button"
                     className="text-sm text-rose-500 hover:underline ml-3"
-                    onClick={() => { setTemplateUrl(""); setTemplatePreview(null); }}
+                    onClick={() => {
+                      setTemplateUrl("");
+                      setTemplatePreview(null);
+                    }}
                   >
                     Quitar
                   </button>
@@ -222,30 +244,37 @@ export function CreateEventClient() {
                   <div className="space-y-2">
                     <div className="animate-spin text-2xl">⏳</div>
                     <p className="text-sm text-blue-500 font-medium">Subiendo y optimizando...</p>
-                    <p className="text-xs text-slate-400">Se redimensiona a 1080×1920 automáticamente</p>
+                    <p className="text-xs text-slate-400">
+                      Se redimensiona a 1080×1920 automáticamente
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2">
                     <div className="text-3xl">🎨</div>
-                    <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Subir plantilla de tarjeta</p>
-                    <p className="text-xs text-slate-400">PNG, JPG o WebP · Máx 10MB · Se optimiza a 1080×1920</p>
+                    <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">
+                      Subir plantilla de tarjeta
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      PNG, JPG o WebP · Máx 10MB · Se optimiza a 1080×1920
+                    </p>
                   </div>
                 )}
               </button>
             )}
 
             <p className="text-xs text-slate-500 mt-1">
-              El QR se imprimirá en la zona central (460×460px). Si no se sube plantilla, se usará fondo oscuro por defecto. Se puede cambiar después.
+              El QR se imprimirá en la zona central (460×460px). Si no se sube plantilla, se usará
+              fondo oscuro por defecto. Se puede cambiar después.
             </p>
           </div>
 
           <div className="flex justify-end pt-2">
             <button
               className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50"
-              disabled={creating}
+              disabled={creating || uploading}
               onClick={handleCreate}
             >
-              {creating ? 'Creando...' : 'Crear Evento'}
+              {creating ? "Creando..." : "Crear Evento"}
             </button>
           </div>
         </div>

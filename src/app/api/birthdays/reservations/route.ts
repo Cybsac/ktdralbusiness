@@ -1,50 +1,46 @@
-import { NextRequest } from 'next/server';
-import { z } from 'zod';
-import { apiError, apiOk } from '@/lib/apiError';
-import { checkRateLimit } from '@/lib/rateLimit';
-import { createReservation } from '@/lib/birthdays/service';
-import { signClientSecret } from '@/lib/birthdays/clientAuth';
-import { isBirthdaysEnabledPublic } from '@/lib/featureFlags';
-import { corsHeadersFor } from '@/lib/cors';
-import { parseDateStringToLima, limaDateTimeToJSDate } from '@/lib/birthdays/service';
+import { reservationCreateSchema } from "@/lib/birthdays/reservation-input";
+import { NextRequest } from "next/server";
+import { z } from "zod";
+import { apiError, apiOk } from "@/lib/apiError";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { createReservation } from "@/lib/birthdays/service";
+import { signClientSecret } from "@/lib/birthdays/clientAuth";
+import { isBirthdaysEnabledPublic } from "@/lib/featureFlags";
+import { corsHeadersFor } from "@/lib/cors";
+import { parseDateStringToLima, limaDateTimeToJSDate } from "@/lib/birthdays/service";
 
-const CreateReservationSchema = z.object({
-  celebrantName: z.string().min(1).max(120),
-  phone: z.string().min(5).max(40),
-  documento: z.string().min(3).max(40),
-  email: z.string().email().optional().nullable(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // YYYY-MM-DD
-  timeSlot: z.string().min(1).max(20),
-  packId: z.string().min(1),
-  guestsPlanned: z.number().int().min(1).max(200),
-  wantsPhotoSession: z.boolean().optional().default(false),
-  referrerId: z.string().optional(),
-});
+const CreateReservationSchema = reservationCreateSchema;
 
 export async function POST(req: NextRequest) {
   const cors = corsHeadersFor(req as unknown as Request);
   // Feature flag: gate public birthdays creation
   if (!isBirthdaysEnabledPublic()) {
-    return apiError('NOT_FOUND', 'Not found', undefined, 404, cors);
+    return apiError("NOT_FOUND", "Not found", undefined, 404, cors);
   }
-  try { console.log('[API] /api/birthdays/reservations POST incoming'); } catch {}
-  const ip = req.headers.get('x-forwarded-for') || req.ip || 'unknown';
-  // Rate limiting por IP TEMPORALMENTE DESACTIVADO
-  /*
-  const rl = checkRateLimit(`birthdays:create:${ip}`);
-  if (!rl.ok) {
-    return apiError('RATE_LIMITED', 'Too many requests', undefined, 429, { ...cors, 'Retry-After': String(rl.retryAfterSeconds) });
-  }
-  */
+  try {
+    console.log("[API] /api/birthdays/reservations POST incoming");
+  } catch {}
+  const ip = req.headers.get("x-forwarded-for") || req.ip || "unknown";
   try {
     const body = await req.json();
     const parsed = CreateReservationSchema.safeParse(body);
     if (!parsed.success) {
-      return apiError('INVALID_BODY', 'Validation failed', parsed.error.flatten(), 400, cors);
+      return apiError("INVALID_BODY", "Validation failed", parsed.error.flatten(), 400, cors);
     }
-    const { celebrantName, phone, documento, email, date, timeSlot, packId, guestsPlanned, wantsPhotoSession, referrerId } = parsed.data;
+    const {
+      celebrantName,
+      phone,
+      documento,
+      email,
+      date,
+      timeSlot,
+      packId,
+      guestsPlanned,
+      wantsPhotoSession,
+      referrerId,
+    } = parsed.data;
     const dt = limaDateTimeToJSDate(parseDateStringToLima(date));
-    if (!isFinite(dt.getTime())) return apiError('INVALID_DATE', 'invalid date', undefined, 400);
+    if (!isFinite(dt.getTime())) return apiError("INVALID_DATE", "invalid date", undefined, 400);
 
     const created = await createReservation({
       celebrantName,
@@ -57,7 +53,7 @@ export async function POST(req: NextRequest) {
       guestsPlanned,
       wantsPhotoSession,
       referrerId,
-      reservationSource: 'PUBLIC',
+      reservationSource: "PUBLIC",
     });
 
     // Build a safe DTO (omit heavy relations and internal fields not needed client-side)
@@ -69,7 +65,13 @@ export async function POST(req: NextRequest) {
       email: created.email ?? null,
       date: created.date.toISOString().slice(0, 10),
       timeSlot: created.timeSlot,
-      pack: { id: created.pack.id, name: created.pack.name, qrCount: created.pack.qrCount, bottle: created.pack.bottle, featured: created.pack.featured },
+      pack: {
+        id: created.pack.id,
+        name: created.pack.name,
+        qrCount: created.pack.qrCount,
+        bottle: created.pack.bottle,
+        featured: created.pack.featured,
+      },
       guestsPlanned: created.guestsPlanned,
       wantsPhotoSession: created.wantsPhotoSession,
       status: created.status,
@@ -79,25 +81,43 @@ export async function POST(req: NextRequest) {
     const clientSecret = signClientSecret(created.id, 15);
     return apiOk({ ok: true, ...dto, clientSecret }, 201, cors);
   } catch (e) {
-    console.error('[API] Error creating reservation:', e);
-    
+    console.error("[API] Error creating reservation:", e);
+
     // Handle specific error types
     if (e instanceof Error) {
-      if (e.message === 'DUPLICATE_DNI_YEAR') {
-        return apiError('DUPLICATE_DNI_YEAR', 'Ya tienes una reserva de cumpleaños este año', undefined, 409, cors);
+      if (e.message === "DUPLICATE_DNI_YEAR") {
+        return apiError(
+          "DUPLICATE_DNI_YEAR",
+          "Ya tienes una reserva de cumpleaños este año",
+          undefined,
+          409,
+          cors
+        );
       }
-      if (e.message === 'RATE_LIMITED') {
-        return apiError('RATE_LIMITED', 'Demasiadas solicitudes', undefined, 429, cors);
+      if (e.message === "RATE_LIMITED") {
+        return apiError("RATE_LIMITED", "Demasiadas solicitudes", undefined, 429, cors);
       }
-      if (e.message === 'INVALID_REFERRER') {
-        return apiError('INVALID_REFERRER', 'Referidor inválido', undefined, 400, cors);
+      if (e.message === "INVALID_REFERRER") {
+        return apiError("INVALID_REFERRER", "Referidor inválido", undefined, 400, cors);
       }
-      if (e.message === 'INVALID_NAME_MIN_WORDS') {
-        return apiError('INVALID_NAME_MIN_WORDS', 'Nombre debe tener al menos 2 palabras', undefined, 400, cors);
+      if (e.message === "INVALID_NAME_MIN_WORDS") {
+        return apiError(
+          "INVALID_NAME_MIN_WORDS",
+          "Nombre debe tener al menos 2 palabras",
+          undefined,
+          400,
+          cors
+        );
       }
     }
-    
-    return apiError('CREATE_RESERVATION_ERROR', 'Failed to create reservation', e instanceof Error ? e.message : String(e), 500, cors);
+
+    return apiError(
+      "CREATE_RESERVATION_ERROR",
+      "Failed to create reservation",
+      e instanceof Error ? e.message : String(e),
+      500,
+      cors
+    );
   }
 }
 

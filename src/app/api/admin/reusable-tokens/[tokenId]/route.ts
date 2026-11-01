@@ -1,15 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import { apiError } from '@/lib/apiError';
+import { deleteUnusedReusableTokens } from "@/lib/reusable-tokens/deletion";
+import { REUSABLE_POLICY } from "@/lib/reusable-tokens/policy";
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from "@/lib/auth";
+import { apiError } from "@/lib/apiError";
 
 export async function DELETE(req: NextRequest, { params }: { params: { tokenId: string } }) {
   try {
     const sessionCookie = getSessionCookieFromRequest(req);
     const session = await verifySessionCookie(sessionCookie);
-    const auth = requireRole(session, ['STAFF', 'ADMIN']);
+    const auth = requireRole(session, [...REUSABLE_POLICY.managementRoles]);
     if (!auth.ok) {
-      return apiError('UNAUTHORIZED', auth.error || 'No autorizado');
+      return apiError("UNAUTHORIZED", auth.error || "No autorizado");
     }
 
     const { tokenId } = params;
@@ -17,26 +19,25 @@ export async function DELETE(req: NextRequest, { params }: { params: { tokenId: 
     // Verificar que el token existe
     const token = await prisma.reusableToken.findUnique({
       where: { id: tokenId },
-      select: { id: true, usedCount: true, maxUses: true }
+      select: { id: true, usedCount: true, maxUses: true },
     });
 
     if (!token) {
-      return apiError('NOT_FOUND', 'Token no encontrado');
+      return apiError("NOT_FOUND", "Token no encontrado");
     }
 
-    // No permitir eliminar tokens que ya han sido usados
-    if (token.usedCount > 0) {
-      return apiError('BAD_REQUEST', 'No se puede eliminar un token que ya ha sido usado');
-    }
+    const { deleted } = await deleteUnusedReusableTokens([tokenId]);
+    if (!deleted)
+      return apiError(
+        "TOKEN_IN_USE",
+        "No se puede eliminar un token con usos o historial",
+        undefined,
+        409
+      );
 
-    // Eliminar el token
-    await prisma.reusableToken.delete({
-      where: { id: tokenId }
-    });
-
-    return NextResponse.json({ success: true, message: 'Token eliminado exitosamente' });
+    return NextResponse.json({ success: true, message: "Token eliminado exitosamente" });
   } catch (error) {
-    console.error('Error deleting reusable token:', error);
-    return apiError('INTERNAL_ERROR', 'Error interno');
+    console.error("Error deleting reusable token:", error);
+    return apiError("INTERNAL_ERROR", "Error interno");
   }
 }
