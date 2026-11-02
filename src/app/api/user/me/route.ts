@@ -29,7 +29,8 @@ export async function GET(req: Request) {
       dni: found.person?.dni ?? null,
     };
     return NextResponse.json({ ok: true, user });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, code: 'INTERNAL', message: String(e?.message || e) }, { status: 500 });
+  } catch (error) {
+    console.error('Error fetching profile:', error);
+    return NextResponse.json({ ok: false, code: 'INTERNAL', message: 'No se pudo cargar el perfil.' }, { status: 500 });
   }
 }

@@ -1,7 +1,7 @@
 import { getGlobalIo } from "@/lib/socket";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifyUserSessionCookie, getUserSessionCookieFromRequest } from '@/lib/auth';
+import { verifyUserSessionCookie, getUserSessionCookieFromRequest, roleAtLeast } from '@/lib/auth';
 
 interface ValidatePackageRequest {
   qrCode: string;
@@ -11,7 +11,7 @@ interface ValidatePackageRequest {
 export async function POST(req: NextRequest) {
   try {
     // Verificar que el usuario esté autenticado como admin/staff
-    const cookie = req.headers.get('cookie');
+    const cookie = getUserSessionCookieFromRequest(req);
     if (!cookie) {
       return NextResponse.json(
         { error: 'No autorizado' },
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     }
 
     const session = await verifyUserSessionCookie(cookie);
-    if (!session || !['ADMIN', 'COORDINATOR', 'STAFF'].includes(session.role)) {
+    if (!session || !roleAtLeast(session.role, 'STAFF')) {
       return NextResponse.json(
         { error: 'No autorizado. Se requiere rol de admin o staff.' },
         { status: 401 }
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (entriesToUse < 1) {
+    if (!Number.isSafeInteger(entriesToUse) || entriesToUse < 1) {
       return NextResponse.json(
         { error: 'El número de entradas a usar debe ser al menos 1' },
         { status: 400 }
@@ -105,13 +105,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Actualizar el contador de entradas utilizadas
-    const updatedPackage = await prisma.ticketPackage.update({
-      where: { id: ticketPackage.id },
+    const changed = await prisma.ticketPackage.updateMany({
+      where: { id: ticketPackage.id, status: 'CONFIRMED', usedTickets: ticketPackage.usedTickets, totalTickets: ticketPackage.totalTickets },
       data: {
         usedTickets: {
           increment: entriesToUse
         }
       },
+    });
+    if (changed.count !== 1) return NextResponse.json({ error: 'El paquete cambió. Vuelve a consultar.' }, { status: 409 });
+    const updatedPackage = await prisma.ticketPackage.findUniqueOrThrow({
+      where: { id: ticketPackage.id },
       include: {
         ticketPurchase: {
           include: {
@@ -185,7 +189,7 @@ export async function POST(req: NextRequest) {
 // Endpoint GET para obtener información de un paquete sin validarlo
 export async function GET(req: NextRequest) {
   try {
-    const cookie = req.headers.get('cookie');
+    const cookie = getUserSessionCookieFromRequest(req);
     if (!cookie) {
       return NextResponse.json(
         { error: 'No autorizado' },
@@ -194,7 +198,7 @@ export async function GET(req: NextRequest) {
     }
 
     const session = await verifyUserSessionCookie(cookie);
-    if (!session || !['ADMIN', 'COORDINATOR', 'STAFF'].includes(session.role)) {
+    if (!session || !roleAtLeast(session.role, 'STAFF')) {
       return NextResponse.json(
         { error: 'No autorizado' },
         { status: 401 }

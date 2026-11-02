@@ -9,6 +9,8 @@ import { canAccessReusableTokens } from '@/lib/reusable-tokens/access';
 import type { JourneyCategory } from '@/lib/journey-activity';
 import CloseDayModal from './CloseDayModal';
 import ReusableGroupActions from './ReusableGroupActions';
+import { ActivityMilestoneProgress, useActivityMilestones } from '@/components/activity-milestones/ActivityMilestoneProgress';
+import { ActivityMilestoneSettings } from '@/components/activity-milestones/ActivityMilestoneSettings';
 
 
 interface PersonInfo {
@@ -267,6 +269,7 @@ export default function DailyEvaluationPage() {
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
+  const activityMilestones = useActivityMilestones(canManageDailyEvaluation(userRole) ? 'team' : 'self');
   const [userArea, setUserArea] = useState<string>('');
   const [modalGroup, setModalGroup] = useState<ReusableGroup | null>(null);
   const [reusableDeliveryBusy, setReusableDeliveryBusy] = useState(false);
@@ -780,6 +783,7 @@ export default function DailyEvaluationPage() {
     </>
   ) : null;
 
+  const activityByUser = new Map(activityMilestones.users.map(item => [item.userId, item]));
   const journeySection = journeyStats ? (
     <>
       <div className="relative flex items-center gap-3 pt-2">
@@ -795,6 +799,7 @@ export default function DailyEvaluationPage() {
       ) : journeyStats.scope === 'self' ? (
         <div className="space-y-2">
           <p className="text-xs text-slate-500">Tus entregas, canjes y llegadas registradas durante la jornada. No todos los escaneos representan una venta.</p>
+          {activityMilestones.error ? <p role="status" className="text-xs text-amber-700">No se pudieron cargar los hitos. <button type="button" className="underline" onClick={() => void activityMilestones.refresh()}>Reintentar</button></p> : activityMilestones.users[0] && <ActivityMilestoneProgress progress={activityMilestones.users[0]} />}
           <div className="rounded-xl border border-teal-200 bg-teal-50 p-3 dark:border-teal-800 dark:bg-teal-900/10">
             <span className="text-xs font-medium text-teal-700 dark:text-teal-300">Total de operaciones registradas</span>
             <span className="ml-2 text-lg font-bold text-teal-900 dark:text-teal-100">{journeyStats.me.totalActions}</span>
@@ -818,6 +823,9 @@ export default function DailyEvaluationPage() {
         </div>
       ) : (
         <div className="space-y-3">
+          {userRole === 'ADMIN' && <ActivityMilestoneSettings onChanged={() => void activityMilestones.refresh()} />}
+          {activityMilestones.error && <p role="status" className="text-xs text-amber-700">No se pudieron cargar los hitos. <button type="button" className="underline" onClick={() => void activityMilestones.refresh()}>Reintentar</button></p>}
+          {!activityMilestones.error && activityMilestones.users.length > 0 && <details className="rounded-xl border border-teal-200 bg-white p-3 text-xs dark:border-teal-800 dark:bg-slate-800"><summary className="cursor-pointer font-semibold text-teal-700 dark:text-teal-300">Ver hitos acumulados del equipo</summary><div className="mt-3 max-h-96 space-y-2 overflow-y-auto">{activityMilestones.users.filter(item => item.total > 0 || item.points > 0).sort((a, b) => b.total - a.total || (a.displayName || '').localeCompare(b.displayName || '')).map(item => <details key={item.userId} className="rounded-lg border border-slate-200 p-2 dark:border-slate-700"><summary className="flex cursor-pointer justify-between gap-2"><span>{item.displayName || 'Usuario'}{item.area ? ` · ${item.area}` : ''}</span><span className="shrink-0 font-semibold">{item.total} operaciones · {item.points} puntos</span></summary><div className="mt-2"><ActivityMilestoneProgress progress={item} /></div></details>)}</div></details>}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             {userRole === 'ADMIN' && (
               <div className="flex flex-wrap gap-2">
@@ -852,9 +860,10 @@ export default function DailyEvaluationPage() {
             {journeyStats.operators?.length ? journeyStats.operators.map(row => (
               <details key={row.userId} className={`group rounded-xl border border-teal-200 p-3 dark:border-teal-800 ${row.userId === journeyStats.viewer.userId ? 'bg-teal-50 dark:bg-teal-900/20' : 'bg-white dark:bg-slate-800'}`}>
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
-                  <div className="min-w-0"><h4 className="break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{row.displayName}</h4><p className="mt-0.5 text-xs text-slate-500">{row.area || 'Sin área'} · {row.role}</p></div>
+                  <div className="min-w-0"><h4 className="break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{row.displayName}</h4><p className="mt-0.5 text-xs text-slate-500">{row.area || 'Sin área'} · {row.role}</p>{activityByUser.get(row.userId) && <p className="mt-1 text-[11px] text-teal-700 dark:text-teal-300">{activityByUser.get(row.userId)!.points} puntos acumulados</p>}</div>
                   <div className="flex shrink-0 items-center gap-3"><div className="text-right"><div className="text-xl font-bold text-teal-700 dark:text-teal-300">{row.totalActions}</div><div className="text-[10px] text-slate-500">operaciones</div></div><span aria-hidden="true" className="text-lg text-teal-700 transition-transform group-open:rotate-180 dark:text-teal-300">⌄</span></div>
                 </summary>
+                {activityByUser.get(row.userId) && <div className="mt-3"><ActivityMilestoneProgress progress={activityByUser.get(row.userId)!} /></div>}
                 <div className="mt-2 divide-y divide-slate-100 dark:divide-slate-700">
                   {([
                     ['reusable', 'QR reutilizables', row.reusableDeliveries + row.reusableRedemptions],
@@ -893,6 +902,7 @@ export default function DailyEvaluationPage() {
                           <td className="px-3 py-2">
                             <div className="font-medium text-slate-900 dark:text-slate-100">{row.displayName}</div>
                             <div className="text-[11px] text-slate-500 dark:text-slate-400">{row.role}</div>
+                            {activityByUser.get(row.userId) && <div className="text-[11px] text-teal-700 dark:text-teal-300">{activityByUser.get(row.userId)!.total} acumuladas · {activityByUser.get(row.userId)!.points} puntos</div>}
                           </td>
                           <td className="px-3 py-2 text-center font-bold text-teal-700 dark:text-teal-300" title="Entregas, canjes y llegadas registradas">{row.totalActions}</td>
                           <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{row.area || "-"}</td>
@@ -1519,6 +1529,7 @@ export default function DailyEvaluationPage() {
                 {modalGroup.id === null && <p className="mb-2 text-xs text-slate-500">Estos tokens no aparecen en la lista por grupos; deben asignarse desde administración.</p>}
                 {modalGroup.id && !modalGroup.historicalOnly && (canOpenReusableTokens ? <ReusableGroupActions key={modalGroup.id} groupId={modalGroup.id} onBusyChange={setReusableDeliveryBusy} onDelivered={() => {
                   void fetchJourneyStats();
+                  void activityMilestones.refresh();
                   const version = requestVersion.current;
                   void fetch(`/api/admin/daily-evaluation/reusable?day=${encodeURIComponent(selectedDay)}`, { cache: 'no-store' })
                     .then(response => { if (!response.ok) throw new Error('No se pudieron actualizar los indicadores.'); return response.json(); })

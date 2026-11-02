@@ -5,6 +5,7 @@ import { logEvent } from "@/lib/log";
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 import { apiError, apiOk } from "@/lib/apiError";
+import { USER_POLICY } from "@/lib/users/policy";
 
 export const dynamic = "force-dynamic";
 
@@ -19,14 +20,14 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}) as any);
     const { currentPassword, newPassword } = body || {};
 
-    if (!currentPassword || !newPassword) {
+    if (typeof currentPassword !== "string" || !currentPassword || typeof newPassword !== "string" || !newPassword) {
       return apiError("INVALID_INPUT", "Contraseña actual y nueva son requeridas", undefined, 400);
     }
 
     if (!passwordSchema.safeParse(newPassword).success) {
       return apiError(
         "INVALID_PASSWORD",
-        "La nueva contraseña debe tener al menos 8 caracteres",
+        `La contraseña debe tener al menos ${USER_POLICY.passwordMin} caracteres y como máximo ${USER_POLICY.passwordMax} bytes`,
         undefined,
         400
       );
@@ -55,17 +56,17 @@ export async function POST(req: Request) {
     }
 
     // Hash new password
-    const salt = bcrypt.genSaltSync(10);
-    const newPasswordHash = bcrypt.hashSync(newPassword, salt);
+    const newPasswordHash = await bcrypt.hash(newPassword, USER_POLICY.bcryptRounds);
 
     // Update password and clear forcePasswordChange flag
-    await prisma.user.update({
-      where: { id: session.userId },
+    const updated = await prisma.user.updateMany({
+      where: { id: session.userId, passwordHash: user.passwordHash },
       data: {
         passwordHash: newPasswordHash,
         forcePasswordChange: false,
       },
     });
+    if (updated.count !== 1) return apiError("PASSWORD_CHANGED", "La contraseña cambió. Inicia sesión nuevamente.", undefined, 409);
 
     await logEvent("USER_PASSWORD_CHANGE", "Usuario cambió su contraseña", {
       userId: session.userId,

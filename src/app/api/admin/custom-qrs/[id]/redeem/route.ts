@@ -53,6 +53,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         customerName: true,
         redeemedAt: true,
         isActive: true,
+        expiresAt: true,
+        revokedAt: true,
         extendedCount: true,
         customData: true,
         metadata: true,
@@ -63,9 +65,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       return apiError("NOT_FOUND", "QR no encontrado", undefined, 404);
     }
 
-    if (!customQr.isActive) {
+    if (!customQr.isActive || customQr.revokedAt) {
       return apiError("INACTIVE", "Este QR está inactivo", undefined, 409);
     }
+    if (customQr.expiresAt && customQr.expiresAt <= new Date()) return apiError("EXPIRED", "Este QR ha vencido", undefined, 410);
 
     const metadata = parseCustomData(customQr.customData);
     const currentAdminMetadata = parseMetadata(customQr.metadata);
@@ -93,8 +96,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       exhausted,
     });
 
-    await (prisma as any).customQr.update({
-      where: { id: qrId },
+    const updated = await (prisma as any).customQr.updateMany({
+      where: { id: qrId, isActive: true, revokedAt: null, redeemedAt: null, extendedCount: customQr.extendedCount, customData: customQr.customData, metadata: customQr.metadata, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
       data: {
         extendedCount: { increment: 1 },
         lastExtendedAt: now,
@@ -107,6 +110,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         }),
       },
     });
+    if (updated.count !== 1) return apiError("QR_CHANGED", "El estado del QR cambió. Vuelve a consultarlo.", undefined, 409);
 
     await audit("custom_qr_redeemed", session.userId, {
       qrCode: customQr.code,

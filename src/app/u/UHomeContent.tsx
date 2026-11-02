@@ -2,6 +2,7 @@
 import {
   IconAlertTriangle,
   IconBell,
+  IconBolt,
   IconCake,
   IconChartBar,
   IconClipboardCheck,
@@ -55,8 +56,8 @@ export default function UHomeContent({
   const hasReusableTokensAccess =
     isCoordinator || (isStaff && (userArea === "Animación" || userArea === "Multimedia"));
   const [activeTab, setActiveTab] = useState<
-    "today" | "personal" | "work" | "cumpleanos" | "novedades"
-  >("today");
+    "quick" | "today" | "personal" | "work" | "cumpleanos" | "novedades"
+  >("quick");
   const requestedTab = searchParams?.get("tab");
 
   useEffect(() => {
@@ -171,12 +172,23 @@ export default function UHomeContent({
         <div className="space-y-6 sm:space-y-8">
           {/* Pestañas */}
           <div className="border-b border-gray-200 dark:border-gray-700">
-            <nav className="-mb-px flex justify-around">
+            <nav className="-mb-px flex justify-around" aria-label="Secciones del colaborador">
+              {/* Accesos rápidos */}
+              <button
+                type="button"
+                title="Accesos rápidos"
+                aria-label="Accesos rápidos"
+                aria-pressed={activeTab === "quick"}
+                onClick={() => setActiveTab("quick")}
+                className={`border-b-2 px-2 py-3 sm:px-4 ${activeTab === "quick" ? "border-blue-500 text-blue-600 dark:text-blue-400" : "border-transparent text-gray-400 hover:border-gray-300 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"}`}
+              >
+                <IconBolt className="h-5 w-5" />
+              </button>
               {/* Hoy */}
               <button
                 title="Hoy"
                 onClick={() => setActiveTab("today")}
-                className={`py-3 px-4 border-b-2 ${
+                className={`py-3 px-2 sm:px-4 border-b-2 ${
                   activeTab === "today"
                     ? "border-blue-500 text-blue-600 dark:text-blue-400"
                     : "border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-300 dark:text-gray-500 dark:hover:text-gray-300"
@@ -196,7 +208,7 @@ export default function UHomeContent({
               <button
                 title="Mi Perfil"
                 onClick={() => setActiveTab("personal")}
-                className={`py-3 px-4 border-b-2 ${
+                className={`py-3 px-2 sm:px-4 border-b-2 ${
                   activeTab === "personal"
                     ? "border-blue-500 text-blue-600 dark:text-blue-400"
                     : "border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-300 dark:text-gray-500 dark:hover:text-gray-300"
@@ -216,7 +228,7 @@ export default function UHomeContent({
               <button
                 title="Herramientas"
                 onClick={() => setActiveTab("work")}
-                className={`py-3 px-4 border-b-2 ${
+                className={`py-3 px-2 sm:px-4 border-b-2 ${
                   activeTab === "work"
                     ? "border-blue-500 text-blue-600 dark:text-blue-400"
                     : "border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-300 dark:text-gray-500 dark:hover:text-gray-300"
@@ -245,7 +257,7 @@ export default function UHomeContent({
                   setActiveTab("cumpleanos");
                   fetchBirthdays();
                 }}
-                className={`py-3 px-4 border-b-2 relative ${
+                className={`py-3 px-2 sm:px-4 border-b-2 relative ${
                   activeTab === "cumpleanos"
                     ? "border-pink-500 text-pink-600 dark:text-pink-400"
                     : todayBirthdayCount > 0
@@ -269,7 +281,7 @@ export default function UHomeContent({
                   setActiveTab("novedades");
                   fetchInbox();
                 }}
-                className={`py-3 px-4 border-b-2 relative ${
+                className={`py-3 px-2 sm:px-4 border-b-2 relative ${
                   activeTab === "novedades"
                     ? "border-blue-500 text-blue-600 dark:text-blue-400"
                     : pendingCount > 0
@@ -290,6 +302,30 @@ export default function UHomeContent({
 
           {/* Contenido de las pestañas */}
           <div className="min-h-[420px]">
+            {activeTab === "quick" && (
+              <section aria-labelledby="quick-access-title" className="space-y-3 sm:space-y-4">
+                <h1 id="quick-access-title" className="text-base font-semibold text-slate-900 dark:text-slate-100">Accesos rápidos</h1>
+                <SharedAutoAttendanceCard initialLastType={lastType} basePath="/u" />
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="rounded-lg border border-green-200 bg-white p-5 shadow-sm dark:border-green-800/60 dark:bg-slate-800">
+                    <div className="mb-2 flex items-center gap-3">
+                      <IconQrcode aria-hidden="true" className="h-6 w-6 text-green-600 dark:text-green-400" />
+                      <h2 className="text-lg font-medium text-gray-900 dark:text-slate-100">Escáner QR</h2>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-slate-300">Escanea los códigos QR de la aplicación.</p>
+                    <div className="mt-4"><Link href="/u/scanner" className="btn">Abrir escáner</Link></div>
+                  </div>
+                  <div className="rounded-lg border border-green-200 bg-white p-5 shadow-sm dark:border-green-800/60 dark:bg-slate-800">
+                    <div className="mb-2 flex items-center gap-3">
+                      <IconClipboardCheck aria-hidden="true" className="h-6 w-6 text-green-600 dark:text-green-400" />
+                      <h2 className="text-lg font-medium text-gray-900 dark:text-slate-100">Jornada</h2>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-slate-300">Consulta la actividad y los indicadores de la jornada.</p>
+                    <div className="mt-4"><Link href="/u/daily-evaluation" className="btn">Ver jornada</Link></div>
+                  </div>
+                </div>
+              </section>
+            )}
             {activeTab === "today" && (
               <div className="grid grid-cols-1 gap-3 sm:gap-6">
                 <SharedAutoAttendanceCard initialLastType={lastType} basePath="/u" />

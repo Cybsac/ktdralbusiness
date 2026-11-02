@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { verifySessionCookie } from "@/lib/auth";
+import { getUserSessionCookieFromRequest, verifyUserSessionCookie, roleAtLeast } from "@/lib/auth";
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +13,7 @@ const validateTicketSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // Verificar autenticación de staff/admin
-    const cookie = request.headers.get('cookie');
+    const cookie = getUserSessionCookieFromRequest(request);
     if (!cookie) {
       return NextResponse.json(
         { error: "No autorizado" },
@@ -21,8 +21,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const session = await verifySessionCookie(cookie);
-    if (!session) {
+    const session = await verifyUserSessionCookie(cookie);
+    if (!session || !roleAtLeast(session.role, 'STAFF')) {
       return NextResponse.json(
         { error: "Sesión inválida" },
         { status: 401 }
@@ -99,13 +99,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Ticket válido - marcar como usado
-    const updatedTicket = await prisma.ticket.update({
-      where: { id: ticket.id },
+    const changed = await prisma.ticket.updateMany({
+      where: { id: ticket.id, status: ticket.status },
       data: {
         status: 'USED',
         usedAt: new Date()
       }
     });
+    if (changed.count !== 1) return NextResponse.json({ valid: false, error: 'El estado del ticket cambió. Vuelve a consultar.' }, { status: 409 });
+    const updatedTicket = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
 
     return NextResponse.json({
       valid: true,

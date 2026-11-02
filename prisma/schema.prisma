@@ -2174,6 +2174,42 @@ model PersonDailyRating {
   @@index([personId])
 }
 
+// Activity credits remain independent from tokens so their history survives deletion.
+model ActivityCredit {
+  id         String    @id
+  userId     String
+  source     String
+  occurredAt DateTime
+  voidedAt   DateTime?
+  @@index([userId, voidedAt, occurredAt])
+}
+
+model ActivityBalance {
+  userId String @id
+  total  Int    @default(0)
+}
+
+model ActivityMilestone {
+  id        String   @id @default(cuid())
+  threshold Int      @unique
+  points    Int
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  awards    ActivityMilestoneAward[]
+}
+
+model ActivityMilestoneAward {
+  userId      String
+  milestoneId String
+  threshold   Int
+  points      Int
+  earnedAt    DateTime
+  revokedAt   DateTime?
+  milestone   ActivityMilestone @relation(fields: [milestoneId], references: [id], onDelete: Restrict)
+  @@id([userId, milestoneId])
+  @@index([userId, revokedAt])
+}
+
 // ─── PRODUCCIÓN MULTIMEDIA ───────────────────────────────────────────
 
 enum ProductionType {

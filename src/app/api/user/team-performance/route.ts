@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { currentBusinessDay } from '@/lib/attendanceDay';
+import { DAILY_EVALUATION_TIME_ZONE } from '@/lib/daily-evaluation';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +48,8 @@ function summarize(ratings: Rating[], closedDays = 0): Summary {
   const evaluatedDays = new Set(
     ratings.filter((item) => SCORE_BY_RATING[item.rating]).map((item) => item.businessDay)
   ).size;
-  const averageScore = evaluatedDays > 0 ? Number((total / evaluatedDays).toFixed(2)) : null;
+  const validCount = ratings.filter(item => SCORE_BY_RATING[item.rating]).length;
+  const averageScore = validCount > 0 ? Number((total / validCount).toFixed(2)) : null;
 
   return {
     averageScore,
@@ -64,8 +67,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, code: 'FORBIDDEN' }, { status: 403 });
     }
 
-    const today = DateTime.now().setZone('America/Lima').startOf('day') as any;
-    const currentBusinessDay = today.toFormat('yyyy-MM-dd');
+    const currentDay = currentBusinessDay();
+    const today = DateTime.fromISO(currentDay, { zone: DAILY_EVALUATION_TIME_ZONE });
     const weekStart = today.startOf('week').toFormat('yyyy-MM-dd');
     const thirtyDayStart = today.minus({ days: 29 }).toFormat('yyyy-MM-dd');
 
@@ -75,20 +78,21 @@ export async function GET(req: Request) {
       orderBy: { name: 'asc' },
     });
     const workerIds = workers.map((worker) => worker.id);
-    const [ratings, closedEvaluations] = await Promise.all([
+    const [allRatings, closedEvaluations] = await Promise.all([
       prisma.personDailyRating.findMany({
         where: {
           personId: { in: workerIds },
-          businessDay: { gte: thirtyDayStart, lte: currentBusinessDay },
+          businessDay: { gte: thirtyDayStart, lte: currentDay },
         },
         select: { personId: true, businessDay: true, rating: true },
       }),
       prisma.dailyEvaluation.findMany({
-        where: { businessDay: { gte: thirtyDayStart, lte: currentBusinessDay }, closedAt: { not: null } },
+        where: { businessDay: { gte: thirtyDayStart, lte: currentDay }, closedAt: { not: null } },
         select: { businessDay: true },
       }),
     ]);
     const closedDays = new Set(closedEvaluations.map((evaluation) => evaluation.businessDay));
+    const ratings = allRatings.filter(rating => closedDays.has(rating.businessDay));
 
     const ratingsByPerson = new Map<string, Rating[]>();
     for (const rating of ratings) {
@@ -114,8 +118,8 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true,
       team: {
-        week: { ...summarize(allWeekRatings, closedEvaluations.filter((evaluation) => evaluation.businessDay >= weekStart).length), start: weekStart, end: currentBusinessDay },
-        last30Days: { ...summarize(allRecentRatings, closedDays.size), start: thirtyDayStart, end: currentBusinessDay },
+        week: { ...summarize(allWeekRatings, closedEvaluations.filter((evaluation) => evaluation.businessDay >= weekStart).length), start: weekStart, end: currentDay },
+        last30Days: { ...summarize(allRecentRatings, closedDays.size), start: thirtyDayStart, end: currentDay },
         people,
       },
     });

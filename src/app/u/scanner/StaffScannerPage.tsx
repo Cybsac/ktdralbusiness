@@ -1,10 +1,13 @@
 "use client";
 import { STATION_INVITATION_PREFIX, STATION_PAIR_KEY } from "@/lib/station/contracts";
 import { prizeAuthorizedFetch } from "@/lib/prize-authorization/client";
+import { classifyScannerTarget, observeScannerCode, type ScannerTarget } from "@/lib/scanner/classify";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BrowserMultiFormatReader } from "@zxing/browser";
-import { verifyBirthdayClaim, type BirthdayClaim } from "@/lib/birthdays/token";
+import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
+import TicketScanPanel from './TicketScanPanel';
+import CustomQrScanPanel from './CustomQrScanPanel';
+import ScannerFlowPanel from './ScannerFlowPanel';
 import {
   IconArrowLeft,
   IconCamera,
@@ -28,6 +31,7 @@ type ScanHistoryEntry = {
     | "static"
     | "mundial2026"
     | "fanzone"
+    | "other"
     | "error";
   label: string;
   detail?: string;
@@ -77,78 +81,6 @@ function decodeOfferQrFromText(
   return null;
 }
 
-function decodeBirthdayQrFromText(text: string): BirthdayClaim | null {
-  // Try JSON direct - birthday tokens are SignedBirthdayToken objects
-  try {
-    const j = JSON.parse(text);
-    if (j && typeof j === "object" && j.payload && j.sig) {
-      const token = j as { payload: BirthdayClaim; sig: string };
-      const verification = verifyBirthdayClaim(token);
-      if (verification.ok) {
-        return verification.payload;
-      }
-    }
-  } catch {}
-  return null;
-}
-
-function isMundial2026Qr(text: string): boolean {
-  const value = text.trim();
-  if (!value) return false;
-
-  if (/^M26_[A-Z0-9]+$/i.test(value)) {
-    return true;
-  }
-
-  try {
-    const url = new URL(value);
-    if (/^\/mundial2026\/jugada\/[^/?#]+$/i.test(url.pathname)) {
-      return true;
-    }
-  } catch {
-    // Not a URL.
-  }
-
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      "type" in parsed &&
-      (parsed as { type?: unknown }).type === "mundial2026_prediction" &&
-      "qrCode" in parsed &&
-      typeof (parsed as { qrCode?: unknown }).qrCode === "string"
-    ) {
-      return true;
-    }
-  } catch {
-    // Not JSON.
-  }
-
-  return false;
-}
-
-function extractMundial2026FanZoneCode(text: string): string | null {
-  const value = text.trim();
-  if (!value) return null;
-
-  const extractFromPath = (pathname: string) => {
-    const match = pathname.match(/^(?:\/(?:mundial2026\/)?)?fanzone\/([^/?#]+)$/i);
-    return match?.[1] ? decodeURIComponent(match[1]).trim() : null;
-  };
-
-  try {
-    const url = new URL(value);
-    const code = extractFromPath(url.pathname);
-    if (code) return code;
-  } catch {
-    // Not a URL.
-  }
-
-  const directPath = value.match(/^(?:\/(?:mundial2026\/)?)?fanzone\/([^/?#]+)$/i);
-  return directPath?.[1] ? decodeURIComponent(directPath[1]).trim() : null;
-}
-
 function beep(freq = 880, duration = 120, type: OscillatorType = "sine", volume = 0.08) {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -177,16 +109,27 @@ export default function StaffScannerPage({
   beforeScan,
 }: { beforeScan?: (text: string) => Promise<void> } = {}) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
+  const controlsRef = useRef<IScannerControls | null>(null);
   const processingRef = useRef(false);
+  const resultOpenRef = useRef(false);
+  const lastSeenRef = useRef<{ text: string; at: number } | null>(null);
   const cooldownUntil = useRef(0);
   const setCooldownUntil = useCallback((until: number) => {
     cooldownUntil.current = until;
   }, []);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraActive, setCameraActive] = useState(true);
+  const [pageVisible, setPageVisible] = useState(true);
+  const [deviceId, setDeviceId] = useState('');
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [torchAvailable, setTorchAvailable] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [cameraAttempt, setCameraAttempt] = useState(0);
+  const [activeTarget, setActiveTarget] = useState<ScannerTarget | null>(null);
+  const [offerDelivering, setOfferDelivering] = useState(false);
+  const offerDeliveryLock = useRef(false);
 
-  const [banner, setBanner] = useState<{ variant: "success" | "error"; message: string } | null>(
+  const [banner, setBanner] = useState<{ variant: "success" | "error"; message: string; action?: { label: string; href: string } } | null>(
     null
   );
   const [offerOverlay, setOfferOverlay] = useState<{
@@ -196,7 +139,6 @@ export default function StaffScannerPage({
     purchaseId?: string;
     canComplete?: boolean;
   } | null>(null);
-  const [overlayHideTimeout, setOverlayHideTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const [scanHistory, setScanHistory] = useState<ScanHistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -250,9 +192,15 @@ export default function StaffScannerPage({
   }, []);
 
   const processDecodedText = useCallback(
-    async (text: string) => {
+    async (text: string, source: 'camera' | 'image' = 'camera') => {
       if (!text) return;
-      if (processingRef.current || Date.now() < cooldownUntil.current) return;
+      const now = Date.now();
+      if (source === 'camera') {
+        const observed = observeScannerCode(lastSeenRef.current, text, now, resultOpenRef.current || processingRef.current || now < cooldownUntil.current);
+        lastSeenRef.current = observed.lastSeen;
+        if (!observed.accept) return;
+      }
+      if (resultOpenRef.current || processingRef.current || now < cooldownUntil.current) return;
       processingRef.current = true;
 
       if (text.startsWith(STATION_INVITATION_PREFIX)) {
@@ -281,24 +229,12 @@ export default function StaffScannerPage({
         }
       }
 
-      // Game QR codes use the same destination and delivery guards as a direct scan.
-      try {
-        const url = new URL(text.trim(), window.location.origin);
-        const isToken = /^\/r\/[^/]+\/?$/.test(url.pathname);
-        const isGame = url.pathname === "/marketing/ruleta" && !!url.searchParams.get("tokenId");
-        if (isToken || isGame) {
-          window.location.assign(url.pathname + url.search + url.hash);
-          return;
-        }
-      } catch {
-        /* Continue with the other supported QR formats. */
-      }
-
       // 1) Detect GLOBAL QR (attendance posters) — this scanner does NOT handle attendance
       if (isGlobalQr(text)) {
         setBanner({
           variant: "error",
           message: "Este escáner no registra asistencia. Usa el escáner de Entrada/Salida.",
+          action: { label: 'Abrir asistencia', href: '/u/assistance' },
         });
         beep(220, 100, "square");
         vibrate(80);
@@ -312,6 +248,7 @@ export default function StaffScannerPage({
         setBanner({
           variant: "error",
           message: "QR de asistencia detectado. Usa el escáner de Entrada/Salida para registrar.",
+          action: { label: 'Abrir asistencia', href: '/u/assistance' },
         });
         beep(220, 100, "square");
         vibrate(80);
@@ -332,6 +269,7 @@ export default function StaffScannerPage({
           const json = await res.json();
 
           if (json.valid) {
+            resultOpenRef.current = true;
             setOfferOverlay({
               purchase: {
                 customerName: json.purchase.customerName,
@@ -346,8 +284,6 @@ export default function StaffScannerPage({
               purchaseId: json.purchase.purchaseId,
               canComplete: json.purchase.status === "PENDING",
             });
-            if (overlayHideTimeout) clearTimeout(overlayHideTimeout);
-            setOverlayHideTimeout(setTimeout(() => setOfferOverlay(null), 10000));
             addHistory({
               type: "offer",
               label: `Oferta: ${json.offer.title}`,
@@ -388,180 +324,27 @@ export default function StaffScannerPage({
         return;
       }
 
-      // 3) Detect BIRTHDAY QR: redirect to appropriate birthday interface
-      const birthdayClaim = decodeBirthdayQrFromText(text);
-      if (birthdayClaim) {
+      // App routes are recognized centrally and opened locally; the destination keeps its own authorization.
+      let target = classifyScannerTarget(text, window.location.origin);
+      if (!target) {
         try {
-          // Check if user has valid session (admin/staff or collaborator)
-          const sessionRes = await fetch("/api/static/session");
-          const sessionJson = await sessionRes.json();
-          const hasValidSession =
-            sessionJson.isStaff || sessionJson.isAdmin || sessionJson.isCollaborator;
-
-          if (hasValidSession) {
-            window.location.href = `/u/birthdays/${encodeURIComponent(birthdayClaim.rid)}`;
-          } else {
-            window.location.href = `/marketing/birthdays/${encodeURIComponent(birthdayClaim.rid)}/qrs`;
-          }
-
-          addHistory({
-            type: "birthday",
-            label: "Token de cumpleaños",
-            detail: birthdayClaim.rid,
-            variant: "success",
-          });
-
-          setBanner({
-            variant: "success",
-            message: `🎂 Token de cumpleaños detectado - Redirigiendo...`,
-          });
-          beep(880, 120, "sine");
-          vibrate(60);
-          setCooldownUntil(Date.now() + 2000);
-        } catch (e: any) {
-          setBanner({
-            variant: "error",
-            message: `Error al procesar token de cumpleaños: ${String(e?.message || e)}`,
-          });
-          beep(220, 150, "square");
-          vibrate(120);
-          setCooldownUntil(Date.now() + 1000);
+          const response = await fetch('/api/user/scanner/identify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: text }) });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'No se pudo identificar el código.');
+          target = data.target as ScannerTarget | null;
+        } catch (error) {
+          setBanner({ variant: 'error', message: `${error instanceof Error ? error.message : 'No se pudo identificar el código.'} Retira el QR y vuelve a intentarlo.` });
+          processingRef.current = false;
+          return;
         }
-        processingRef.current = false;
-        return;
       }
-
-      // 3.5) Detect BIRTHDAY URL: redirect to birthday page
-      try {
-        const url = new URL(text);
-        if (url.pathname.startsWith("/b/")) {
-          // Extract code from URL
-          const code = url.pathname.split("/b/")[1];
-          if (code && code.length >= 4) {
-            addHistory({
-              type: "birthday",
-              label: "Código de cumpleaños",
-              detail: code,
-              variant: "info",
-            });
-            window.location.href = url.pathname + url.search + url.hash;
-            setBanner({
-              variant: "success",
-              message: `🎂 Código de cumpleaños detectado - Redirigiendo...`,
-            });
-            beep(880, 120, "sine");
-            vibrate(60);
-            setCooldownUntil(Date.now() + 2000);
-            processingRef.current = false;
-            return;
-          }
-        }
-      } catch {
-        // Not a URL, continue with normal processing
-      }
-
-      // 3.6) Detect STATIC TOKEN URL: redirect to the static token page
-      // Static QR codes are generated as /static/{tokenId}, either as a full
-      // URL or as a relative path. Keep the token ID path-safe when redirecting.
-      const staticTokenMatch = text.trim().match(/(?:^|\/)(?:static)\/([^\/\s?#]{4,})/i);
-      if (staticTokenMatch) {
-        const tokenId = staticTokenMatch[1];
-        addHistory({ type: "static", label: "Token estático", detail: tokenId, variant: "info" });
-        setBanner({ variant: "success", message: "🎫 Token estático detectado - Redirigiendo..." });
+      if (target) {
+        resultOpenRef.current = true;
+        setActiveTarget(target);
+        addHistory({ type: "other", label: target.kind === 'page' ? target.label : target.kind === 'custom' ? 'QR personalizado' : target.kind === 'servicePoint' ? 'Punto de servicio' : target.package ? 'Paquete de entradas' : 'Ticket', variant: "info" });
+        setBanner(null);
         beep(880, 120, "sine");
         vibrate(60);
-        setCooldownUntil(Date.now() + 2000);
-        window.location.href = `/static/${encodeURIComponent(tokenId)}`;
-        processingRef.current = false;
-        return;
-      }
-
-      // 3.7) Detect REUSABLE TOKEN URL: redirect to reusable token page
-      try {
-        const url = new URL(text);
-        if (url.pathname.startsWith("/reusable/")) {
-          // Extract tokenId from URL
-          const tokenId = url.pathname.split("/reusable/")[1];
-          if (tokenId) {
-            addHistory({
-              type: "reusable",
-              label: "Token reutilizable",
-              detail: tokenId,
-              variant: "info",
-            });
-            setBanner({
-              variant: "success",
-              message: `🎫 Token reutilizable detectado - Redirigiendo...`,
-            });
-            beep(880, 120, "sine");
-            vibrate(60);
-            setCooldownUntil(Date.now() + 2000);
-            // Redirect to reusable token page
-            window.location.href = `/reusable/${tokenId}`;
-            processingRef.current = false;
-            return;
-          }
-        }
-      } catch {
-        // Not a URL, continue with normal processing
-      }
-
-      // 3.8) Detect INVITATION URL: redirect to invitation validation page
-      try {
-        const url = new URL(text);
-        if (url.pathname.startsWith("/i/")) {
-          const invCode = url.pathname.split("/i/")[1];
-          if (invCode && invCode.length >= 4) {
-            addHistory({
-              type: "invitation",
-              label: "Invitación detectada",
-              detail: invCode,
-              variant: "info",
-            });
-            setBanner({ variant: "success", message: `🎟️ Invitación detectada - Redirigiendo...` });
-            beep(880, 120, "sine");
-            vibrate(60);
-            setCooldownUntil(Date.now() + 2000);
-            window.location.href = url.pathname + url.search + url.hash;
-            processingRef.current = false;
-            return;
-          }
-        }
-      } catch {
-        // Not a URL, continue with normal processing
-      }
-
-      // 3.9) Detect MUNDIAL 2026 QR: redirect to Mundial 2026 redeem flow
-      const fanZoneCode = extractMundial2026FanZoneCode(text);
-      if (fanZoneCode) {
-        addHistory({
-          type: "fanzone",
-          label: "Fan Zone Mundial 2026",
-          detail: fanZoneCode,
-          variant: "success",
-        });
-        setBanner({
-          variant: "success",
-          message: "Fan Zone Mundial 2026 detectada - Abriendo canje...",
-        });
-        beep(880, 120, "sine");
-        vibrate(60);
-        setCooldownUntil(Date.now() + 2000);
-        window.location.href = `/admin/mundial2026/fanzone/${encodeURIComponent(fanZoneCode)}`;
-        processingRef.current = false;
-        return;
-      }
-
-      if (isMundial2026Qr(text)) {
-        addHistory({ type: "mundial2026", label: "Jugada Mundial 2026", variant: "success" });
-        setBanner({
-          variant: "success",
-          message: "Jugada Mundial 2026 detectada - Redirigiendo...",
-        });
-        beep(880, 120, "sine");
-        vibrate(60);
-        setCooldownUntil(Date.now() + 2000);
-        window.location.href = `/u/mundial2026/scan?scan=${encodeURIComponent(text)}`;
         processingRef.current = false;
         return;
       }
@@ -580,89 +363,90 @@ export default function StaffScannerPage({
   const onFileSelect = useCallback(
     async (file: File | null) => {
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const dataUrl = String(reader.result || "");
-        try {
-          const r: any = await (readerRef.current as any)?.decodeFromImageUrl?.(dataUrl);
-          const text: string | undefined = r?.getText?.();
-          if (text) {
-            await processDecodedText(text);
-          } else {
-            setBanner({ variant: "error", message: "No se pudo leer el QR de la imagen" });
-          }
-        } catch (e) {
-          setBanner({ variant: "error", message: "No se pudo leer el QR de la imagen" });
-        }
-      };
-      reader.readAsDataURL(file);
+      const url = URL.createObjectURL(file);
+      try {
+        const result = await new BrowserMultiFormatReader().decodeFromImageUrl(url);
+        await processDecodedText(result.getText(), 'image');
+      } catch {
+        setBanner({ variant: "error", message: "No se pudo leer el QR de la imagen" });
+      } finally {
+        URL.revokeObjectURL(url);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
     },
     [processDecodedText]
   );
 
   useEffect(() => {
-    return () => {
-      if (overlayHideTimeout) {
-        clearTimeout(overlayHideTimeout);
-      }
-    };
-  }, [overlayHideTimeout]);
+    const update = () => setPageVisible(document.visibilityState === 'visible');
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, []);
 
   useEffect(() => {
-    if (!cameraActive) return;
+    if (!cameraActive || !pageVisible) return;
     let mounted = true;
     const reader = new BrowserMultiFormatReader();
-    readerRef.current = reader;
-
     const videoEl = videoRef.current;
-    const constraints = { video: { facingMode: "environment" as const } };
+    if (!videoEl) return;
+    let videoTrack: MediaStreamTrack | undefined;
+    const onTrackEnded = () => { if (mounted) setCameraError('La cámara se detuvo. Pulsa Reintentar para activarla de nuevo.'); };
+    setCameraError(null);
+    const constraints: MediaStreamConstraints = { video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } } };
 
     reader
-      .decodeFromConstraints(constraints, videoEl!, (result: Result | null, _err: unknown) => {
+      .decodeFromConstraints(constraints, videoEl, (result: Result | null, _err: unknown) => {
         if (!mounted) return;
         if (result) {
           processDecodedText(result.getText());
         }
       })
+      .then(async controls => {
+        if (!mounted) { controls.stop(); return; }
+        controlsRef.current = controls;
+        videoTrack = (videoEl.srcObject as MediaStream | null)?.getVideoTracks()[0];
+        videoTrack?.addEventListener('ended', onTrackEnded);
+        try {
+          const capabilities = videoTrack?.getCapabilities?.() as (MediaTrackCapabilities & { torch?: boolean }) | undefined;
+          setTorchAvailable(Boolean(capabilities?.torch && controls.switchTorch));
+        } catch { setTorchAvailable(false); }
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          if (mounted) setCameras(devices.filter(device => device.kind === 'videoinput'));
+        } catch { /* Camera selection remains optional. */ }
+      })
       .catch((e: unknown) => {
         if (!mounted) return;
-        const msg =
-          typeof e === "object" && e && "toString" in e ? (e as any).toString() : String(e);
-        setCameraError(msg || "Permiso denegado o cámara no disponible");
-        setBanner({ variant: "error", message: `No se pudo abrir la cámara: ${msg}` });
+        const name = e instanceof Error ? e.name : '';
+        setCameraError(name === 'NotAllowedError' ? 'Permite el acceso a la cámara en tu navegador.' : name === 'NotFoundError' ? 'No se encontró una cámara disponible.' : 'Revisa los permisos y la conexión de la cámara.');
       });
 
     return () => {
       mounted = false;
-      try {
-        readerRef.current?.reset();
-      } catch {}
-      try {
-        const s = videoRef.current?.srcObject as MediaStream | undefined;
-        s?.getTracks().forEach((t) => t.stop());
-      } catch {}
+      videoTrack?.removeEventListener('ended', onTrackEnded);
+      try { controlsRef.current?.stop(); } catch { /* La cámara puede haberse desconectado. */ }
+      controlsRef.current = null;
+      setTorchAvailable(false);
+      setTorchOn(false);
     };
-  }, [processDecodedText, cameraActive]);
+  }, [processDecodedText, cameraActive, pageVisible, deviceId, cameraAttempt]);
 
   const toggleCamera = useCallback(() => {
-    if (cameraActive) {
-      // Stop camera
-      try {
-        readerRef.current?.reset();
-      } catch {}
-      try {
-        const s = videoRef.current?.srcObject as MediaStream | undefined;
-        s?.getTracks().forEach((t) => t.stop());
-      } catch {}
-    }
     setCameraError(null);
     setCameraActive((p) => !p);
-  }, [cameraActive]);
+  }, []);
 
   const retryCamera = useCallback(() => {
     setCameraError(null);
-    setCameraActive(false);
-    setTimeout(() => setCameraActive(true), 100);
+    setCameraActive(true);
+    setCameraAttempt(value => value + 1);
+  }, []);
+
+  const closeResult = useCallback(() => {
+    resultOpenRef.current = false;
+    setActiveTarget(null);
+    setOfferOverlay(null);
   }, []);
 
   return (
@@ -678,7 +462,7 @@ export default function StaffScannerPage({
             <span className="hidden sm:inline">Volver</span>
           </button>
           <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-slate-100 tracking-tight">
-            Escáner Staff
+            Escáner QR
           </h1>
           <button
             onClick={() => setShowHistory((p) => !p)}
@@ -707,6 +491,7 @@ export default function StaffScannerPage({
               }`}
             >
               <span className="flex-1 text-left">{banner.message}</span>
+              {banner.action && <a href={banner.action.href} className="shrink-0 underline">{banner.action.label}</a>}
               <button
                 onClick={() => setBanner(null)}
                 className="flex-shrink-0 opacity-60 hover:opacity-100"
@@ -717,7 +502,7 @@ export default function StaffScannerPage({
           )}
 
           {/* Camera viewport */}
-          <div className="relative w-full aspect-[4/3] overflow-hidden rounded-2xl border-2 border-gray-200 dark:border-slate-600 bg-black shadow-lg">
+          <div className="relative aspect-[3/4] max-h-[65dvh] w-full overflow-hidden rounded-2xl border-2 border-gray-200 bg-black shadow-lg dark:border-slate-600 sm:aspect-[4/3]">
             <video
               ref={videoRef}
               className="h-full w-full object-cover"
@@ -766,8 +551,11 @@ export default function StaffScannerPage({
                   {offerOverlay.canComplete && (
                     <button
                       className="pointer-events-auto mt-3 px-4 py-2 bg-white text-green-800 font-semibold rounded-lg shadow-lg hover:bg-gray-100 transition-colors text-sm"
+                      disabled={offerDelivering}
                       onClick={async () => {
-                        if (!offerOverlay.purchaseId) return;
+                        if (!offerOverlay.purchaseId || offerDeliveryLock.current) return;
+                        offerDeliveryLock.current = true;
+                        setOfferDelivering(true);
                         try {
                           const res = await prizeAuthorizedFetch("/api/offers/complete-delivery", {
                             method: "POST",
@@ -780,11 +568,11 @@ export default function StaffScannerPage({
                               variant: "success",
                               message: "✅ Entrega completada exitosamente",
                             });
-                            setOfferOverlay(null);
+                            closeResult();
                             beep(880, 120, "sine");
                             vibrate(60);
                           } else {
-                            setBanner({ variant: "error", message: `Error: ${data.error}` });
+                            setBanner({ variant: "error", message: data.message || data.error || 'No se pudo completar la entrega.' });
                             beep(220, 150, "square");
                             vibrate(120);
                           }
@@ -795,12 +583,13 @@ export default function StaffScannerPage({
                           });
                           beep(220, 150, "square");
                           vibrate(120);
-                        }
+                        } finally { offerDeliveryLock.current = false; setOfferDelivering(false); }
                       }}
                     >
-                      Completar Entrega
+                      {offerDelivering ? 'Registrando…' : 'Completar entrega'}
                     </button>
                   )}
+                  <div><button type="button" disabled={offerDelivering} onClick={closeResult} className="pointer-events-auto mt-2 min-h-11 rounded-lg px-3 text-sm font-semibold text-white underline disabled:opacity-50">Seguir escaneando</button></div>
                 </div>
               </div>
             )}
@@ -810,7 +599,7 @@ export default function StaffScannerPage({
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 p-4 text-center text-white rounded-2xl">
                 <IconCameraOff size={40} className="opacity-50 mb-3" />
                 <p className="mb-1 font-bold text-sm">No se pudo acceder a la cámara</p>
-                <p className="text-xs opacity-80 mb-3">Concede permiso de cámara al navegador.</p>
+                <p className="text-xs opacity-80 mb-3">{cameraError}</p>
                 <button
                   onClick={retryCamera}
                   className="flex items-center gap-1.5 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium transition-colors"
@@ -841,6 +630,7 @@ export default function StaffScannerPage({
                 </>
               )}
             </button>
+            {torchAvailable && <button type="button" aria-pressed={torchOn} onClick={async () => { try { await controlsRef.current?.switchTorch?.(!torchOn); setTorchOn(value => !value); } catch { setBanner({ variant: 'error', message: 'No se pudo cambiar la linterna.' }); } }} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm dark:border-slate-600">{torchOn ? 'Apagar luz' : 'Linterna'}</button>}
             <label className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer transition-colors">
               <IconPhoto size={16} />
               Imagen
@@ -867,6 +657,7 @@ export default function StaffScannerPage({
               )}
             </div>
           </div>
+          {cameras.length > 1 && <label className="mt-2 flex items-center gap-2 text-xs text-slate-500">Cámara <select aria-label="Seleccionar cámara" value={deviceId} onChange={event => setDeviceId(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800">{!deviceId && <option value="">Cámara trasera</option>}{cameras.map((camera, index) => <option key={camera.deviceId} value={camera.deviceId}>{camera.label || `Cámara ${index + 1}`}</option>)}</select></label>}
 
           {/* Supported QR types info */}
           <div className="mt-3 px-1">
@@ -882,6 +673,12 @@ export default function StaffScannerPage({
               </span>
               <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">
                 🎫 Reutilizables
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">
+                🎟️ Entradas
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700">
+                Y otros QR de la aplicación
               </span>
             </div>
           </div>
@@ -950,6 +747,10 @@ export default function StaffScannerPage({
           </div>
         )}
       </div>
+      {activeTarget?.kind === 'page' && <ScannerFlowPanel href={activeTarget.href} label={activeTarget.label} onClose={closeResult} />}
+      {activeTarget?.kind === 'ticket' && <TicketScanPanel code={activeTarget.code} isPackage={activeTarget.package} onClose={closeResult} />}
+      {activeTarget?.kind === 'custom' && <CustomQrScanPanel code={activeTarget.code} onClose={closeResult} />}
+      {activeTarget?.kind === 'servicePoint' && <div role="dialog" aria-modal="true" aria-label="Punto de servicio" className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-3 sm:items-center"><div className="w-full max-w-md space-y-3 rounded-2xl bg-white p-4 dark:bg-slate-800"><h2 className="text-base font-semibold">Punto de servicio</h2><p className="text-sm font-medium">{activeTarget.label} · {activeTarget.location}</p><p className="text-xs text-slate-500">{activeTarget.active ? 'Disponible' : 'Inactivo'}</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={closeResult} className="min-h-11 rounded-lg border border-slate-300 text-sm dark:border-slate-600">Seguir escaneando</button><button type="button" onClick={() => setActiveTarget({ kind: 'page', label: 'Mesas y ubicaciones', href: '/u/mesas' })} className="min-h-11 rounded-lg bg-teal-700 text-sm font-semibold text-white">Ver mesas</button></div></div></div>}
     </div>
   );
 }

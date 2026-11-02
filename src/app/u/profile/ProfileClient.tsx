@@ -2,6 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { IconUser, IconId, IconMapPin, IconShield, IconKey, IconCheck, IconX, IconChartBar } from '@tabler/icons-react';
+import { useRouter } from 'next/navigation';
+import { ROLE_CHOICES, USER_POLICY } from '@/lib/users/policy';
+import { RATING_OPTIONS } from '@/lib/daily-evaluation-options';
+import { RATING_LEVELS } from '@/lib/daily-evaluation';
+import { ActivityMilestoneProgress, useActivityMilestones } from '@/components/activity-milestones/ActivityMilestoneProgress';
 
 interface UserProfile {
   id: string;
@@ -28,14 +33,9 @@ interface PerformanceData {
   trend: 'IMPROVING' | 'STABLE' | 'DECLINING' | null;
 }
 
-const PERFORMANCE_LABELS: Record<string, { label: string; emoji: string; color: string }> = {
-  MALO: { label: 'Malo', emoji: '😞', color: 'text-red-600 dark:text-red-400' },
-  REGULAR: { label: 'Regular', emoji: '😐', color: 'text-amber-600 dark:text-amber-400' },
-  BUENO: { label: 'Bueno', emoji: '😊', color: 'text-blue-600 dark:text-blue-400' },
-  MUY_BUENO: { label: 'Muy Bueno', emoji: '🤩', color: 'text-emerald-600 dark:text-emerald-400' },
-};
-
 export default function ProfileClient() {
+  const router = useRouter();
+  const milestones = useActivityMilestones('self');
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -46,32 +46,43 @@ export default function ProfileClient() {
   const [error, setError] = useState<string | null>(null);
   const [performance, setPerformance] = useState<PerformanceData | null>(null);
   const [performanceLoading, setPerformanceLoading] = useState(true);
+  const [profileError, setProfileError] = useState('');
+  const [performanceError, setPerformanceError] = useState('');
 
   useEffect(() => {
-    loadProfile();
+    const controller = new AbortController();
+    void loadProfile(controller.signal);
+    void loadPerformance(controller.signal);
+    return () => controller.abort();
   }, []);
 
-  async function loadProfile() {
+  async function loadProfile(signal?: AbortSignal) {
+    setLoading(true);
+    setProfileError('');
     try {
-      const [response, performanceResponse] = await Promise.all([
-        fetch('/api/user/me'),
-        fetch('/api/user/me/performance'),
-      ]);
-      const data = await response.json();
-      const performanceData = await performanceResponse.json().catch(() => ({}));
-
-      if (response.ok && data.ok) {
-        setProfile(data.user);
-      } else {
-        setError('Error al cargar el perfil');
-      }
-      if (performanceResponse.ok && performanceData.ok) setPerformance(performanceData.performance);
-
-    } catch (err) {
-      setError('Error de conexión');
+      const response = await fetch('/api/user/me', { signal, cache: 'no-store' });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok || !data.user) throw new Error('No se pudo cargar el perfil.');
+      setProfile(data.user);
+    } catch {
+      if (!signal?.aborted) setProfileError('No se pudo cargar el perfil. Inténtalo de nuevo.');
     } finally {
-      setLoading(false);
-      setPerformanceLoading(false);
+      if (!signal?.aborted) setLoading(false);
+    }
+  }
+
+  async function loadPerformance(signal?: AbortSignal) {
+    setPerformanceLoading(true);
+    setPerformanceError('');
+    try {
+      const response = await fetch('/api/user/me/performance', { signal, cache: 'no-store' });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) throw new Error('No se pudo cargar el rendimiento.');
+      setPerformance(data.performance);
+    } catch {
+      if (!signal?.aborted) setPerformanceError('No se pudo cargar el rendimiento.');
+    } finally {
+      if (!signal?.aborted) setPerformanceLoading(false);
     }
   }
 
@@ -85,8 +96,8 @@ export default function ProfileClient() {
       return;
     }
 
-    if (newPassword.length < 8) {
-      setError('La nueva contraseña debe tener al menos 8 caracteres');
+    if (newPassword.length < USER_POLICY.passwordMin || new TextEncoder().encode(newPassword).length > USER_POLICY.passwordMax) {
+      setError(`La contraseña debe tener al menos ${USER_POLICY.passwordMin} caracteres y como máximo ${USER_POLICY.passwordMax} bytes`);
       return;
     }
 
@@ -111,6 +122,7 @@ export default function ProfileClient() {
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
+        router.refresh();
       } else {
         setError(data.message || 'Error al cambiar la contraseña');
       }
@@ -132,13 +144,13 @@ export default function ProfileClient() {
   if (!profile) {
     return (
       <div className="h-screen sm:min-h-screen flex items-center justify-center bg-[var(--color-bg)]">
-        <div className="text-sm sm:text-base text-red-600 dark:text-red-400">Error al cargar el perfil</div>
+        <div role="alert" className="space-y-2 text-center text-sm sm:text-base text-red-600 dark:text-red-400"><p>{profileError || 'No se pudo cargar el perfil.'}</p><button type="button" onClick={() => void loadProfile()} className="underline">Reintentar</button></div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen sm:min-h-screen bg-[var(--color-bg)]">
+    <div className="min-h-screen bg-[var(--color-bg)]">
       <div className="mx-auto max-w-4xl px-3 sm:px-6 lg:px-8 py-2 sm:py-6 lg:py-8">
         <div className="space-y-3 sm:space-y-6 lg:space-y-8">
           {/* Información Personal */}
@@ -200,7 +212,7 @@ export default function ProfileClient() {
                     Rol
                   </div>
                   <div className="text-gray-900 dark:text-slate-100 font-medium text-xs sm:text-base">
-                    {profile.role === 'STAFF' ? (profile.area ? profile.area.charAt(0).toUpperCase() + profile.area.slice(1).toLowerCase() : 'Staff') : profile.role}
+                    {ROLE_CHOICES.find(role => role.id === profile.role)?.name || profile.role}
                   </div>
                 </div>
 
@@ -217,6 +229,8 @@ export default function ProfileClient() {
             </div>
           </div>
 
+          {milestones.loading ? <p className="text-xs text-slate-500">Cargando hitos de actividad…</p> : milestones.error ? <p role="status" className="text-xs text-amber-700 dark:text-amber-400">No se pudieron cargar los hitos. <button type="button" className="underline" onClick={() => void milestones.refresh()}>Reintentar</button></p> : milestones.users[0] && <ActivityMilestoneProgress progress={milestones.users[0]} />}
+
           {/* Rendimiento personal */}
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-indigo-200 dark:border-indigo-800 overflow-hidden">
             <div className="px-3 sm:px-6 py-2 sm:py-4 border-b border-indigo-100 dark:border-slate-700 bg-gradient-to-r from-indigo-50 to-cyan-50 dark:from-slate-800 dark:to-slate-700">
@@ -226,13 +240,15 @@ export default function ProfileClient() {
                 </div>
                 <div>
                   <h2 className="text-base sm:text-xl font-semibold text-gray-900 dark:text-slate-100">Mi Rendimiento</h2>
-                  <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">Basado en las jornadas en las que fuiste evaluado</p>
+                  <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">Basado en tus evaluaciones de jornadas cerradas</p>
                 </div>
               </div>
             </div>
             <div className="p-3 sm:p-6">
               {performanceLoading ? (
                 <div className="h-20 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-700" />
+              ) : performanceError ? (
+                <p role="alert" className="text-sm text-rose-600 dark:text-rose-400">{performanceError} <button type="button" className="underline" onClick={() => void loadPerformance()}>Reintentar</button></p>
               ) : !performance ? (
                 <p className="text-sm text-slate-500 dark:text-slate-400">Todavía no hay evaluaciones registradas.</p>
               ) : (
@@ -246,7 +262,7 @@ export default function ProfileClient() {
                   Tendencia: <span className="font-semibold">{performance.trend === 'IMPROVING' ? 'Mejorando' : performance.trend === 'DECLINING' ? 'Bajando' : 'Estable'}</span>
                 </div>
               )}
-              <p className="mt-3 text-[11px] text-slate-400 dark:text-slate-500">La escala va de 1 (Malo) a 4 (Muy Bueno). Con pocas evaluaciones, interpreta el promedio con cautela.</p>
+              {!performanceError && <p className="mt-3 text-[11px] text-slate-400 dark:text-slate-500">Con pocas evaluaciones, interpreta el promedio con cautela.</p>}
             </div>
           </div>
 
@@ -289,6 +305,7 @@ export default function ProfileClient() {
                     <input
                       type="password"
                       id="currentPassword"
+                      autoComplete="current-password"
                       value={currentPassword}
                       onChange={(e) => setCurrentPassword(e.target.value)}
                       required
@@ -304,12 +321,13 @@ export default function ProfileClient() {
                     <input
                       type="password"
                       id="newPassword"
+                      autoComplete="new-password"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       required
-                      minLength={8}
+                      minLength={USER_POLICY.passwordMin}
                       className="block w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 dark:border-slate-600 rounded-lg shadow-sm placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-slate-100 transition-colors text-sm sm:text-base"
-                      placeholder="Mínimo 8 caracteres"
+                      placeholder={`Mínimo ${USER_POLICY.passwordMin} caracteres`}
                     />
                   </div>
 
@@ -320,10 +338,11 @@ export default function ProfileClient() {
                     <input
                       type="password"
                       id="confirmPassword"
+                      autoComplete="new-password"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       required
-                      minLength={8}
+                      minLength={USER_POLICY.passwordMin}
                       className="block w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 dark:border-slate-600 rounded-lg shadow-sm placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-slate-100 transition-colors text-sm sm:text-base"
                       placeholder="Repite la nueva contraseña"
                     />
@@ -359,16 +378,16 @@ export default function ProfileClient() {
 }
 
 function PerformanceMetric({ title, summary }: { title: string; summary: PerformanceSummary }) {
-  const level = summary.level ? PERFORMANCE_LABELS[summary.level] : null;
+  const level = RATING_OPTIONS.find(option => option.value === summary.level);
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 sm:p-4">
       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{title}</div>
-      {summary.averageScore === null || summary.evaluatedDays < 2 ? (
-        <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">Sin datos suficientes</div>
+      {summary.averageScore === null ? (
+        <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">Sin evaluaciones registradas</div>
       ) : (
         <>
           <div className={`mt-2 text-lg font-semibold ${level?.color || 'text-slate-700 dark:text-slate-200'}`}>
-            {level?.emoji} {level?.label} · {summary.averageScore.toFixed(2)} / 4
+            {level?.emoji} {level?.label} · {summary.averageScore.toFixed(2)} / {RATING_LEVELS.length}
           </div>
           <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{summary.evaluatedDays} {summary.evaluatedDays === 1 ? 'jornada evaluada' : 'jornadas evaluadas'}</div>
         </>
