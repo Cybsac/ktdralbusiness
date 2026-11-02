@@ -299,7 +299,7 @@ export default function AdminWeeklyEvaluationPage() {
           {/* ===== WEEKLY REUSABLE SALES ===== */}
           {weekTotals.reusableSales > 0 && (
             <div className="rounded-xl border border-purple-200 dark:border-purple-700 bg-white dark:bg-slate-800 p-4">
-              <h3 className="text-sm font-semibold text-purple-700 dark:text-purple-300 mb-3">🔄 Ventas reutilizables esta semana — {weekTotals.reusableSales}</h3>
+              <h3 className="text-sm font-semibold text-purple-700 dark:text-purple-300 mb-3">🔄 Usos reutilizables esta semana — {weekTotals.reusableSales}</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {Array.from(weekReusableByGroup.values()).sort((a, b) => b.sales - a.sales).map(g => (
                   <div key={g.name} className="rounded-lg border border-slate-200 dark:border-slate-600 p-3" style={g.color ? { borderLeftColor: g.color, borderLeftWidth: '4px' } : {}}>
@@ -340,7 +340,7 @@ export default function AdminWeeklyEvaluationPage() {
                     <span className="text-sm font-medium text-slate-800 dark:text-slate-200 w-20">{formatShortDate(d.day)}</span>
                     <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
                       {d.attendance.length > 0 && <MiniPill emoji="👥" value={d.attendance.length} />}
-                      {d.totalDelivered > 0 && <MiniPill emoji="🎁" value={`${d.totalDelivered}/${d.totalTokensInBatches}`} />}
+                      {d.totalDelivered > 0 && <MiniPill emoji="🎁" value={d.totalDelivered} />}
                       {d.totalReusableSales > 0 && <MiniPill emoji="🔄" value={d.totalReusableSales} />}
                       {d.birthdays.total > 0 && <MiniPill emoji="🎂" value={`${d.birthdays.arrived}/${d.birthdays.total}`} />}
                       {d.specialGuests.total > 0 && <MiniPill emoji="🎟️" value={`${d.specialGuests.arrived}/${d.specialGuests.total}`} />}
@@ -415,7 +415,7 @@ export default function AdminWeeklyEvaluationPage() {
                       {/* Reusable sales */}
                       {d.totalReusableSales > 0 && (
                         <section>
-                          <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Ventas reutilizables — {d.totalReusableSales}</h4>
+                          <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Usos reutilizables — {d.totalReusableSales}</h4>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {d.reusableGroups.filter(g => g.daySales > 0).map(g => (
                               <div key={g.id} className="rounded-lg border border-slate-200 dark:border-slate-600 p-2" style={g.color ? { borderLeftColor: g.color, borderLeftWidth: '3px' } : {}}>

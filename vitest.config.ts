@@ -6,9 +6,6 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
     exclude: [
-      "**/generate.integration.test.ts",
-      "**/generate.zip.test.ts",
-      "**/generate.lazy.zip.test.ts",
       "**/*.skiptest.ts"
     ],
     setupFiles: ["./src/test/globalSetup.ts"],

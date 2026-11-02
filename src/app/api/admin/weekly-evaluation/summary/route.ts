@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { businessDayWindowUtc, limaCalendarDayWindowUtc } from '@/lib/attendanceDay';
+import { isBusinessDay } from '@/lib/daily-evaluation';
+import { summaryWindow } from '@/lib/daily-evaluation-summary/window';
+import { attendance } from '@/lib/daily-evaluation-summary/attendance';
+import { roulette } from '@/lib/daily-evaluation-summary/roulette';
+import { guests } from '@/lib/daily-evaluation-summary/guests';
+import { reusable } from '@/lib/daily-evaluation-summary/reusable';
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -20,14 +25,14 @@ export async function GET(req: NextRequest) {
     }
 
     const weekParam = req.nextUrl.searchParams.get('week');
-    if (!weekParam) return NextResponse.json({ error: 'week param required (YYYY-MM-DD of Monday)' }, { status: 400 });
+    if (!isBusinessDay(weekParam)) return NextResponse.json({ error: 'Fecha de semana inválida' }, { status: 400 });
 
     // Build 7 day strings Mon→Sun
     const monday = new Date(weekParam + 'T12:00:00Z');
     const days: string[] = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday);
-      d.setDate(d.getDate() + i);
+      d.setUTCDate(d.getUTCDate() + i);
       days.push(d.toISOString().slice(0, 10));
     }
 
@@ -83,168 +88,21 @@ export async function GET(req: NextRequest) {
 }
 
 async function getDaySummary(day: string) {
-  // ── Time windows ──────────────────────────────────────────────
-  const { startUtc, endUtc } = businessDayWindowUtc(day);
-  const { startUtc: fStart, endUtc: calendarEndUtc, endUtcInclusive: fEnd } = limaCalendarDayWindowUtc(day);
-
-  // ── 1. Attendance ─────────────────────────────────────────────
-  const scans = await prisma.scan.findMany({
-    where: { businessDay: day },
-    include: { person: { select: { id: true, name: true, code: true, area: true } } },
-    orderBy: { scannedAt: 'asc' },
-  });
-
-  const personMap = new Map<string, {
-    person: { id: string; name: string; code: string; area: string | null };
-    firstIn: Date | null; lastOut: Date | null; hasExit: boolean;
-  }>();
-  for (const s of scans) {
-    if (!personMap.has(s.personId)) {
-      personMap.set(s.personId, { person: s.person, firstIn: null, lastOut: null, hasExit: false });
-    }
-    const e = personMap.get(s.personId)!;
-    if (s.type === 'IN'  && (!e.firstIn || s.scannedAt < e.firstIn)) e.firstIn = s.scannedAt;
-    if (s.type === 'OUT') { e.hasExit = true; if (!e.lastOut || s.scannedAt > e.lastOut) e.lastOut = s.scannedAt; }
-  }
-
-  const attendance = Array.from(personMap.values()).map(a => ({
-    person: a.person,
-    firstIn: a.firstIn?.toISOString() ?? null,
-    lastOut: a.lastOut?.toISOString() ?? null,
-    missingExit: !a.hasExit,
-  }));
-
-  // ── 2. Delivered prizes (roulette bracelets) ──────────────────
-  const deliveredTokens = await prisma.token.findMany({
-    where: {
-      deliveredAt: { gte: startUtc, lt: endUtc },
-      batch: { isReusable: false, staticTargetUrl: null },
-    },
-    include: { prize: { select: { id: true, label: true } } },
-  });
-
-  const prizeDeliveryMap = new Map<string, { label: string; count: number }>();
-  for (const t of deliveredTokens) {
-    const label = t.prize?.label ?? 'Sin premio';
-    const existing = prizeDeliveryMap.get(label);
-    if (existing) existing.count++;
-    else prizeDeliveryMap.set(label, { label, count: 1 });
-  }
-  const deliveredPrizes = Array.from(prizeDeliveryMap.values()).sort((a, b) => b.count - a.count);
-
-  // ── 3. Total bracelets ────────────────────────────────────────
-  const totalTokensInBatches = await prisma.token.count({
-    where: {
-      batch: { isReusable: false, staticTargetUrl: null, functionalDate: { gte: fStart, lte: fEnd } },
-    },
-  });
-
-  // ── 4. Reusable sales (redemptions type=deliver) ──────────────
-  const reusableGroups = await prisma.tokenGroup.findMany({
-    where: { locked: false },
-    include: {
-      tokens: {
-        include: {
-          prize: { select: { id: true, label: true } },
-          redemptions: {
-            where: { type: 'deliver', createdAt: { gte: startUtc, lt: endUtc } },
-          },
-        },
-      },
-    },
-    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
-  });
-
-  let totalReusableSales = 0;
-  const reusableGroupsSummary = reusableGroups.map(g => {
-    let daySales = 0;
-    const prizeAcc: Record<string, { label: string; total: number; daySales: number }> = {};
-    for (const t of g.tokens) {
-      const key = t.prize.id;
-      if (!prizeAcc[key]) prizeAcc[key] = { label: t.prize.label, total: 0, daySales: 0 };
-      prizeAcc[key].total++;
-      const tokenDaySales = t.redemptions.length;
-      prizeAcc[key].daySales += tokenDaySales;
-      daySales += tokenDaySales;
-    }
-    totalReusableSales += daySales;
-    return {
-      id: g.id, name: g.name, color: g.color,
-      totalTokens: g.tokens.length,
-      activeTokens: g.tokens.filter(t => !t.disabled).length,
-      daySales,
-      prizes: Object.values(prizeAcc),
-    };
-  });
-
-  // ── 5. Birthdays ──────────────────────────────────────────────
-  const bdays = await prisma.birthdayReservation.findMany({
-    where: { date: { gte: fStart, lt: calendarEndUtc }, status: { not: 'canceled' } },
-    select: {
-      id: true, celebrantName: true, timeSlot: true, guestsPlanned: true,
-      guestArrivals: true, hostArrivedAt: true, status: true,
-      pack: { select: { name: true } },
-    },
-    orderBy: { timeSlot: 'asc' },
-  });
-
-  const birthdaySummary = {
-    total: bdays.length,
-    arrived: bdays.filter(r => r.hostArrivedAt).length,
-    totalGuests: bdays.reduce((s, r) => s + r.guestsPlanned, 0),
-    arrivedGuests: bdays.reduce((s, r) => s + r.guestArrivals, 0),
-    reservations: bdays.map(r => ({
-      id: r.id, celebrantName: r.celebrantName, timeSlot: r.timeSlot,
-      status: r.status, guestsPlanned: r.guestsPlanned, guestArrivals: r.guestArrivals,
-      hostArrived: !!r.hostArrivedAt, packName: r.pack?.name ?? null,
-    })),
-  };
-
-  // ── 6. Special events ─────────────────────────────────────────
-  const events = await prisma.specialEvent.findMany({
-    where: { date: { gte: fStart, lt: calendarEndUtc }, status: { not: 'cancelled' } },
-    select: {
-      id: true, name: true, timeSlot: true,
-      invitations: {
-        where: { status: { not: 'cancelled' } },
-        select: { id: true, guestName: true, status: true, arrivedAt: true, guestCategory: true },
-      },
-    },
-    orderBy: { timeSlot: 'asc' },
-  });
-
-  const allInv = events.flatMap(e => e.invitations.map(inv => ({
-    ...inv, eventName: e.name, eventTime: e.timeSlot, arrivedAt: inv.arrivedAt?.toISOString() ?? null,
-  })));
-  const arrivedInv = allInv.filter(i => i.status === 'arrived');
-
-  const specialGuestsSummary = {
-    total: allInv.length,
-    arrived: arrivedInv.length,
-    events: events.map(e => ({
-      id: e.id, name: e.name, timeSlot: e.timeSlot,
-      totalGuests: e.invitations.length,
-      arrivedGuests: e.invitations.filter(i => i.status === 'arrived').length,
-    })),
-  };
-
-  // ── 7. Evaluation ─────────────────────────────────────────────
-  const evaluation = await prisma.dailyEvaluation.findUnique({ where: { businessDay: day } });
-
+  const window = summaryWindow(day);
+  const [people, prizes, guestSummary, reusableGroups, evaluation] = await Promise.all([
+    attendance(day), roulette(window), guests(window), reusable(window),
+    prisma.dailyEvaluation.findUnique({ where: { businessDay: day } }),
+  ]);
   return {
     day,
-    attendance,
-    deliveredPrizes,
-    totalDelivered: deliveredTokens.length,
-    totalTokensInBatches,
-    totalReusableSales,
-    reusableGroups: reusableGroupsSummary,
-    birthdays: birthdaySummary,
-    specialGuests: specialGuestsSummary,
-    evaluation: evaluation ? {
-      rating: evaluation.rating,
-      comment: evaluation.comment,
-      closedAt: evaluation.closedAt?.toISOString() ?? null,
-    } : null,
+    attendance: people,
+    deliveredPrizes: prizes.deliveredPrizes,
+    totalDelivered: prizes.totalDelivered,
+    totalTokensInBatches: prizes.totalTokensInBatches,
+    totalReusableSales: reusableGroups.reduce((sum, group) => sum + group.daySales, 0),
+    reusableGroups,
+    birthdays: guestSummary.birthdays,
+    specialGuests: guestSummary.specialGuests,
+    evaluation: evaluation ? { rating: evaluation.rating, comment: evaluation.comment, closedAt: evaluation.closedAt?.toISOString() ?? null } : null,
   };
 }

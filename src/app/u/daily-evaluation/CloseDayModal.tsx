@@ -1,6 +1,6 @@
 'use client';
 
-import type { Rating } from '@/lib/daily-evaluation';
+import { DAILY_EVALUATION_TIME_ZONE, type Rating } from '@/lib/daily-evaluation';
 
 interface AttendanceEntry {
   person: { id: string; name: string; area: string | null };
@@ -38,7 +38,7 @@ const QUICK_COMMENTS = ['¡Todo bien!', '¡Buena noche!', 'Show fluido', 'Buen a
 
 function formatTime(iso: string | null) {
   if (!iso) return '-';
-  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' });
+  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: DAILY_EVALUATION_TIME_ZONE });
 }
 
 export default function CloseDayModal({
@@ -105,8 +105,9 @@ export default function CloseDayModal({
             <section>
               <div className="mb-2 flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Calificación individual</h3>
-                <span className="text-xs text-slate-500 dark:text-slate-400">{attendance.filter((entry) => personRatings.has(entry.person.id)).length}/{attendance.length} completos</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">Valor inicial: Regular</span>
               </div>
+              {attendance.some(entry => entry.missingExit) && <p className="mb-2 text-xs text-amber-700 dark:text-amber-400">Al cerrar, una persona sin salida puede recibir un ajuste automático de un nivel en su calificación.</p>}
               <div className="space-y-2">
                 {attendance.map((entry) => {
                   const current = personRatings.get(entry.person.id) || { rating: 'REGULAR' as Rating, note: '' };

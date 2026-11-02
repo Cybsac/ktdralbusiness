@@ -4,11 +4,13 @@ Las pantallas `/u/daily-evaluation` y `/admin/daily-evaluation` consultan las mi
 
 ## Fecha y permisos
 
-El servidor calcula la jornada vigente en Lima con `ATTENDANCE_CUTOFF_HOUR` (10 por defecto), mediante `src/lib/attendanceDay.ts`; la pantalla obtiene esa fecha de la API. El cierre no admite jornadas futuras ni fechas calendario inválidas. ADMIN y COORDINATOR pueden cerrar; solo ADMIN puede reabrir. Los roles admitidos por las API pueden consultar los datos, de acuerdo con la autorización ya existente.
+El servidor calcula la jornada vigente en Lima con `ATTENDANCE_CUTOFF_HOUR` (10 por defecto), mediante `src/lib/attendanceDay.ts`; la pantalla obtiene esa fecha de la API. El cierre no admite jornadas futuras ni fechas calendario inválidas. ADMIN y COORDINATOR pueden cerrar; solo ADMIN puede reabrir. Solo ADMIN y COORDINATOR pueden consultar asistencia individual y calificaciones del equipo; los demás roles conservan acceso a los indicadores operativos permitidos, sin recibir esos datos individuales. El enlace a los QR respeta la misma política de acceso que el portal de QR.
 
 ## Cierre, ajustes y reapertura
 
-El cierre valida los datos y guarda las calificaciones y el estado de la jornada en una transacción. Una jornada ya cerrada rechaza otro cierre. Si una persona evaluable no tiene una marca OUT en la jornada, su calificación baja un nivel, con mínimo MALO, y se añade la nota automática. El ajuste queda registrado en `originalRating`, `adjustmentReason` y `adjustedAt`, y no se vuelve a aplicar después de reabrir. Se conserva también la nota visible incluso si se edita el comentario individual. Al reabrir se borra la evaluación global, mientras las calificaciones individuales permanecen para revisión. En un error de conexión al cerrar, hay que consultar el estado antes de reintentar.
+El cierre valida los datos y guarda las calificaciones y el estado de la jornada en una transacción. Una jornada ya cerrada rechaza otro cierre. Si una persona evaluable no tiene una marca OUT en la jornada, su calificación baja un nivel, con mínimo MALO, y se añade la nota automática. El ajuste queda registrado en `originalRating`, `adjustmentReason` y `adjustedAt`, y no se vuelve a aplicar después de reabrir. Se conserva también la nota visible incluso si se edita el comentario individual. Al reabrir se limpia la evaluación global y las calificaciones individuales permanecen para revisión. Los cierres y reaperturas nuevos guardan en EventLog la persona responsable y los datos globales anteriores, en la misma transacción; los eventos históricos previos no pueden reconstruirse. En un error de conexión al cerrar, hay que consultar el estado antes de reintentar.
+
+Las calificaciones individuales usan Regular como valor inicial en el formulario; la pantalla de resultados únicamente muestra calificaciones guardadas. Los cierres antiguos sin evaluación global pueden completarse desde administración mientras permanezcan cerrados y sin evaluación: la actualización verifica ambas condiciones en la misma operación. La fecha y hora del cierre se muestran en la zona de Lima.
 
 La migración `20261101180000_daily_rating_adjustment` identifica los ajustes históricos a partir de la nota ya existente y registra su motivo. Como la nota no conserva la calificación original ni la hora exacta, esos campos quedan vacíos para esos registros históricos. La nota no se modifica. Para ajustes nuevos se guardan los tres datos estructurados.
 
@@ -18,7 +20,9 @@ La ruta conserva el contrato público y delega en `src/lib/daily-evaluation-summ
 
 ## Métricas
 
-Las entregas, revelaciones y uso de reutilizables se cuentan dentro de la ventana de la jornada; cumpleaños y eventos usan el día calendario de Lima. Los lotes estáticos disponibles se calculan para el corte de la jornada consultada, pero la cifra de tokens estáticos en circulación es una instantánea del momento actual incluso al consultar una jornada pasada. Los grupos reutilizables reflejan los grupos actualmente desbloqueados. Estas definiciones se mantienen para preservar los resultados existentes.
+Las entregas, revelaciones y uso de reutilizables se cuentan dentro de la ventana de la jornada; cumpleaños y eventos usan el día calendario de Lima. Los lotes estáticos disponibles se calculan para el corte de la jornada consultada, pero la cifra de tokens estáticos en circulación es una instantánea del momento actual incluso al consultar una jornada pasada. El cierre conserva la evaluación, pero los indicadores del resumen siguen consultándose en vivo y pueden cambiar después del cierre; la pantalla lo indica expresamente. Las vistas diaria y semanal comparten los cálculos de asistencia, pulseras, cumpleaños, invitados y QR reutilizables.
+
+El avance de pulseras compara las entregas acumuladas hasta el corte con el total de los lotes programados para la fecha seleccionada. La tarjeta de entregas de la jornada, en cambio, incluye las entregas realizadas durante esa jornada, incluso si pertenecen a lotes de otra fecha; por eso ambas cifras pueden diferir.
 
 ## Verificación
 
@@ -29,3 +33,17 @@ Ejecutar `npx vitest run src/test/daily-evaluation-summary.test.ts src/test/dail
 Las tarjetas usan el lote estático con fecha funcional más reciente no posterior a la jornada seleccionada; en caso de empate se elige el más reciente. Disponibles son tokens vigentes y habilitados que no se han escaneado; en circulación son los escaneados pendientes de entrega; entregados en la jornada cuenta las entregas de esa ventana. La barra muestra las entregas acumuladas sobre el total del lote. Los tokens pendientes vencidos, deshabilitados o que aún no están vigentes se muestran como no disponibles. Para hoy el corte es el momento de la consulta; para una jornada pasada es su fin.
 
 El sistema no guarda el historial de habilitación de los tokens: al consultar fechas pasadas se utiliza el estado de habilitación actual. El inventario del lote se considera disponible desde su fecha funcional, aunque se haya creado después del inicio horario de esa jornada.
+
+## QR reutilizables por grupo
+
+Las tarjetas separan los usos registrados durante la jornada de los QR disponibles y usos restantes en el momento de la consulta. La disponibilidad usa las mismas reglas de canje: premio activo, token habilitado, sin vencer, con saldo y dentro de su horario; los grupos bloqueados no se consideran disponibles. Los grupos bloqueados o eliminados conservan su actividad cuando existen eventos para la fecha. Los tokens sin grupo se muestran aparte y no aparecen en la lista por grupos del portal.
+
+Desde esta version, cada uso registra en la nota estructurada del evento el identificador y nombre del grupo y del premio en el momento del canje. Los eventos anteriores no se modifican: cuando carecen de esos datos, la vista usa la asignacion actual y la marca como estimada. La diferencia entre el contador acumulado y los eventos existentes se presenta como usos sin historial detallado y no se distribuye entre fechas. Los indicadores se actualizan al recuperar el foco y periodicamente, sin reiniciar los formularios de cierre.
+
+La fecha de jornada vigente se actualiza al recuperar el foco y periódicamente sin cambiar la fecha elegida ni borrar formularios. Las solicitudes de actividad y de historial descartan respuestas que correspondan a una selección anterior.
+
+## Actividad por colaborador
+
+La sección atribuye a cada usuario únicamente las operaciones registradas con su identificador dentro de la ventana de la jornada: canjes y entregas de QR reutilizables por grupo, entregas de pulseras TokenShow y tokens interactivos, y llegadas de cumpleaños. Las llegadas se muestran por separado y no se consideran ventas al ordenar la actividad. Un escaneo público o un registro sin responsable identificable no se atribuye a un colaborador. La información es actividad registrada, no una medición de ingresos ni una prueba de venta.
+
+Los usuarios consultan su propio detalle; coordinación consulta su equipo, excluidos administradores; administración consulta todos y puede filtrar por área y rol. Tanto la lista como el historial aplican esa regla. El historial reutilizable usa la fotografía del grupo y premio del evento cuando existe y, para eventos antiguos sin fotografía, la asignación actual. Las cifras se actualizan periódicamente, al recuperar el foco y después de una entrega reutilizable desde el panel.

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { EVALUABLE_USER_ROLES } from '@/lib/daily-evaluation';
 
 export async function attendance(day: string) {
 // Attendance: people who scanned IN this business day
@@ -37,7 +38,7 @@ for (const scan of scans) {
   }
 }
 
-const eligiblePeople = await prisma.person.findMany({ where: { id: { in: Array.from(personMap.keys()) }, active: true, user: { role: { in: ['COLLAB', 'STAFF'] } } }, select: { id: true } });
+const eligiblePeople = await prisma.person.findMany({ where: { id: { in: Array.from(personMap.keys()) }, active: true, user: { role: { in: [...EVALUABLE_USER_ROLES] } } }, select: { id: true } });
 const eligibleIds = new Set(eligiblePeople.map(person => person.id));
 const attendance = Array.from(personMap.values()).map((a) => ({
   evaluable: !!a.firstIn && eligibleIds.has(a.person.id),

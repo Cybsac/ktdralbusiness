@@ -5,14 +5,14 @@ import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/
 export const dynamic = 'force-dynamic';
 
 import { currentBusinessDay } from '@/lib/attendanceDay';
-import { adjustMissingExit, isBusinessDay, isRating, MISSING_EXIT_NOTE, MISSING_EXIT_REASON } from '@/lib/daily-evaluation';
+import { adjustMissingExit, isBusinessDay, isRating, canManageDailyEvaluation, canViewDailyEvaluation, MISSING_EXIT_NOTE, MISSING_EXIT_REASON, EVALUABLE_USER_ROLES } from '@/lib/daily-evaluation';
 
 // GET /api/admin/daily-evaluation?day=YYYY-MM-DD
 export async function GET(req: NextRequest) {
   try {
     const raw = getUserSessionCookieFromRequest(req);
     const session = await verifyUserSessionCookie(raw);
-    if (!session || !['ADMIN', 'COORDINATOR', 'STAFF', 'COLLAB'].includes(session.role)) {
+    if (!session || !canViewDailyEvaluation(session.role)) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
@@ -56,16 +56,18 @@ export async function POST(req: NextRequest) {
     const session = await verifyUserSessionCookie(raw);
     if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     const currentRole = await resolveRole(session);
-    if (!['ADMIN', 'COORDINATOR'].includes(currentRole)) {
+    if (!canManageDailyEvaluation(currentRole)) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const { businessDay, rating, comment } = await req.json();
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Datos de evaluación inválidos.' }, { status: 400 });
+    const { businessDay, rating, comment } = body;
     if (!isBusinessDay(businessDay)) {
       return NextResponse.json({ error: 'businessDay required' }, { status: 400 });
     }
 
-    if (rating && !isRating(rating)) {
+    if (!isRating(rating) || (comment != null && typeof comment !== 'string')) {
       return NextResponse.json({ error: 'Invalid rating' }, { status: 400 });
     }
 
@@ -80,15 +82,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Evaluación ya finalizada. Reabra la jornada para volver a evaluar.' }, { status: 403 });
     }
 
-    const evaluation = await prisma.dailyEvaluation.update({
-      where: { businessDay },
+    const updated = await prisma.dailyEvaluation.updateMany({
+      where: { businessDay, closedAt: { not: null }, rating: null },
       data: {
-        rating: rating || null,
+        rating,
         comment: comment?.trim() || null,
         evaluatedByUserId: session.userId,
       },
     });
-
+    if (!updated.count) return NextResponse.json({ error: 'La jornada cambió. Actualiza los datos antes de continuar.' }, { status: 409 });
+    const evaluation = await prisma.dailyEvaluation.findUnique({ where: { businessDay } });
     return NextResponse.json({ evaluation });
   } catch (error) {
     console.error('Error saving daily evaluation:', error);
@@ -103,11 +106,13 @@ export async function PATCH(req: NextRequest) {
     const session = await verifyUserSessionCookie(raw);
     if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     const currentRole = await resolveRole(session);
-    if (!['ADMIN', 'COORDINATOR'].includes(currentRole)) {
+    if (!canManageDailyEvaluation(currentRole)) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const { businessDay, action, rating, comment, ratings } = await req.json();
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Datos de cierre inválidos.' }, { status: 400 });
+    const { businessDay, action, rating, comment, ratings } = body;
     if (!isBusinessDay(businessDay) || !['close', 'reopen'].includes(action)) {
       return NextResponse.json({ error: 'businessDay and action (close/reopen) required' }, { status: 400 });
     }
@@ -132,9 +137,11 @@ export async function PATCH(req: NextRequest) {
         const scans = await tx.scan.findMany({ where: { businessDay, type: { in: ['IN', 'OUT'] } }, select: { personId: true, type: true } });
         const inIds = [...new Set(scans.filter(s => s.type === 'IN').map(s => s.personId))];
         const outIds = new Set(scans.filter(s => s.type === 'OUT').map(s => s.personId));
-        const workers = await tx.person.findMany({ where: { id: { in: inIds }, active: true, user: { role: { in: ['COLLAB', 'STAFF'] } } }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
+        const workers = await tx.person.findMany({ where: { id: { in: inIds }, active: true, user: { role: { in: [...EVALUABLE_USER_ROLES] } } }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
         const missingWorkers = workers.filter(person => !submitted.has(person.id));
         if (missingWorkers.length) return { error: 'Debes asignar una calificación individual a cada colaborador presente antes de cerrar la jornada.', status: 400 as const, missingWorkers };
+        const eligibleIds = new Set(workers.map(person => person.id));
+        if ([...submitted.keys()].some(id => !eligibleIds.has(id))) return { error: 'La lista de colaboradores cambió. Actualiza la jornada antes de cerrar.', status: 409 as const };
         const previous = await tx.personDailyRating.findMany({ where: { businessDay, personId: { in: workers.map(p => p.id) } }, select: { personId: true, adjustmentReason: true } });
         const previouslyAdjusted = new Set(previous.filter(p => p.adjustmentReason === MISSING_EXIT_REASON).map(p => p.personId));
         const adjustedWorkers: Array<{ personId: string; previousRating: string; rating: string; note: string }> = [];
@@ -150,6 +157,7 @@ export async function PATCH(req: NextRequest) {
           await tx.personDailyRating.upsert({ where: { businessDay_personId: { businessDay, personId: person.id } }, create: { businessDay, personId: person.id, rating: adjustment.rating, note: note || null, ratedByUserId: session.userId, ...adjustmentFields }, update: { rating: adjustment.rating, note: note || null, ratedByUserId: session.userId, ...adjustmentFields } });
         }
         const evaluation = await tx.dailyEvaluation.upsert({ where: { businessDay }, create: { businessDay, rating, comment: normalizedComment, evaluatedByUserId: session.userId, closedAt: new Date(), closedByUserId: session.userId }, update: { rating, comment: normalizedComment, evaluatedByUserId: session.userId, closedAt: new Date(), closedByUserId: session.userId } });
+        await tx.eventLog.create({ data: { type: 'DAILY_EVALUATION_CLOSED', message: 'Jornada evaluada y cerrada', metadata: JSON.stringify({ businessDay, actorUserId: session.userId, rating, comment: normalizedComment, closedAt: evaluation.closedAt, adjustedWorkers }) } });
         return { evaluation, adjustedWorkers };
       }, { isolationLevel: 'Serializable' });
       if ('error' in result) return NextResponse.json({ error: result.error, missingWorkers: result.missingWorkers }, { status: result.status });
@@ -159,17 +167,16 @@ export async function PATCH(req: NextRequest) {
       if (currentRole !== 'ADMIN') {
         return NextResponse.json({ error: 'Solo ADMIN puede reabrir una jornada' }, { status: 403 });
       }
-      const evaluation = await prisma.dailyEvaluation.update({
-        where: { businessDay },
-        data: {
-          closedAt: null,
-          closedByUserId: null,
-          rating: null,
-          comment: null,
-          evaluatedByUserId: null,
-        },
-      });
-      return NextResponse.json({ evaluation });
+      const result = await prisma.$transaction(async (tx) => {
+        const previous = await tx.dailyEvaluation.findUnique({ where: { businessDay } });
+        if (!previous) return { error: 'La jornada no existe.', status: 404 as const };
+        if (!previous.closedAt) return { error: 'La jornada ya está abierta.', status: 409 as const };
+        await tx.eventLog.create({ data: { type: 'DAILY_EVALUATION_REOPENED', message: 'Jornada reabierta', metadata: JSON.stringify({ businessDay, actorUserId: session.userId, previous: { rating: previous.rating, comment: previous.comment, evaluatedByUserId: previous.evaluatedByUserId, closedAt: previous.closedAt, closedByUserId: previous.closedByUserId } }) } });
+        const evaluation = await tx.dailyEvaluation.update({ where: { businessDay }, data: { closedAt: null, closedByUserId: null, rating: null, comment: null, evaluatedByUserId: null } });
+        return { evaluation };
+      }, { isolationLevel: 'Serializable' });
+      if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json(result);
     }
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error && (error.code === 'P2034' || error.code === 'P2002')) return NextResponse.json({ error: 'La jornada cambió al mismo tiempo. Actualiza los datos y vuelve a intentarlo.' }, { status: 409 });

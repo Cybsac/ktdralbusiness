@@ -1,17 +1,12 @@
+import { readReusableSnapshot } from '@/lib/reusable-tokens/history-snapshot';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { businessDayWindowUtc, currentBusinessDay } from '@/lib/attendanceDay';
+import { businessDayWindowUtc } from '@/lib/attendanceDay';
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
-
-function parseDayParam(input: string | null): string {
-  if (!input) return currentBusinessDay();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input)) {
-    throw new Error('DAY_INVALID');
-  }
-  return input;
-}
+import { canViewJourneyOperator, isBirthdayHost, journeyDay, JOURNEY_CATEGORIES, type JourneyCategory } from '@/lib/journey-activity';
+import { canManageDailyEvaluation } from '@/lib/daily-evaluation';
 
 export async function GET(req: NextRequest) {
   try {
@@ -37,20 +32,19 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const userId = url.searchParams.get('userId');
     const requestedCategory = url.searchParams.get('category');
-    const category = requestedCategory === 'birthday' || requestedCategory === 'roulette' ? requestedCategory : 'reusable';
+    const category = requestedCategory ?? 'reusable';
+    if (!(JOURNEY_CATEGORIES as readonly string[]).includes(category)) return NextResponse.json({ ok: false, code: 'INVALID_CATEGORY' }, { status: 400 });
     if (!userId) {
       return NextResponse.json({ ok: false, code: 'USER_ID_REQUIRED' }, { status: 400 });
     }
 
-    const canSeeOthers = viewer.role === 'ADMIN' || viewer.role === 'COORDINATOR';
+    const canSeeOthers = canManageDailyEvaluation(viewer.role);
     if (!canSeeOthers && userId !== viewer.id) {
       return NextResponse.json({ ok: false, code: 'FORBIDDEN' }, { status: 403 });
     }
 
-    let day: string;
-    try {
-      day = parseDayParam(url.searchParams.get('day'));
-    } catch {
+    const day = journeyDay(url.searchParams.get('day'));
+    if (!day) {
       return NextResponse.json({ ok: false, code: 'INVALID_DAY', message: 'day must be YYYY-MM-DD' }, { status: 400 });
     }
     const { startUtc, endUtc } = businessDayWindowUtc(day);
@@ -66,6 +60,14 @@ export async function GET(req: NextRequest) {
     });
     if (!operator) {
       return NextResponse.json({ ok: false, code: 'NOT_FOUND' }, { status: 404 });
+    }
+    if (!canViewJourneyOperator(viewer.role, viewer.id, operator.role, operator.id)) return NextResponse.json({ ok: false, code: 'FORBIDDEN' }, { status: 403 });
+
+    const groupParam = url.searchParams.get('group');
+    let requestedGroup: string | null | undefined;
+    if (groupParam !== null) {
+      try { requestedGroup = JSON.parse(groupParam); } catch { return NextResponse.json({ ok: false, code: 'INVALID_GROUP' }, { status: 400 }); }
+      if (category !== 'reusable' || (requestedGroup !== null && typeof requestedGroup !== 'string')) return NextResponse.json({ ok: false, code: 'INVALID_GROUP' }, { status: 400 });
     }
 
     const events = category === 'birthday'
@@ -84,12 +86,12 @@ export async function GET(req: NextRequest) {
           },
           orderBy: { redeemedAt: 'desc' },
         })
-      : category === 'roulette'
+      : category === 'roulette' || category === 'interactive'
       ? await prisma.token.findMany({
           where: {
             deliveredByUserId: userId,
             deliveredAt: { gte: startUtc, lt: endUtc },
-            batch: { isReusable: false, staticTargetUrl: null },
+            batch: category === 'roulette' ? { isReusable: false, staticTargetUrl: null } : { staticTargetUrl: { not: null } },
           },
           select: {
             id: true,
@@ -101,16 +103,18 @@ export async function GET(req: NextRequest) {
       : await prisma.reusableTokenRedemption.findMany({
           where: {
             userId,
+            type: { in: ['deliver', 'redeem'] },
             createdAt: { gte: startUtc, lt: endUtc },
           },
           select: {
             id: true,
             type: true,
             createdAt: true,
+            note: true,
             token: {
               select: {
                 prize: { select: { label: true } },
-                group: { select: { name: true } },
+                group: { select: { id: true, name: true } },
               },
             },
           },
@@ -120,7 +124,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       day,
-      category,
+      category: category as JourneyCategory,
       operator: {
         userId: operator.id,
         displayName: operator.person?.name || operator.username,
@@ -131,29 +135,33 @@ export async function GET(req: NextRequest) {
       events: category === 'birthday'
         ? events.map((event: any) => ({
             id: event.id,
-            type: typeof event.location === 'string' && event.location.startsWith('host:') ? 'host' : 'guest',
-            label: event.reservation?.celebrantName || 'Cumpleanos',
-            groupName: (typeof event.location === 'string' && event.location.startsWith('host:')) ? 'Cumpleanero' : `Invitado${event.reservation?.timeSlot ? ` · ${event.reservation.timeSlot}` : ''}`,
+            type: isBirthdayHost(event.location) ? 'host' : 'guest',
+            label: event.reservation?.celebrantName || 'Cumpleaños',
+            groupName: isBirthdayHost(event.location) ? 'Cumpleañero' : `Invitado${event.reservation?.timeSlot ? ` · ${event.reservation.timeSlot}` : ''}`,
             createdAt: event.redeemedAt.toISOString(),
           }))
-        : category === 'roulette'
+        : category === 'roulette' || category === 'interactive'
         ? events.map((event: any) => ({
             id: event.id,
             type: 'roulette',
             label: event.prize.label,
-            groupName: 'Ruleta /r',
+            groupName: category === 'roulette' ? 'Pulseras TokenShow' : 'Tokens interactivos',
             createdAt: event.deliveredAt.toISOString(),
           }))
-        : events.map((event: any) => ({
+        : events.filter((event: any) => {
+            const snapshot = readReusableSnapshot(event.note);
+            const groupId = snapshot ? snapshot.group?.id ?? null : event.token.group?.id ?? null;
+            return requestedGroup === undefined || groupId === requestedGroup;
+          }).map((event: any) => ({
             id: event.id,
             type: event.type,
-            label: event.token.prize.label,
-            groupName: event.token.group?.name || null,
+            label: readReusableSnapshot(event.note)?.prize.label || event.token.prize.label,
+            groupName: readReusableSnapshot(event.note) ? readReusableSnapshot(event.note)?.group?.name || null : event.token.group?.name || null,
             createdAt: event.createdAt.toISOString(),
           })),
     });
   } catch (error: any) {
     console.error('Error fetching journey history:', error);
-    return NextResponse.json({ ok: false, code: 'INTERNAL_ERROR', message: String(error?.message || error) }, { status: 500 });
+    return NextResponse.json({ ok: false, code: 'INTERNAL_ERROR', message: 'No se pudo cargar el historial.' }, { status: 500 });
   }
 }

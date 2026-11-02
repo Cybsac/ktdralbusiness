@@ -118,7 +118,6 @@ export default async function ULayout({ children }: { children: React.ReactNode 
                 )}
               </div>
             )}
-            {me && <PersonalPrizeCodeHeader />}
           </div>
           <div className="flex items-center gap-2">
             <SmartBackLink />
@@ -132,6 +131,7 @@ export default async function ULayout({ children }: { children: React.ReactNode 
             )}
           </div>
         </div>
+        {me && <PersonalPrizeCodeHeader />}
       </header>
       <main className="app-container pt-0 pb-2">
         <ForcePasswordChangeGuard required={mustChangePassword} />

@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import type { Rating } from '@/lib/daily-evaluation';
+import { DAILY_EVALUATION_TIME_ZONE, type Rating } from '@/lib/daily-evaluation';
 import { RATING_OPTIONS } from '@/lib/daily-evaluation-options';
+import { REUSABLE_POLICY } from '@/lib/reusable-tokens/policy';
 import CloseDayModal from '@/app/u/daily-evaluation/CloseDayModal';
 
 
@@ -119,11 +120,11 @@ function getRatingOption(val: Rating) {
 
 function formatTime(iso: string | null) {
   if (!iso) return '-';
-  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' });
+  return new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: DAILY_EVALUATION_TIME_ZONE });
 }
 
 function toLimaDateStr(date: Date): string {
-  return date.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  return date.toLocaleDateString('en-CA', { timeZone: DAILY_EVALUATION_TIME_ZONE });
 }
 
 
@@ -137,6 +138,7 @@ export default function AdminDailyEvaluationPage() {
   const [selectedDay, setSelectedDay] = useState('');
   const [todayBusinessDay, setTodayBusinessDay] = useState('');
   const requestVersion = useRef(0);
+  const closingLock = useRef(false);
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
@@ -150,12 +152,10 @@ export default function AdminDailyEvaluationPage() {
   const [evalComment, setEvalComment] = useState('');
   const [personRatingsMap, setPersonRatingsMap] = useState<Map<string, { rating: Rating; note: string }>>(new Map());
   const [savingEval, setSavingEval] = useState(false);
-  const [savingRatings, setSavingRatings] = useState(false);
   const [closingDay, setClosingDay] = useState(false);
   const [evalMsg, setEvalMsg] = useState('');
   const [ratingsMsg, setRatingsMsg] = useState('');
   const [closeMsg, setCloseMsg] = useState('');
-  const [ratingsLocked, setRatingsLocked] = useState(false);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'recursos' | 'resultados'>('recursos');
 
@@ -170,6 +170,23 @@ export default function AdminDailyEvaluationPage() {
     fetch('/api/admin/daily-evaluation?configuration=1').then(r => { if (!r.ok) throw new Error(); return r.json(); }).then(data => { setTodayBusinessDay(data.currentBusinessDay); setSelectedDay(data.currentBusinessDay); }).catch(() => { setLoadError('No se pudo obtener la fecha de la jornada.'); setLoading(false); });
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    const refreshBusinessDay = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const response = await fetch('/api/admin/daily-evaluation?configuration=1', { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active && typeof data.currentBusinessDay === 'string') setTodayBusinessDay(data.currentBusinessDay);
+      } catch { /* Keep the last known date until the connection recovers. */ }
+    };
+    const timer = window.setInterval(refreshBusinessDay, REUSABLE_POLICY.availabilityRefreshMs);
+    const onVisible = () => { if (document.visibilityState === 'visible') void refreshBusinessDay(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
+
   const fetchData = useCallback(async () => {
     if (!selectedDay) return;
     const version = ++requestVersion.current;
@@ -181,7 +198,6 @@ export default function AdminDailyEvaluationPage() {
     setEvalRating('REGULAR');
     setEvalComment('');
     setPersonRatingsMap(new Map());
-    setRatingsLocked(false);
     try {
       const [summaryRes, evalRes, ratingsRes, briefRes] = await Promise.all([
         fetch(`/api/admin/daily-evaluation/summary?day=${selectedDay}`),
@@ -191,7 +207,7 @@ export default function AdminDailyEvaluationPage() {
       ]);
 
       if (version !== requestVersion.current) return;
-      if (!summaryRes.ok || !evalRes.ok || !ratingsRes.ok) throw new Error('No se pudieron cargar los datos de la jornada.');
+      if (!summaryRes.ok || !evalRes.ok || (!ratingsRes.ok && ratingsRes.status !== 403)) throw new Error('No se pudieron cargar los datos de la jornada.');
       if (summaryRes.ok) { const data = await summaryRes.json(); if (version !== requestVersion.current) return; setSummary(data); }
       if (evalRes.ok) {
         const evalData = await evalRes.json();
@@ -210,7 +226,6 @@ export default function AdminDailyEvaluationPage() {
           map.set(r.personId, { rating: r.rating as Rating, note: r.note || '' });
         }
         setPersonRatingsMap(map);
-        setRatingsLocked(map.size > 0);
       }
       if (briefRes.ok) {
         const bData = await briefRes.json();
@@ -225,20 +240,7 @@ export default function AdminDailyEvaluationPage() {
     }
   }, [selectedDay]);
 
-  useEffect(() => { void fetchData(); return () => { requestVersion.current++; }; }, [fetchData]);
-
-  useEffect(() => {
-    if (!summary) return;
-    setPersonRatingsMap(prev => {
-      const next = new Map(prev);
-      for (const a of summary.attendance) {
-        if (!next.has(a.person.id)) {
-          next.set(a.person.id, { rating: 'REGULAR', note: '' });
-        }
-      }
-      return next;
-    });
-  }, [summary]);
+  useEffect(() => { setCloseModalOpen(false); setCloseMsg(''); setRatingsMsg(''); void fetchData(); return () => { requestVersion.current++; }; }, [fetchData]);
 
   const handleCloseDay = async (action: 'close' | 'reopen') => {
     if (action === 'close') { setRatingsMsg(''); setCloseModalOpen(true); return; }
@@ -266,6 +268,8 @@ export default function AdminDailyEvaluationPage() {
   };
 
   const confirmClose = async () => {
+    if (closingLock.current) return;
+    closingLock.current = true;
     setClosingDay(true);
     setRatingsMsg('');
     try {
@@ -277,7 +281,7 @@ export default function AdminDailyEvaluationPage() {
       setCloseMsg('Jornada cerrada');
       void fetchData();
     } catch { setRatingsMsg('Error de conexión. Comprueba el estado de la jornada antes de reintentar.'); }
-    finally { setClosingDay(false); }
+    finally { closingLock.current = false; setClosingDay(false); }
   };
 
   const handleSaveEvaluation = async () => {
@@ -302,35 +306,6 @@ export default function AdminDailyEvaluationPage() {
     } finally {
       setSavingEval(false);
       setTimeout(() => setEvalMsg(''), 3000);
-    }
-  };
-
-  const handleSaveRatings = async () => {
-    setSavingRatings(true);
-    setRatingsMsg('');
-    try {
-      const ratings = Array.from(personRatingsMap.entries()).map(([personId, data]) => ({
-        personId,
-        rating: data.rating,
-        note: data.note || undefined,
-      }));
-      const res = await fetch('/api/admin/daily-evaluation/ratings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessDay: selectedDay, ratings }),
-      });
-      if (res.ok) {
-        setRatingsLocked(true);
-        setRatingsMsg('Calificaciones guardadas');
-      } else {
-        const err = await res.json();
-        setRatingsMsg(err.error || 'Error al guardar');
-      }
-    } catch {
-      setRatingsMsg('Error de conexión');
-    } finally {
-      setSavingRatings(false);
-      setTimeout(() => setRatingsMsg(''), 3000);
     }
   };
 
@@ -381,6 +356,7 @@ export default function AdminDailyEvaluationPage() {
         </div>
       </div>
 
+      {isClosed && <p className="text-xs text-slate-500 dark:text-slate-400">Jornada cerrada: la evaluación está guardada; los indicadores pueden actualizarse con cambios posteriores.</p>}
       {loadError && <div role="alert" className="p-3 text-sm text-red-600">{loadError}</div>}
         {loading ? (
         <div className="flex items-center justify-center min-h-[300px]">
@@ -575,7 +551,7 @@ export default function AdminDailyEvaluationPage() {
                     <div className="rounded-lg border border-purple-200 dark:border-purple-700 bg-white dark:bg-slate-800 p-3 sm:p-4">
                       <div className="flex items-center justify-between mb-3">
                         <h3 className="text-sm font-semibold text-purple-700 dark:text-purple-300">
-                          🔄 Tokens Reutilizables — {totalReusableSales} ventas del día
+                          🔄 Tokens Reutilizables — {totalReusableSales} usos en la jornada
                         </h3>
                         <a href="/admin/reusable-tokens" className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 transition-colors">
                           Ver QR&apos;s
@@ -711,7 +687,7 @@ export default function AdminDailyEvaluationPage() {
                         <div className="flex-1 space-y-1">
                           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Datos del Cierre</h3>
                           <p className="text-sm text-slate-600 dark:text-slate-400">
-                            📅 Cerrada el <span className="font-medium">{new Date(evaluation.closedAt!).toLocaleString('es-PE')}</span>
+                            📅 Cerrada el <span className="font-medium">{new Date(evaluation.closedAt!).toLocaleString('es-PE', { timeZone: DAILY_EVALUATION_TIME_ZONE })}</span>
                           </p>
                           {evaluation.closedByName && (
                             <p className="text-sm text-slate-600 dark:text-slate-400">
@@ -796,7 +772,7 @@ export default function AdminDailyEvaluationPage() {
                   {/* Delivered Prizes */}
                   <div className="rounded-lg border border-amber-200 dark:border-amber-700 bg-white dark:bg-slate-800 p-3 sm:p-4">
                     <h3 className="text-sm font-semibold mb-3 text-amber-700 dark:text-amber-300">
-                      🏆 Premios Entregados — {summary.totalDelivered} entregados · {summary.totalTokensInBatches} pulseras
+                      🏆 Premios entregados en la jornada — {summary.totalDelivered}
                     </h3>
                     {summary.deliveredPrizes.length > 0 ? (
                       <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -954,92 +930,22 @@ export default function AdminDailyEvaluationPage() {
                         </div>
                       )}
 
-                      {/* Individual ratings */}
-                      {summary.attendance.length > 0 && (
-                        ratingsLocked ? (
-                          <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 p-3 sm:p-4 space-y-3">
-                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                              Evaluación Individual — {summary.attendance.length} colaboradores
-                            </h3>
-                            <div className="space-y-1.5">
-                              {summary.attendance.map(a => {
-                                const pr = personRatingsMap.get(a.person.id) || { rating: 'REGULAR' as Rating, note: '' };
-                                return (
-                                  <div key={a.person.id} className="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-slate-800/50">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="font-medium text-sm truncate">{a.person.name}</div>
-                                      <div className="text-xs text-slate-500">{a.person.area || '-'}</div>
-                                      {pr.note && <div className="text-xs text-slate-500 italic mt-0.5">{pr.note}</div>}
-                                    </div>
-                                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getRatingOption(pr.rating).color}`}>
-                                      {getRatingOption(pr.rating).emoji} {getRatingOption(pr.rating).label}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <p className="text-xs text-green-600 dark:text-green-400">✅ Calificaciones guardadas. Para editar, reabra la jornada.</p>
+                      {/* Mostrar solamente calificaciones realmente guardadas. */}
+                      <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800">
+                        <h3 className="mb-3 text-sm font-semibold">Evaluación individual</h3>
+                        {summary.attendance.some(entry => personRatingsMap.has(entry.person.id)) ? (
+                          <div className="space-y-1.5">
+                            {summary.attendance.filter(entry => personRatingsMap.has(entry.person.id)).map(entry => {
+                              const rating = personRatingsMap.get(entry.person.id)!;
+                              return <div key={entry.person.id} className="flex items-center gap-2 rounded-lg bg-slate-50 p-2 dark:bg-slate-700/50">
+                                <div className="min-w-0 flex-1"><div className="truncate text-sm font-medium">{entry.person.name}</div><div className="text-xs text-slate-500">{entry.person.area || '-'}</div>{rating.note && <div className="mt-1 text-xs text-slate-500">{rating.note}</div>}</div>
+                                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium ${getRatingOption(rating.rating).color}`}>{getRatingOption(rating.rating).emoji} {getRatingOption(rating.rating).label}</span>
+                              </div>;
+                            })}
                           </div>
-                        ) : (
-                          <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 sm:p-4 space-y-3">
-                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                              Evaluación Individual — {summary.attendance.length} colaboradores
-                            </h3>
-                            <div className="space-y-2">
-                              {summary.attendance.map(a => {
-                                const pr = personRatingsMap.get(a.person.id) || { rating: 'REGULAR' as Rating, note: '' };
-                                return (
-                                  <div key={a.person.id} className="flex flex-col gap-2 p-2.5 sm:p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-                                    <div className="flex items-start sm:items-center gap-2">
-                                      <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-sm truncate">{a.person.name}</div>
-                                        <div className="text-xs text-slate-500">{a.person.area || '-'} · {formatTime(a.firstIn)} - {formatTime(a.lastOut)}</div>
-                                        {a.missingExit && <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">⚠️ Sin salida</span>}
-                                      </div>
-                                      <div className="flex gap-1 flex-shrink-0">
-                                        {RATING_OPTIONS.map(opt => (
-                                          <button
-                                            key={opt.value}
-                                            type="button"
-                                            onClick={() => updatePersonRating(a.person.id, 'rating', opt.value)}
-                                            className={`w-8 h-8 sm:w-auto sm:h-auto sm:px-2 sm:py-1 flex items-center justify-center rounded text-xs font-medium border transition-all ${
-                                              pr.rating === opt.value
-                                                ? opt.color + ' ring-1 ring-blue-400'
-                                                : 'bg-white dark:bg-slate-600 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-500 hover:bg-slate-100'
-                                            }`}
-                                            title={opt.label}
-                                          >
-                                            {opt.emoji}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                    <input
-                                      type="text"
-                                      value={pr.note}
-                                      onChange={(e) => updatePersonRating(a.person.id, 'note', e.target.value)}
-                                      placeholder="Nota..."
-                                      className="w-full rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                    />
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
-                              <button
-                                onClick={handleSaveRatings}
-                                disabled={savingRatings}
-                                className="w-full sm:w-auto px-5 py-2 rounded-lg bg-indigo-600 text-white font-medium text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                              >
-                                {savingRatings ? 'Guardando...' : 'Guardar Calificaciones'}
-                              </button>
-                              {ratingsMsg && (
-                                <span className={`text-xs sm:text-sm font-medium ${ratingsMsg.includes('Error') || ratingsMsg.includes('guardadas') ? 'text-red-600' : 'text-green-600'}`}>{ratingsMsg}</span>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      )}
+                        ) : <p className="text-xs text-slate-500">No hay calificaciones individuales registradas para la asistencia mostrada.</p>}
+                        <p className="mt-2 text-xs text-slate-500">Para modificar las calificaciones, reabre la jornada.</p>
+                      </div>
                     </>
                   )}
                 </div>
