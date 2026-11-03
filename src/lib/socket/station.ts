@@ -8,7 +8,7 @@ export function setupStationSocket(socket: Socket) {
   socket.on(STATION_JOIN_EVENT, async (stationId: unknown, ack?: Ack) => {
     try {
       const user = await getSocketOperator(socket);
-      if (!user || typeof stationId !== 'string') return ack?.({ ok: false });
+      if (!user || user.role !== 'ADMIN' || typeof stationId !== 'string') return ack?.({ ok: false });
       const station = await prisma.operationStation.findFirst({ where: { id: stationId, ownerId: user.userId, expiresAt: { gt: new Date() } } });
       if (!station) return ack?.({ ok: false });
       await socket.join(stationRoom(station.id));

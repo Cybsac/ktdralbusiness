@@ -82,12 +82,13 @@ export async function readPrizeGame(tokenId: string) {
       where: { id: { in: groups.map((group) => group.prizeId) } },
       select: { id: true, key: true, label: true, color: true },
     });
+    const countsByPrize = new Map(groups.map((group) => [group.prizeId, group._count._all]));
     elements = prizes.map((prize) => ({
       prizeId: prize.id,
       key: prize.key,
       label: prize.label,
       color: prize.color,
-      count: groups.find((group) => group.prizeId === prize.id)!._count._all,
+      count: countsByPrize.get(prize.id) ?? 0,
     }));
   }
   if (!elements.some((element) => element.prizeId === resultPrize.id))

@@ -7,6 +7,7 @@ import styles from './roulette.module.css';
 import { useNoScroll } from './useNoScroll';
 import { RouletteElement } from './types';
 import { ThemeName } from '@/lib/themes/types';
+import { ROULETTE_SPIN_DURATION_MS, wheelTargetRotation } from './motion';
 
 interface NewRouletteProps {
   elements: RouletteElement[];
@@ -44,6 +45,8 @@ const NewRoulette = ({
   const [rotation, setRotation] = useState(0);
   const [internalSpinning, setInternalSpinning] = useState(false);
   const [spinCompleted, setSpinCompleted] = useState(false);
+  const spinEndRef = useRef(onSpinEnd);
+  spinEndRef.current = onSpinEnd;
 
   // Dimensiones dinámicas de la ruleta (se basan en el contenedor responsivo CSS)
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -53,22 +56,27 @@ const NewRoulette = ({
     if (!wrapperRef.current) return;
     const el = wrapperRef.current;
 
+    if (typeof ResizeObserver === 'undefined') {
+      const resize = () => { const rect = el.getBoundingClientRect(); const next = Math.min(rect.width, rect.height); if (next) setSize(next); };
+      resize();
+      window.addEventListener('resize', resize);
+      return () => window.removeEventListener('resize', resize);
+    }
+
     // Observamos cambios de tamaño del wrapper para recalcular el SVG
-    const resizeObserver = new (window as any).ResizeObserver((entries: any[]) => {
+    const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const newSize = Math.min(entry.contentRect.width, entry.contentRect.height);
-        if (newSize && Math.abs(newSize - size) > 0.5) {
-          setSize(newSize);
-        }
+        if (newSize) setSize(previous => Math.abs(newSize - previous) > 0.5 ? newSize : previous);
       }
     });
     resizeObserver.observe(el);
     // Inicial
     const rect = el.getBoundingClientRect();
     const initial = Math.min(rect.width, rect.height);
-    if (initial && Math.abs(initial - size) > 0.5) setSize(initial);
+    if (initial) setSize(previous => Math.abs(initial - previous) > 0.5 ? initial : previous);
     return () => resizeObserver.disconnect();
-  }, [wrapperRef.current]);
+  }, []);
 
   // Usamos un sistema de coordenadas fijo (base 500) para evitar desalineaciones
   const baseSize = 500;
@@ -81,61 +89,23 @@ const NewRoulette = ({
   // La variante inline vive dentro de una página más larga; no debe fijar el body.
   useNoScroll(lockScroll && variant === 'fullscreen');
 
-  // Calcular la rotación basada en el índice del premio
-  const calculatePrizeRotation = (index: number) => {
-    if (index === null) return 0;
-    
-    const segmentAngle = 360 / elements.length;
-    // Calculamos el ángulo central del segmento seleccionado
-    // Restamos de 360 porque la ruleta gira en sentido horario
-    const baseAngle = 360 - (index * segmentAngle + segmentAngle / 2);
-    // Añadimos giros completos para efecto visual
-    const fullSpins = lowMotion ? 3 : 5;
-    return baseAngle + (fullSpins * 360);
-  };
-
   // Efecto para manejar el giro cuando cambia prizeIndex o spinning
   useEffect(() => {
     if (spinning && prizeIndex !== null && !spinCompleted) {
       
-      // Guardamos la rotación actual como punto de partida
-      const currentRotation = rotation;
       setInternalSpinning(true);
+      const newRotation = wheelTargetRotation(rotation, prizeIndex, elements.length, lowMotion);
       
-      // Calculamos la nueva rotación basada en la posición actual para evitar saltos
-      const baseRotation = calculatePrizeRotation(prizeIndex);
-      
-  // Calculamos giros completos - menos vueltas en lowMotion
-  const minSpins = lowMotion ? 3 : 5;
-      const currentAngle = currentRotation % 360;
-      const targetAngle = baseRotation;
-      
-      // Aseguramos que siempre gire al menos 5 vueltas completas
-      const fullSpins = minSpins * 360;
-      
-      // Calculamos el ángulo final sumando los giros completos y ajustando para terminar en el premio
-      let newRotation = currentRotation + fullSpins;
-      
-      // Ajustamos para terminar exactamente en el ángulo del premio
-      const angleDifference = (targetAngle - currentAngle + 360) % 360;
-      newRotation += angleDifference;
-      
-      // Forzamos un reflow antes de aplicar la nueva rotación para garantizar que la transición funcione
-      document.body.offsetHeight;
-      
-      // Aplicamos la nueva rotación
-      setRotation(newRotation);
-      
-      // Después de que termine la animación
-      const spinDuration = lowMotion ? 3500 : 6000; // Debe coordinar con CSS
-      setTimeout(() => {
-        // Mantenemos la rotación final
-        setInternalSpinning(false);
-        setSpinCompleted(true);
-        if (elements[prizeIndex]) {
-          onSpinEnd(elements[prizeIndex]);
-        }
-      }, spinDuration);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const frame = requestAnimationFrame(() => {
+        setRotation(newRotation);
+        timer = setTimeout(() => {
+          setInternalSpinning(false);
+          setSpinCompleted(true);
+          if (elements[prizeIndex]) spinEndRef.current(elements[prizeIndex]);
+        }, lowMotion ? ROULETTE_SPIN_DURATION_MS.lowMotion : ROULETTE_SPIN_DURATION_MS.normal);
+      });
+      return () => { cancelAnimationFrame(frame); if (timer) clearTimeout(timer); };
     }
   }, [spinning, prizeIndex, lowMotion]);
 
@@ -192,6 +162,7 @@ const NewRoulette = ({
         <div
           className={`${styles.wheel} ${spinning || internalSpinning ? styles.spinning : ''} ${lowMotion ? styles.lowMotion : ''}`}
           style={{ 
+            '--roulette-spin-duration': `${lowMotion ? ROULETTE_SPIN_DURATION_MS.lowMotion : ROULETTE_SPIN_DURATION_MS.normal}ms`,
             transform: `translateZ(0) rotate(${rotation}deg)`,
             // Optimizaciones para renderizado y animación fluida
             transformStyle: 'flat',
@@ -199,7 +170,7 @@ const NewRoulette = ({
             transitionProperty: spinning || internalSpinning ? 'transform' : 'none',
             // Forzar que sea un círculo perfecto
             borderRadius: '50%'
-          }}
+          } as React.CSSProperties}
         >
           <svg
             width="100%"
@@ -268,7 +239,7 @@ function areRoulettePropsEqual(prev: NewRouletteProps, next: NewRouletteProps) {
     const a = prev.elements[i];
     const b = next.elements[i];
     if (!a || !b) return false;
-    if (a.label !== b.label || a.color !== b.color || a.prizeId !== b.prizeId) return false;
+    if (a.label !== b.label || a.color !== b.color || a.prizeId !== b.prizeId || a.key !== b.key || a.labelLines !== b.labelLines) return false;
   }
   // Compare simple props
   if (prev.variant !== next.variant) return false;
@@ -276,7 +247,7 @@ function areRoulettePropsEqual(prev: NewRouletteProps, next: NewRouletteProps) {
   if (prev.topSpacing !== next.topSpacing) return false;
   if (prev.pointerOffset !== next.pointerOffset) return false;
   if (prev.lowMotion !== next.lowMotion) return false;
-  // onSpin / onSpinEnd are functions; assume referential changes are not meaningful for re-render of wheel itself
+  if (prev.theme !== next.theme || prev.onSpin !== next.onSpin || prev.onSpinEnd !== next.onSpinEnd) return false;
   return true;
 }
 

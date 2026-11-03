@@ -1,5 +1,5 @@
-import StationClient from './StationClient';
+import { redirect } from 'next/navigation';
 
 export default function StationPage() {
-  return <StationClient />;
+  redirect('/u/estacion/terminal');
 }

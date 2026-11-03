@@ -348,7 +348,7 @@ const RouletteSegments = React.memo(RouletteSegmentsComp, (prev, next) => {
   for (let i = 0; i < prev.elements.length; i++) {
     const a = prev.elements[i];
     const b = next.elements[i];
-    if (a.label !== b.label || a.color !== b.color || a.prizeId !== b.prizeId) return false;
+    if (a.label !== b.label || a.color !== b.color || a.prizeId !== b.prizeId || a.key !== b.key || a.labelLines !== b.labelLines) return false;
   }
   return true;
 });

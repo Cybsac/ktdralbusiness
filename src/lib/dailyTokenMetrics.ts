@@ -238,11 +238,11 @@ async function withRetry<T>(operation: () => Promise<T>, maxRetries = 2, delay =
 }
 
 export function getLimaDayRange(dayISO: string) {
-  const { startUtc, endUtcInclusive } = limaCalendarDayWindowUtc(dayISO);
-  return { start: startUtc, end: endUtcInclusive };
+  const { startUtc, endUtc } = limaCalendarDayWindowUtc(dayISO);
+  return { start: startUtc, end: endUtc };
 }
 
-export async function getDailyTokenMetrics(day: string): Promise<DailyTokenMetricsResult> {
+async function calculateDailyTokenMetrics(day: string, includeHistorical: boolean): Promise<DailyTokenMetricsResult> {
   // Estas métricas describen el comportamiento del dia calendario Lima del evento/batch,
   // no la jornada operativa con cutoff de asistencia.
   const { start: functionalStart, end: functionalEnd } = getLimaDayRange(day);
@@ -442,7 +442,7 @@ export async function getDailyTokenMetrics(day: string): Promise<DailyTokenMetri
     cumulativeDelivered: hoursDelivered.slice(0, index + 1).reduce((sum, value) => sum + value, 0),
   }));
 
-  const [createdAll, expiredAll, revealedAll, activeAll, revealedPendingAll, retryRevealedAll, loseRevealedAll] = await Promise.all([
+  const [createdAll, expiredAll, revealedAll, activeAll, revealedPendingAll, retryRevealedAll, loseRevealedAll] = !includeHistorical ? [0, 0, 0, 0, 0, 0, 0] : await Promise.all([
     anyPrisma.token.count(),
     anyPrisma.token.count({ where: { deliveredAt: null, redeemedAt: null, expiresAt: { lt: now } } }),
     anyPrisma.token.count({ where: { revealedAt: { not: null } } }),
@@ -500,4 +500,14 @@ export async function getDailyTokenMetrics(day: string): Promise<DailyTokenMetri
     },
     batches: perBatch,
   };
+}
+
+export function getDailyTokenMetrics(day: string) {
+  return calculateDailyTokenMetrics(day, true);
+}
+
+/** The public wheel only needs the sidebar and its daily spin counter. */
+export async function getPublicRouletteMetrics(day: string) {
+  const result = await calculateDailyTokenMetrics(day, false);
+  return { day: result.day, basis: result.basis, publicSidebar: result.publicSidebar, totalSpins: result.metrics.totalSpins };
 }

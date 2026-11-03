@@ -1,6 +1,6 @@
 # Estación de operación
 
-El administrador abre `/admin/estacion` o el colaborador `/u/estacion` en la PC. La estación genera una invitación temporal de un solo uso; el colaborador autenticado la escanea en `/u/scanner` y pasa a `/u/estacion/terminal`.
+Solo un administrador activo abre y gestiona la estación en `/admin/estacion`. La estación genera una invitación temporal de un solo uso. El colaborador autenticado abre «Escáner de estación» en `/u`, escanea allí el QR y conecta el teléfono; también puede escanearlo desde el escáner habitual. El antiguo acceso `/u/estacion` redirige al escáner de vinculación. La API y el canal de actualización comprueban el rol del administrador, mientras que cada colaborador conserva acceso a su propio terminal.
 
 ## Canje desde el móvil
 

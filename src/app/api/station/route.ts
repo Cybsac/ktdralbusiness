@@ -21,6 +21,9 @@ export async function POST(req: Request) {
   if (!user) return apiError("UNAUTHORIZED", "Inicia sesión", undefined, 401);
   try {
     const body = await req.json();
+    if (["create", "invite", "status"].includes(body.action) && user.role !== "ADMIN") {
+      return apiError("FORBIDDEN", "Solo administración puede operar estaciones", undefined, 403);
+    }
     if (body.action === "create") {
       const station = await prisma.operationStation.create({
         data: { ownerId: user.id, expiresAt: stationExpiry() },
@@ -169,7 +172,7 @@ export async function POST(req: Request) {
         where: {
           id: body.terminalId,
           revokedAt: null,
-          OR: [{ userId: user.id }, { station: { ownerId: user.id } }],
+          OR: user.role === "ADMIN" ? [{ userId: user.id }, { station: { ownerId: user.id } }] : [{ userId: user.id }],
         },
       });
       if (!terminal) return apiError("NOT_FOUND", "Vinculación no disponible", undefined, 404);

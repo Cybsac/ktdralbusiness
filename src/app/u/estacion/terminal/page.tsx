@@ -31,6 +31,7 @@ export default function RemoteScannerPage() {
   const [reachable, setReachable] = useState(false);
   const [hasPending, setHasPending] = useState(false);
   const [sending, setSending] = useState(false);
+  const [initializing, setInitializing] = useState(true);
   const pending = useRef<PendingReading | null>(null);
   const busy = useRef(false);
   useEffect(() => {
@@ -38,10 +39,12 @@ export default function RemoteScannerPage() {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     async function init() {
       let pairing = false;
+      let restoring = false;
       try {
         const token = sessionStorage.getItem(STATION_PAIR_KEY);
         pairing = !!token;
         const saved = localStorage.getItem(STATION_TERMINAL_KEY);
+        restoring = !!saved && !pairing;
         const result = token
           ? await pairOnce(token)
           : saved
@@ -71,7 +74,9 @@ export default function RemoteScannerPage() {
         if (!alive) return;
         sessionStorage.removeItem(STATION_PAIR_KEY);
         setError(error instanceof Error ? error.message : "No se pudo vincular");
-        if (!pairing) retryTimer = setTimeout(init, STATION_REFRESH_INTERVAL_MS);
+        if (restoring) retryTimer = setTimeout(init, STATION_REFRESH_INTERVAL_MS);
+      } finally {
+        if (alive) setInitializing(false);
       }
     }
     void init();
@@ -137,6 +142,9 @@ export default function RemoteScannerPage() {
     },
     [terminalId]
   );
+  const requirePairing = useCallback(async () => {
+    throw new Error("Escanea el QR de vinculación de la estación para conectar este celular.");
+  }, []);
   async function unlink() {
     if (pending.current || busy.current) {
       setError("Envía o descarta la lectura pendiente antes de desvincular.");
@@ -165,10 +173,7 @@ export default function RemoteScannerPage() {
               : "Verificando conexión con la estación"
             : "Escáner no vinculado"}
         </p>
-        <p className="text-sm">
-          Escanea y realiza el canje desde este teléfono. La estación registra la lectura sin pedir
-          confirmación.
-        </p>
+        <p className="text-sm">{terminalId ? 'Escanea y realiza el canje desde este teléfono. La estación registra la lectura.' : 'Apunta la cámara al QR de vinculación mostrado en la estación de administración.'}</p>
         {error && (
           <p role="alert" className="rounded bg-red-100 p-3 text-red-800">
             {error}
@@ -206,7 +211,7 @@ export default function RemoteScannerPage() {
           </button>
         )}
       </div>
-      {terminalId && <StaffScannerPage beforeScan={registerScan} />}
+      {initializing ? <p role="status" className="mx-auto max-w-5xl text-sm">Comprobando la conexión…</p> : <StaffScannerPage beforeScan={terminalId ? registerScan : requirePairing} />}
     </div>
   );
 }

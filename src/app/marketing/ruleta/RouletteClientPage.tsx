@@ -1,18 +1,18 @@
 "use client";
 import { AnimatePresence, motion } from "framer-motion";
 import { useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import React, { useEffect, useRef, useState } from "react";
 
 import SmartPreloader from "@/components/common/SmartPreloader";
-import ScratchCardExperience from "@/components/experiences/ScratchCardExperience";
 import { PrizeDeliveryAction } from "@/components/prize-authorization/PrizeDeliveryAction";
 import { PrizeRedemptionQr } from "@/components/roulette/PrizeRedemptionQr";
 import LoseModal from "@/components/roulette/LoseModal";
 import NewRoulette from "@/components/roulette/NewRoulette";
 import RetryContinuation from "@/components/roulette/RetryContinuation";
 import RouletteHeading from "@/components/roulette/RouletteHeading";
+import { ROULETTE_SPIN_DURATION_MS } from "@/components/roulette/motion";
 import { RouletteElement } from "@/components/roulette/types";
-import CanvasConfetti from "@/components/visual/CanvasConfetti";
 import { useRouletteSounds } from "@/hooks/useRouletteSounds";
 import { getExperienceUi } from "@/lib/experiences/config";
 import { perfCheckBudget, perfMark, perfMeasure, perfSummarize } from "@/lib/perf";
@@ -28,6 +28,9 @@ import { useRouletteTheme } from "@/lib/themes/useRouletteTheme";
 
 import layoutStyles from "./rouletteLayout.module.css";
 
+const ScratchCardExperience = dynamic(() => import("@/components/experiences/ScratchCardExperience"), { ssr: false });
+const CanvasConfetti = dynamic(() => import("@/components/visual/CanvasConfetti"), { ssr: false });
+
 // Confetti ahora usando canvas para menos costo en DOM
 const Confetti = ({
   active,
@@ -37,7 +40,7 @@ const Confetti = ({
   active: boolean;
   lowMotion?: boolean;
   colors?: string[];
-}) => <CanvasConfetti active={active && !lowMotion} lowMotion={lowMotion} colors={colors} />;
+}) => active && !lowMotion ? <CanvasConfetti active lowMotion={lowMotion} colors={colors} /> : null;
 
 // Función helper para obtener clases CSS del tema
 const getThemeClass = (themeConfig: any) => {
@@ -60,13 +63,6 @@ interface RouletteSidebarInsight {
   detail: string;
   tone: "gold" | "emerald" | "amber";
   sortOrder: number;
-}
-
-function getLocalDayIso(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function getVisibleGuideInsights(
@@ -235,15 +231,12 @@ interface RouletteClientPageProps {
 
 /** Configuración centralizada de tiempos y tuning del cliente de ruleta */
 const ROULETTE_CONFIG = {
-  fetchTimeoutMs: 8000, // abort fetch si el backend tarda demasiado
-  minLoaderMs: 900, // tiempo mínimo de loader visible
+  fetchTimeoutMs: 12000, // abort fetch si el backend tarda demasiado
   loadBudgetMs: 2500, // presupuesto orientativo de carga total
-  dailySpinsFetchTimeoutMs: 5000, // timeout del fetch no-crítico de spins diarios
   sidebarFetchTimeoutMs: 5000,
   sidebarRefreshMs: 30000,
   guideRotationMs: 12000,
   perfSampleRate: 0.15, // tasa de muestreo para perfSummarize
-  spinDurationMs: { normal: 6000, lowMotion: 3500 },
   spinBudgetMs: { normal: 6200, lowMotion: 3600 }, // margen para perfCheckBudget
   soundStartDelayMs: 300, // delay antes de iniciar sonidos de giro
   softSwitchDelayMs: 500, // delay de transición suave tras retry
@@ -302,6 +295,9 @@ export default function RouletteClientPage({
   // Bandera para transición de retry, para suprimir errores
   const [isRetryTransition, setIsRetryTransition] = useState(false);
   const prizeModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const soundStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scratchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [spinCounter, setSpinCounter] = useState<number | null>(null);
   const [guideInsights, setGuideInsights] = useState<RouletteSidebarInsight[]>([]);
   const [guideRotationIndex, setGuideRotationIndex] = useState(0);
@@ -327,81 +323,56 @@ export default function RouletteClientPage({
     };
   }, [theme]);
 
-  // Cargar total de giros del día para inicializar el contador visible en marketing.
   useEffect(() => {
-    // Detectar modo de bajo movimiento / heurística de dispositivo
-    try {
-      const mq =
-        typeof window !== "undefined"
-          ? window.matchMedia("(prefers-reduced-motion: reduce)")
-          : null;
-      const deviceMem = (navigator as any)?.deviceMemory || 0; // heurística (no estándar en todos los navs)
-      const smallViewport =
-        typeof window !== "undefined" &&
-        (window.innerWidth < ROULETTE_CONFIG.smallViewportWidth ||
-          window.innerHeight < ROULETTE_CONFIG.smallViewportHeight);
-      const isLow = (!!mq && mq.matches) || (deviceMem > 0 && deviceMem <= 2) || smallViewport;
-      setLowMotion(!!isLow);
-    } catch {
-      /* Optional presentation or response parsing failed; existing fallback remains. */
-    }
-    let abort = false;
-    const loadController = new AbortController();
-    (async () => {
-      try {
-        const res = await fetch(`/api/system/tokens/spins?day=${getLocalDayIso()}`, {
-          cache: "no-store",
-          signal: AbortSignal.timeout(ROULETTE_CONFIG.dailySpinsFetchTimeoutMs),
-        });
-        if (!res.ok) return;
-        const data = await res.json().catch(() => null);
-        const totalSpins = data?.metrics?.totalSpins;
-        if (!abort && typeof totalSpins === "number") setSpinCounter(totalSpins);
-      } catch (dailySpinsError) {
-        console.warn("Failed to load daily spins:", dailySpinsError);
-      }
-    })();
-    return () => {
-      abort = true;
-      loadController.abort();
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => {
+      const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+      setLowMotion(media.matches || (!!memory && memory <= 2) || window.innerWidth < ROULETTE_CONFIG.smallViewportWidth || window.innerHeight < ROULETTE_CONFIG.smallViewportHeight);
     };
+    update();
+    media.addEventListener?.('change', update);
+    window.addEventListener('resize', update);
+    return () => { media.removeEventListener?.('change', update); window.removeEventListener('resize', update); };
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    const update = () => {
+      const quiet = lowMotion || phase === 'SPINNING' || document.hidden;
+      document.documentElement.toggleAttribute('data-roulette-quiet', quiet);
+    };
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => { document.removeEventListener('visibilitychange', update); document.documentElement.removeAttribute('data-roulette-quiet'); };
+  }, [lowMotion, phase]);
 
-    const loadSidebarInsights = async () => {
+  // Los indicadores son informativos: no retrasan la carga del juego ni se actualizan en segundo plano.
+  useEffect(() => {
+    if (loading || !activeTokenId) return;
+    let active = true;
+    let inFlight: AbortController | null = null;
+    const loadSummary = async () => {
+      if (document.hidden || inFlight) return;
+      const controller = new AbortController();
+      inFlight = controller;
+      const timeout = window.setTimeout(() => controller.abort(), ROULETTE_CONFIG.sidebarFetchTimeoutMs);
       try {
-        const res = await fetch(`/api/system/tokens/sidebar?day=${getLocalDayIso()}`, {
-          cache: "no-store",
-          signal: AbortSignal.timeout(ROULETTE_CONFIG.sidebarFetchTimeoutMs),
-        });
-        if (!res.ok) return;
-        const data = await res.json().catch(() => null);
-        const nextInsights = Array.isArray(data?.summary?.insights)
-          ? ([...data.summary.insights] as RouletteSidebarInsight[]).sort(
-              (left, right) => left.sortOrder - right.sortOrder
-            )
-          : [];
-        if (!cancelled) {
-          setGuideInsights(nextInsights);
-          setGuideRotationIndex((current) =>
-            nextInsights.length > 0 ? current % nextInsights.length : 0
-          );
-        }
-      } catch (sidebarError) {
-        console.warn("Failed to load sidebar insights:", sidebarError);
-      }
+        const response = await fetch('/api/system/tokens/sidebar', { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!active) return;
+        const insights = Array.isArray(data?.summary?.insights) ? ([...data.summary.insights] as RouletteSidebarInsight[]).sort((a, b) => a.sortOrder - b.sortOrder) : [];
+        setGuideInsights(insights);
+        setGuideRotationIndex(current => insights.length ? current % insights.length : 0);
+        if (typeof data?.metrics?.totalSpins === 'number') setSpinCounter(data.metrics.totalSpins);
+      } catch { /* Los indicadores no impiden jugar. */ }
+      finally { window.clearTimeout(timeout); if (inFlight === controller) inFlight = null; }
     };
-
-    void loadSidebarInsights();
-    const intervalId = window.setInterval(loadSidebarInsights, ROULETTE_CONFIG.sidebarRefreshMs);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, []);
+    const onVisibility = () => { if (document.hidden) { inFlight?.abort(); inFlight = null; } else void loadSummary(); };
+    void loadSummary();
+    const timer = window.setInterval(loadSummary, ROULETTE_CONFIG.sidebarRefreshMs);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { active = false; inFlight?.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisibility); };
+  }, [loading, activeTokenId]);
 
   useEffect(() => {
     if (guideInsights.length <= GUIDE_SLOT_COUNT) {
@@ -410,7 +381,7 @@ export default function RouletteClientPage({
     }
 
     const intervalId = window.setInterval(() => {
-      setGuideRotationIndex((current) => (current + 1) % guideInsights.length);
+      if (!document.hidden) setGuideRotationIndex((current) => (current + 1) % guideInsights.length);
     }, ROULETTE_CONFIG.guideRotationMs);
 
     return () => {
@@ -422,7 +393,7 @@ export default function RouletteClientPage({
     const totalItems = guideInsights.length + (spinCounter != null ? 1 : 0);
     if (totalItems <= 1) return;
     const id = window.setInterval(() => {
-      setMobileSliderIndex((prev) => (prev + 1) % totalItems);
+      if (!document.hidden) setMobileSliderIndex((prev) => (prev + 1) % totalItems);
     }, 3200);
     return () => window.clearInterval(id);
   }, [guideInsights.length, spinCounter]);
@@ -493,9 +464,6 @@ export default function RouletteClientPage({
 
     let abort = false;
     const loadController = new AbortController();
-    const minPromise = new Promise<void>((resolve) =>
-      setTimeout(resolve, ROULETTE_CONFIG.minLoaderMs)
-    );
 
     (async function loadToken() {
       perfMark("load_start");
@@ -557,7 +525,6 @@ export default function RouletteClientPage({
           }
         }
       } finally {
-        await minPromise;
         if (!abort) {
           setLoading(false); // Siempre ocultar loader al final, independientemente de softSwitch
           // Si fue softSwitch, evitamos overlay; limpiamos bandera
@@ -590,18 +557,6 @@ export default function RouletteClientPage({
     setPhase("SPINNING");
     perfMark("spin_start");
 
-    // Reproducir sonidos con un ligero retraso para sincronizar con el inicio visual (que espera al fetch)
-    // Este delay simula la inercia mecánica y cubre el tiempo de respuesta del servidor
-    setTimeout(() => {
-      if (!isScratchExperience) sounds.playSpinStart();
-      // Iniciar loop infinito con desaceleración basada en la duración visual
-      const spinDuration = lowMotion
-        ? ROULETTE_CONFIG.spinDurationMs.lowMotion
-        : ROULETTE_CONFIG.spinDurationMs.normal;
-      if (!isScratchExperience) void sounds.playSpinLoop({ expectedDurationMs: spinDuration });
-    }, ROULETTE_CONFIG.soundStartDelayMs);
-
-    // Audio ya inicializado en useEffect
     try {
       const data = await revealGameResult(activeTokenId, experienceUi.spinErrorFallback);
       // Guardamos revealedAt pero dejamos que la animación termine (onSpinEnd)
@@ -610,6 +565,10 @@ export default function RouletteClientPage({
       );
       const winIndex = elements.findIndex((e) => e.prizeId === data.prizeId);
       if (winIndex < 0) throw new Error("Premio no encontrado en la ruleta");
+      if (!isScratchExperience) soundStartTimeoutRef.current = setTimeout(() => {
+        void sounds.playSpinStart();
+        void sounds.playSpinLoop({ expectedDurationMs: lowMotion ? ROULETTE_SPIN_DURATION_MS.lowMotion : ROULETTE_SPIN_DURATION_MS.normal });
+      }, ROULETTE_CONFIG.soundStartDelayMs);
       setPrizeIndex(winIndex);
       const chosen = elements[winIndex];
       // Si el backend indica RETRY, guardamos nextTokenId para transición suave
@@ -619,10 +578,13 @@ export default function RouletteClientPage({
         setFunctionalTokenId(null);
       }
       if (token?.experienceType === "scratch_card") {
-        window.setTimeout(() => handleSpinEnd(chosen, data?.nextTokenId || null), 900);
+        scratchTimeoutRef.current = setTimeout(() => handleSpinEnd(chosen, data?.nextTokenId || null), 900);
       }
       // La animación del componente NewRoulette usará prizeIndex y disparará handleSpinEnd
     } catch (err) {
+      if (soundStartTimeoutRef.current) clearTimeout(soundStartTimeoutRef.current);
+      soundStartTimeoutRef.current = null;
+      void sounds.stopSpinLoop();
       setErrorCode(err instanceof GameRequestError ? err.code || null : null);
       console.error("Error al girar:", err);
       setError(err instanceof Error ? err.message : experienceUi.spinErrorFallback);
@@ -668,7 +630,7 @@ export default function RouletteClientPage({
     setPhase("READY");
 
     // El usuario continúa hacia su token funcional sin consultar en bucle
-    setTimeout(() => {
+    transitionTimeoutRef.current = setTimeout(() => {
       try {
         const newUrl = `/marketing/ruleta?tokenId=${encodeURIComponent(functionalTokenId!)}`;
         window.history.replaceState(null, "", newUrl);
@@ -733,7 +695,7 @@ export default function RouletteClientPage({
     }
 
     // Delay antes de mostrar el modal para que el usuario vea el premio en la ruleta
-    setTimeout(() => {
+    prizeModalTimeoutRef.current = setTimeout(() => {
       setPhase("REVEALED_MODAL");
     }, ROULETTE_CONFIG.prizeModalDelayMs);
   };
@@ -759,6 +721,10 @@ export default function RouletteClientPage({
   // Cleanup de sonidos al desmontar
   useEffect(() => {
     return () => {
+      if (soundStartTimeoutRef.current) clearTimeout(soundStartTimeoutRef.current);
+      if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
+      if (scratchTimeoutRef.current) clearTimeout(scratchTimeoutRef.current);
+      if (prizeModalTimeoutRef.current) clearTimeout(prizeModalTimeoutRef.current);
       sounds.cleanup();
     };
   }, [sounds]);

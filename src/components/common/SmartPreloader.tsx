@@ -43,24 +43,6 @@ export default function SmartPreloader({
     let timeoutId: number | null = null;
     let idleId: number | null = null;
 
-    // Mensaje inmediato basado en el día de la semana para el primer render hidratado
-    const now = new Date();
-    const weekday = getWeekdayKey(now);
-    const map: Record<string, { title: string; subtitle: string }> = {
-      monday: { title: 'Arrancando la semana', subtitle: '¡Hoy calienta motores!' },
-      tuesday: { title: 'Martes de suerte', subtitle: '¿Listo para girar?' },
-      wednesday: { title: 'Miércoles en marcha', subtitle: 'La ruleta ya casi está' },
-      thursday: { title: 'No es jueves, es jueveo…', subtitle: '¡Bienvenido al show!' },
-      friday: { title: 'Viernes de fiesta', subtitle: 'Premios a la vuelta de la esquina' },
-      saturday: { title: 'Sábado de premios', subtitle: 'Ambiente listo, ¿giramos?' },
-      sunday: { title: 'Domingo relax', subtitle: 'Un giro suave para cerrar la semana' },
-    };
-    const m = (map as any)[weekday] as { title: string; subtitle: string } | undefined;
-    if (m) {
-      setTitle(m.title);
-      setSubtitle(m.subtitle);
-    }
-
     const run = async () => {
       try {
         const res = await fetch(configPath, { cache: 'no-store' });

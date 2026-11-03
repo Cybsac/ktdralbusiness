@@ -166,10 +166,10 @@
 
 /* Transición suave durante el giro */
 .wheel.spinning {
-  transition: transform 6s cubic-bezier(0.2, 0, 0.2, 1) !important;
+  transition: transform var(--roulette-spin-duration) cubic-bezier(0.2, 0, 0.2, 1) !important;
   filter: brightness(1.06); /* brillo más suave */
   will-change: transform; /* Optimización para animaciones */
-  animation: spinGlow 6s ease-out; /* Añadir animación de brillo */
+  animation: spinGlow var(--roulette-spin-duration) ease-out; /* Añadir animación de brillo */
   pointer-events: none; /* Desactivar interacción mientras gira */
   /* Forzar aceleración GPU para animación fluida */
   transform: translateZ(0) rotate(0deg);
@@ -177,7 +177,6 @@
 
 /* Modo de bajo movimiento: transiciones más cortas y sin animación de brillo */
 .wheel.spinning.lowMotion {
-  transition-duration: 3.5s !important;
   animation: none !important;
   filter: none;
 }

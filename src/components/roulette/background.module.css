@@ -88,6 +88,14 @@
   will-change: transform, opacity;
 }
 
+/* Keep the decorative background static while spinning, hidden or on low-motion devices. */
+:global(html[data-roulette-quiet]) .spotlight,
+:global(html[data-roulette-quiet]) .centerGlow,
+:global(html[data-roulette-quiet]) .lightRays::before {
+  animation-play-state: paused;
+}
+
+
 .spotlight1 {
   top: 10%;
   left: 10%;
@@ -146,4 +154,10 @@
   0% { transform: translate(0, 0) scale(0.9); }
   50% { transform: translate(20%, -15%) scale(1.1); }
   100% { transform: translate(-10%, 10%) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce), (max-width: 480px) {
+  .spotlight, .centerGlow, .lightRays::before { animation: none; }
+  .spotlight { filter: none; will-change: auto; }
+  .spotlight3, .spotlight4 { display: none; }
 }
