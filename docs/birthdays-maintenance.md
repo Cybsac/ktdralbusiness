@@ -10,6 +10,8 @@ El servicio está separado en módulos de creación, consulta, edición, estados
 
 La creación y reactivación comprueban DNI/año con bloqueo transaccional. La edición verifica versión. Los ingresos validan estado, fecha, vencimiento, firma y cupos; actualizan consumo, historial y contadores en una transacción. El cliente público utiliza una clave de operación para evitar ingresos duplicados al reintentar. Las consultas paginan en la base y no generan archivos al listar.
 
+La reserva pública consulta los horarios disponibles y verifica nuevamente su capacidad al crearla. Las creaciones públicas del mismo horario se serializan en la transacción; las reservas de administración conservan su flujo operativo. El pack público debe estar activo y no ser personalizado, y los invitados previstos se toman de ese pack. Si falla la generación del QR después de guardar, el formulario permite reintentar con la reserva existente. La cancelación pública exige el enlace firmado de esa reserva y no procede si ya hay llegadas. Los comentarios y datos de reservas se conservan.
+
 ## Limpieza automática de tarjetas
 
 `card-scheduler.ts` inicia una tarea por proceso de producción mediante el registro de instrumentación de Next. Corre al iniciar y según la frecuencia configurada. No depende del interruptor del programador global de tokens, no requiere visitas al administrador y no se ejecuta durante compilaciones ni en desarrollo.
@@ -32,7 +34,9 @@ Las métricas se agregan en la base de datos. El porcentaje de referidores refle
 
 ## Consolidado de reservas
 
-`/admin/birthdays/consolidado` es de acceso exclusivo para administradores activos. Consulta las reservas existentes sin duplicarlas; permite filtrar por fecha de celebración o registro, estado, pack, origen y búsqueda. Los indicadores y la lista usan los mismos filtros y una lectura consistente; la lista se pagina en la base. El estado completado y las llegadas son indicadores distintos. El origen, creador y referidor históricos que no estén registrados se muestran como tales. Los datos del pack son actuales, no una prueba de su precio o beneficios históricos. Las reservas eliminadas definitivamente no pueden incluirse.
+`/admin/birthdays/consolidado` es de acceso exclusivo para administradores activos. Consulta las reservas existentes sin duplicarlas; permite filtrar por fecha de celebración o registro, estado, pack, origen, usuario creador vinculado y búsqueda. También permite consultar reservas sin usuario vinculado; el campo antiguo de texto no acredita por sí mismo la identidad del creador. Los indicadores y la lista usan los mismos filtros y una lectura consistente; la lista se pagina en la base y admite vista de tarjetas o filas. El estado completado y las llegadas son indicadores distintos. El origen, creador y referidor históricos que no estén registrados se muestran como tales. Los datos del pack son actuales, no una prueba de su precio o beneficios históricos. Las reservas eliminadas definitivamente no pueden incluirse.
+
+En la vista por filas se puede ordenar toda la consulta por fecha de celebración o por la llegada del cumpleañero, antes de paginar. Llegada usa exclusivamente `hostArrivedAt`; los ingresos de invitados no alteran ese orden.
 
 ## Configuración
 
@@ -40,7 +44,8 @@ Las métricas se agregan en la base de datos. El porcentaje de referidores refle
 - `BIRTHDAY_CLEANUP_BATCH_SIZE`: máximo de reservas/trabajos por pasada; por defecto 10.
 - `BIRTHDAY_STORAGE_SCAN_PAGE_SIZE`: objetos/carpetas por página del inventario; por defecto 100.
 - `NEXT_PUBLIC_BIRTHDAY_TIMEZONE`: zona de calendario; por defecto America/Lima.
-- `NEXT_PUBLIC_BIRTHDAY_SLOTS`: horarios separados por comas.
+- `NEXT_PUBLIC_BIRTHDAY_SLOTS`: horarios públicos separados por comas.
+- `NEXT_PUBLIC_BIRTHDAY_STAFF_SLOTS`: horarios del portal de colaboradores, separados por comas.
 - `BIRTHDAY_MAX_RESERVATIONS_PER_SLOT`: capacidad por horario.
 - `BIRTHDAY_TEMPLATE_URL`: URL opcional de la plantilla universal.
 - `NEXT_PUBLIC_SUPABASE_URL`: origen de almacenamiento para la plantilla predeterminada.

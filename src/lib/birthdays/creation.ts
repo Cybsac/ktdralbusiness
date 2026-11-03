@@ -1,10 +1,10 @@
-import { birthdayYearRange } from "./calendar";
+import { birthdayYearRange, birthdayStoredRange } from "./calendar";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/audit";
 import { birthdayDay, birthdayToday, birthdayDateKey } from "./calendar";
 import { BIRTHDAY_POLICY as P } from "./policy";
 import { reservationCreateSchema } from "./reservation-input";
-import { lockBirthdayDocument } from "./locking";
+import { lockBirthdayDocument, lockBirthdaySlot } from "./locking";
 import type { CreateReservationInput, ReservationWithRelations } from "./types";
 export async function createReservation(
   input: CreateReservationInput
@@ -15,6 +15,7 @@ export async function createReservation(
   if (day < birthdayToday()) throw new Error("RESERVATION_DATE_PAST");
   if (!input.isAdmin && day > birthdayToday().plus({ days: P.publicBookingDays }))
     throw new Error("DATE_TOO_FAR");
+  if (!input.isAdmin && !P.publicSlots.includes(fields.timeSlot)) throw new Error("INVALID_SLOT");
   const created = await prisma.$transaction(async (tx) => {
     await lockBirthdayDocument(tx, fields.documento, day.year);
     const duplicate = await tx.birthdayReservation.findFirst({
@@ -25,8 +26,13 @@ export async function createReservation(
       },
     });
     if (duplicate) throw new Error("DUPLICATE_DNI_YEAR");
+    if (!input.isAdmin) {
+      await lockBirthdaySlot(tx, birthdayDateKey(input.date), fields.timeSlot);
+      const count = await tx.birthdayReservation.count({ where: { date: birthdayStoredRange(input.date), timeSlot: fields.timeSlot, status: { in: [...P.capacityStatuses] } } });
+      if (count >= P.maxReservationsPerSlot) throw new Error("SLOT_FULL");
+    }
     const pack = await tx.birthdayPack.findFirst({ where: { id: fields.packId, active: true } });
-    if (!pack) throw new Error("INVALID_PACK");
+    if (!pack || (!input.isAdmin && (pack.isCustom || pack.qrCount < 1))) throw new Error("INVALID_PACK");
     if (
       input.referrerId &&
       !(await tx.birthdayReferrer.findFirst({
@@ -51,7 +57,7 @@ export async function createReservation(
         date: day.toJSDate(),
         timeSlot: fields.timeSlot,
         packId: fields.packId,
-        guestsPlanned: fields.guestsPlanned,
+        guestsPlanned: input.isAdmin ? fields.guestsPlanned : pack.qrCount,
         wantsPhotoSession: fields.wantsPhotoSession,
         status: "approved",
         specialBottle: configuration?.wednesdaySpecialBottle || null,

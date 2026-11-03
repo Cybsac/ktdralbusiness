@@ -9,3 +9,6 @@ export async function lockBirthdayDocument(
 export async function lockBirthdayReservation(tx: Prisma.TransactionClient, id: string) {
   await tx.$queryRaw`SELECT id FROM "BirthdayReservation" WHERE id=${id} FOR UPDATE`;
 }
+export async function lockBirthdaySlot(tx: Prisma.TransactionClient, day: string, slot: string) {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`birthday-slot:${day}:${slot}`}))::text`;
+}

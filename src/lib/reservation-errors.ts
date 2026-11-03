@@ -1,6 +1,5 @@
 "use client";
 
-import { ReservationMessageModal } from "@/components/ReservationMessageModal";
 
 interface ValidationError {
   field: "name" | "whatsapp" | "documento" | "date" | "pack" | "general";
@@ -74,19 +73,7 @@ export function getValidationErrorDetails(errorMessage: string): ValidationError
       message: "Necesitamos tu documento de identidad para verificar tu reserva.",
       suggestions: [
         "Ingresa tu DNI (8 dígitos)",
-        "O tu Carnet de Extranjería/Pasaporte",
         "Solo números, sin puntos ni espacios"
-      ]
-    },
-    "Documento debe tener entre 8-12 dígitos": {
-      field: "documento",
-      type: "error",
-      title: "Formato de documento incorrecto",
-      message: "El documento debe tener entre 8 y 12 dígitos numéricos.",
-      suggestions: [
-        "DNI: 8 dígitos (ej: 12345678)",
-        "CE/Pasaporte: hasta 12 dígitos",
-        "Solo números, sin letras ni símbolos"
       ]
     },
     "Documento debe tener 8 dígitos (DNI)": {
@@ -97,7 +84,6 @@ export function getValidationErrorDetails(errorMessage: string): ValidationError
       suggestions: [
         "Ejemplo: 12345678",
         "Solo números, sin puntos ni espacios",
-        "Si tienes CE/Pasaporte, avísanos en el chat para asistencia"
       ]
     },
     "Email no es válido": {
@@ -118,7 +104,7 @@ export function getValidationErrorDetails(errorMessage: string): ValidationError
       message: "Necesitamos saber cuándo será tu celebración para poder organizarla.",
       suggestions: [
         "Selecciona una fecha en el calendario",
-        "Puedes elegir una fecha hasta el fin del mes en curso",
+        "Consulta las fechas disponibles en el calendario",
         "La fecha puede ser hoy o posterior"
       ]
     },
@@ -150,7 +136,6 @@ export function getValidationErrorDetails(errorMessage: string): ValidationError
       message: "Detectamos que ya realizaste una reserva de cumpleaños durante este año calendario.",
       suggestions: [
         "Contacta con nuestro equipo de atención al cliente",
-        "Llama al: 912-345-678",
         "Pregunta por cambios de fecha o cancelaciones",
         "Podemos ayudarte a reorganizar tu celebración"
       ]
@@ -181,7 +166,6 @@ export function getServerErrorDetails(errorCode?: string, fallbackMessage?: stri
       suggestions: [
         "Ejemplo: 12345678",
         "Solo números, sin puntos ni espacios",
-        "Si tienes CE/Pasaporte, avísanos en el chat para asistencia"
       ]
     },
     "INVALID_WHATSAPP": {
@@ -226,8 +210,8 @@ export function getServerErrorDetails(errorCode?: string, fallbackMessage?: stri
       title: "Fecha inválida",
       message: "La fecha seleccionada no es válida para reservas.",
       suggestions: [
-        "Selecciona una fecha dentro de los próximos 10 días",
-        "La fecha debe ser posterior a hoy",
+        "Consulta las fechas disponibles en el calendario",
+        "La fecha puede ser hoy o posterior",
         "Verifica que la fecha esté disponible"
       ]
     },
@@ -249,7 +233,6 @@ export function getServerErrorDetails(errorCode?: string, fallbackMessage?: stri
       message: "Ya tienes una reserva de cumpleaños registrada durante este año calendario.",
       suggestions: [
         "Contacta con nuestro equipo de atención al cliente",
-        "Llama al: 912-345-678",
         "Pregunta por cambios de fecha o cancelaciones",
         "Podemos ayudarte a reorganizar tu celebración"
       ]
@@ -262,7 +245,6 @@ export function getServerErrorDetails(errorCode?: string, fallbackMessage?: stri
       suggestions: [
         "Intenta nuevamente en unos minutos",
         "Contacta con soporte si el problema persiste",
-        "Llama al: 912-345-678"
       ]
     },
     "CREATE_RESERVATION_ERROR": {
@@ -274,7 +256,6 @@ export function getServerErrorDetails(errorCode?: string, fallbackMessage?: stri
         "Verifica tu conexión a internet",
         "Intenta nuevamente en unos minutos",
         "Si el problema persiste, contacta con soporte",
-        "Llama al: 912-345-678"
       ]
     }
   };

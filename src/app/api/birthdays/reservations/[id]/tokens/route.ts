@@ -28,17 +28,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const body = await req.json().catch(() => ({}));
     const clientSecret = body && typeof body.clientSecret === 'string' ? body.clientSecret : undefined;
     if (!clientSecret) {
-      console.error('[BIRTHDAYS] POST /tokens error: clientSecret missing', { body: JSON.stringify(body) });
       return apiError('INVALID_BODY', 'clientSecret required', undefined, 400, cors);
     }
 
     const ver = verifyClientSecret(clientSecret);
     if (!ver.ok) {
-      console.error('[BIRTHDAYS] POST /tokens error: clientSecret invalid', { clientSecret, ver });
       return apiError(ver.code || 'INVALID', 'Unauthorized', undefined, ver.code === 'EXPIRED' ? 401 : 403, cors);
     }
     if (ver.rid !== params.id) {
-      console.error('[BIRTHDAYS] POST /tokens error: clientSecret reservation mismatch', { clientSecret, ver, params });
       return apiError('INVALID', 'Unauthorized', undefined, 403, cors);
     }
 

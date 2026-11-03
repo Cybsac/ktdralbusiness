@@ -19,6 +19,9 @@ const messages: Record<string, string> = {
   CARD_DATA_CHANGED: "La reserva cambió durante la generación. Reintenta",
   INVALID_PACK: "Paquete no disponible",
   COURTESY_NOT_INCLUDED: "Esta cortesía no corresponde al paquete",
+  PUBLIC_CANCELLATION_UNAVAILABLE: "La reserva no puede cancelarse porque ya registra llegadas o no está disponible. Contacta con el equipo.",
+  INVALID_SLOT: "El horario seleccionado no está disponible.",
+  SLOT_FULL: "El horario seleccionado ya no tiene cupos. Elige otro horario.",
 };
 export function birthdayFailure(error: unknown, headers?: Record<string, string>) {
   const code =

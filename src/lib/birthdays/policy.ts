@@ -13,13 +13,14 @@ export const BIRTHDAY_POLICY = {
   storageScanPageSize: positiveInteger(process.env.BIRTHDAY_STORAGE_SCAN_PAGE_SIZE, 100),
   cleanupLeaseMs: 15 * 60 * 1000,
   cleanupRetryMs: 60 * 1000,
-  publicSlots: (process.env.NEXT_PUBLIC_BIRTHDAY_SLOTS || "22:00,23:00,00:00")
+  publicSlots: (process.env.NEXT_PUBLIC_BIRTHDAY_SLOTS || "20:00,21:00,22:00,23:00,00:00")
     .split(",")
     .map((value) => value.trim())
     .filter((value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)),
   staffSlots: (process.env.NEXT_PUBLIC_BIRTHDAY_STAFF_SLOTS || "20:00,21:00,22:00,23:00,00:00")
     .split(",").map((value) => value.trim()).filter((value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value)),
   maxReservationsPerSlot: positiveInteger(process.env.BIRTHDAY_MAX_RESERVATIONS_PER_SLOT, 5),
+  capacityStatuses: ["pending_review", "approved", "completed"],
   defaultReferralCommission: 10,
   pageSize: 20,
   maxPageSize: 100,

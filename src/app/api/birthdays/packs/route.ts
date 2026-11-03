@@ -4,14 +4,11 @@ import { prisma } from '@/lib/prisma';
 import { apiError, apiOk } from '@/lib/apiError';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isBirthdaysEnabledPublic } from '@/lib/featureFlags';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
 import { corsHeadersFor } from '@/lib/cors';
 
 export async function GET(req: NextRequest) {
   const cors = corsHeadersFor(req as unknown as Request);
   // If public flag is off, still allow ADMIN/STAFF to fetch packs from admin UI.
-  const cookie = getSessionCookieFromRequest(req as unknown as Request);
-  const session = await verifySessionCookie(cookie);
   const isAdmin = !!await birthdayManager(req);
   if (!isBirthdaysEnabledPublic() && !isAdmin) {
     return apiError('NOT_FOUND', 'Not found', undefined, 404, cors);
@@ -36,7 +33,8 @@ export async function GET(req: NextRequest) {
       priceSoles: (p as any).priceSoles ?? 0,
       isCustom: (p as any).isCustom === true,
     }));
-    const filtered = isAdmin ? data : data.filter((p: any) => !p.isCustom);
+    const publicView = req.nextUrl.searchParams.get('scope') === 'public';
+    const filtered = isAdmin && !publicView ? data : data.filter((p: any) => !p.isCustom);
     return apiOk({ packs: filtered }, 200, cors);
   } catch (e) {
     return apiError('PACKS_FETCH_ERROR', 'Failed to load packs', undefined, 500, cors);

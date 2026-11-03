@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     const reservations = await prisma.birthdayReservation.findMany({
       where: {
         date: range,
-        status: { in: ["pending_review", "approved"] },
+        status: { in: [...P.capacityStatuses] },
       },
       select: { timeSlot: true },
     });

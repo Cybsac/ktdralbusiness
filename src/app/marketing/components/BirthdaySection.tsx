@@ -37,7 +37,7 @@ export function BirthdaySection() {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch("/api/birthdays/packs", { cache: "no-store" });
+        const res = await fetch("/api/birthdays/packs?scope=public", { cache: "no-store" });
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j?.packs) throw new Error(j?.code || "LOAD_ERROR");
         if (!cancelled) setPacks(j.packs);
@@ -169,7 +169,6 @@ export function BirthdaySection() {
                 ))}
               {!loading &&
                 decorated
-                  .filter((pack) => pack.name.toLowerCase() !== "personalizado")
                   .map((c, i) => {
                     const active = i === activeIdx;
                     return (
@@ -313,7 +312,6 @@ export function BirthdaySection() {
               ))}
             {!loading &&
               decorated
-                .filter((pack) => pack.name.toLowerCase() !== "personalizado")
                 .map((c, i) => (
                   <motion.div
                     key={c.key}
