@@ -18,8 +18,8 @@ type WeeklyOperationalStat = {
   incompleteShifts: number;
   missingExitCount: number;
   totalRecords: number;
-  incidentCount: number;
-  incidentDays: Array<{ businessDay: string; comment: string }>;
+  commentCount: number;
+  commentDays: Array<{ businessDay: string; comment: string }>;
 };
 
 type WeeklyQrStat = {
@@ -67,26 +67,8 @@ type ProductSeriesResponse = {
   historicalTotal?: number;
 };
 
-type IncidentMention = {
-  businessDay: string;
-  personId: string;
-  collaborator: string;
-  area: string | null;
-  reason: string;
-};
-
-type CollaboratorIncidentRankingItem = {
-  personId: string;
-  collaborator: string;
-  area: string | null;
-  incidents: number;
-  previousIncidents: number;
-  trend: number;
-  reasons: string[];
-};
-
 type AlertItem = {
-  type: 'incident' | 'product-growth' | 'roll-banner' | 'birthday' | 'bracelets';
+  type: 'product-growth' | 'roll-banner' | 'birthday' | 'bracelets';
   severity: 'info' | 'warning' | 'critical';
   title: string;
   message: string;
@@ -113,7 +95,6 @@ type WeeklyDashboardData = {
   pulserasCanjeadas: ProductSeriesResponse;
   birthdayStats: WeeklyBirthdayStat[];
   ratingStats: WeeklyRatingStat[];
-  collaboratorIncidentRanking: CollaboratorIncidentRankingItem[];
   alerts: AlertItem[];
   notes: {
     pulserasCanjeadas: string;
@@ -144,7 +125,7 @@ function isWeekActive(input: {
 }) {
   return Boolean(
     (input.operational?.totalRecords || 0) > 0 ||
-      (input.operational?.incidentCount || 0) > 0 ||
+      (input.operational?.commentCount || 0) > 0 ||
       (input.qr?.reusableScans || 0) > 0 ||
       (input.qr?.totalQrSales || 0) > 0 ||
       (input.qr?.braceletsRedeemed || 0) > 0 ||
@@ -171,7 +152,7 @@ function findKpiWeekIndex(input: {
   for (let i = maxLength - 1; i >= 0; i -= 1) {
     const hasOp =
       (input.operationalStats[i]?.totalRecords || 0) > 0 ||
-      (input.operationalStats[i]?.incidentCount || 0) > 0;
+      (input.operationalStats[i]?.commentCount || 0) > 0;
     const hasQr =
       (input.qrStats[i]?.reusableScans || 0) > 0 ||
       (input.qrStats[i]?.totalQrSales || 0) > 0 ||
@@ -323,93 +304,8 @@ function classifyReusableProduct(groupName: string | null | undefined, label: st
   return null;
 }
 
-function splitCommentIntoChunks(comment: string) {
-  return comment
-    .split(/\n|\.|;|\u2022|\*|\-/)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean);
-}
-
-function buildIncidentReason(chunk: string) {
-  const normalized = normalizeText(chunk);
-  if (normalized.includes('no marco') && normalized.includes('ingreso') && normalized.includes('salida')) {
-    return 'No marco ingreso ni salida';
-  }
-  if (normalized.includes('no marco') && normalized.includes('salida')) {
-    return 'No marco salida';
-  }
-  if (normalized.includes('no marco') && normalized.includes('ingreso')) {
-    return 'No marco ingreso';
-  }
-  if (normalized.includes('sin salida')) {
-    return 'Sin salida registrada';
-  }
-  return chunk.trim();
-}
-
 function buildWeekIndex<T extends { weekStart: string }>(rows: T[]) {
   return new Map(rows.map((row) => [row.weekStart, row]));
-}
-
-async function getPersonDirectory() {
-  const people = await prisma.person.findMany({
-    select: { id: true, name: true, area: true, active: true },
-    where: { active: true },
-  });
-
-  return people.map((person) => ({
-    ...person,
-    normalizedName: normalizeText(person.name),
-  }));
-}
-
-async function getIncidentMentionsForRange(ranges: WeekRange[]) {
-  const comments = await prisma.dailyEvaluation.findMany({
-    where: {
-      businessDay: {
-        gte: ranges[0]?.weekStart,
-        lte: ranges[ranges.length - 1]?.weekEnd,
-      },
-      comment: { not: null },
-    },
-    select: {
-      businessDay: true,
-      comment: true,
-    },
-    orderBy: { businessDay: 'asc' },
-  });
-
-  const people = await getPersonDirectory();
-  const mentions: IncidentMention[] = [];
-
-  for (const row of comments) {
-    const comment = row.comment?.trim();
-    if (!comment) continue;
-
-    for (const chunk of splitCommentIntoChunks(comment)) {
-      const normalizedChunk = normalizeText(chunk);
-      if (!normalizedChunk || !/(no marco|sin salida|ingreso|salida|trabajo)/.test(normalizedChunk)) {
-        continue;
-      }
-
-      const matchedPeople = people.filter((person) => {
-        if (!person.normalizedName) return false;
-        return normalizedChunk.includes(person.normalizedName);
-      });
-
-      for (const person of matchedPeople) {
-        mentions.push({
-          businessDay: row.businessDay,
-          personId: person.id,
-          collaborator: person.name,
-          area: person.area,
-          reason: buildIncidentReason(chunk),
-        });
-      }
-    }
-  }
-
-  return mentions;
 }
 
 export async function getWeeklyOperationalStats(anchorDay: string, weekCount = DEFAULT_WEEK_COUNT) {
@@ -428,7 +324,7 @@ export async function getWeeklyOperationalStats(anchorDay: string, weekCount = D
   });
 
   const evaluationsWithComment = await prisma.dailyEvaluation.findMany({
-    where: { businessDay: { in: businessDays }, comment: { not: null } },
+    where: { businessDay: { in: businessDays }, closedAt: { not: null }, comment: { not: null } },
     select: { businessDay: true, comment: true },
   });
   const commentsByWeek = new Map<string, Array<{ businessDay: string; comment: string }>>();
@@ -481,8 +377,8 @@ export async function getWeeklyOperationalStats(anchorDay: string, weekCount = D
       incompleteShifts,
       missingExitCount,
       totalRecords,
-      incidentCount: (commentsByWeek.get(range.weekStart) || []).length,
-      incidentDays: commentsByWeek.get(range.weekStart) || [],
+      commentCount: (commentsByWeek.get(range.weekStart) || []).length,
+      commentDays: commentsByWeek.get(range.weekStart) || [],
     } satisfies WeeklyOperationalStat;
   });
 }
@@ -796,58 +692,11 @@ async function getWeeklyRatingStats(anchorDay: string, weekCount = DEFAULT_WEEK_
   });
 }
 
-export async function getCollaboratorIncidentRanking(anchorDay: string, weekCount = DEFAULT_WEEK_COUNT, referenceWeekStart?: string) {
-  const { anchorWeekStart, ranges } = buildWeekRanges(anchorDay, weekCount);
-  const mentions = await getIncidentMentionsForRange(ranges);
-  const currentWeekStart = referenceWeekStart || anchorWeekStart;
-  const currentWeek = new Set(buildWeekRange(currentWeekStart).businessDays);
-  const previousWeekStartDate = toUtcMidday(currentWeekStart);
-  previousWeekStartDate.setUTCDate(previousWeekStartDate.getUTCDate() - 7);
-  const previousWeek = new Set(buildWeekRange(toDayString(previousWeekStartDate)).businessDays);
-
-  const ranking = new Map<string, CollaboratorIncidentRankingItem>();
-
-  for (const mention of mentions) {
-    const isCurrent = currentWeek.has(mention.businessDay);
-    const isPrevious = previousWeek.has(mention.businessDay);
-    if (!isCurrent && !isPrevious) continue;
-
-    if (!ranking.has(mention.personId)) {
-      ranking.set(mention.personId, {
-        personId: mention.personId,
-        collaborator: mention.collaborator,
-        area: mention.area,
-        incidents: 0,
-        previousIncidents: 0,
-        trend: 0,
-        reasons: [],
-      });
-    }
-
-    const item = ranking.get(mention.personId)!;
-    if (isCurrent) {
-      item.incidents += 1;
-      if (!item.reasons.includes(mention.reason)) item.reasons.push(mention.reason);
-    }
-    if (isPrevious) item.previousIncidents += 1;
-  }
-
-  return Array.from(ranking.values())
-    .map((item) => ({
-      ...item,
-      trend: item.incidents - item.previousIncidents,
-      reasons: item.reasons.slice(0, 3),
-    }))
-    .filter((item) => item.incidents > 0 || item.previousIncidents > 0)
-    .sort((left, right) => right.incidents - left.incidents || right.trend - left.trend || left.collaborator.localeCompare(right.collaborator));
-}
-
 function buildAlerts(input: {
   qrStats: WeeklyQrStat[];
   barProducts: ProductSeriesResponse;
   rollBannerProducts: ProductSeriesResponse;
   birthdayStats: WeeklyBirthdayStat[];
-  collaboratorIncidentRanking: CollaboratorIncidentRankingItem[];
   referenceWeekIndex: number;
 }) {
   const alerts: AlertItem[] = [];
@@ -857,17 +706,6 @@ function buildAlerts(input: {
   const currentBar = input.barProducts.weeks[input.referenceWeekIndex];
   const previousBar = input.barProducts.weeks[input.referenceWeekIndex - 1];
   const currentRoll = input.rollBannerProducts.weeks[input.referenceWeekIndex];
-
-  for (const item of input.collaboratorIncidentRanking) {
-    if (item.incidents > 2) {
-      alerts.push({
-        type: 'incident',
-        severity: 'critical',
-        title: `${item.collaborator} supera el umbral de incidencias`,
-        message: `${item.incidents} incidencias en 7 dias${item.area ? ` en ${item.area}` : ''}.`,
-      });
-    }
-  }
 
   if (currentBar && previousBar) {
     for (const product of input.barProducts.productKeys) {
@@ -956,7 +794,7 @@ export async function getWeeklyJourneyDashboard(anchorDay: string, weekCount = D
 
   // kpiWeekIndex: criterio estricto — actividad real (no reservas futuras, no bar/roll).
   const kpiWeekIndex = findKpiWeekIndex({ operationalStats, qrStats, birthdayStats });
-  // referenceWeekIndex: incluye todos los datos, usado para ranking de incidencias y alertas.
+  // referenceWeekIndex incluye todos los datos para las alertas.
   const referenceWeekIndex = findLatestActiveWeekIndex({
     operationalStats,
     qrStats,
@@ -967,7 +805,6 @@ export async function getWeeklyJourneyDashboard(anchorDay: string, weekCount = D
   });
   const kpiWeek = ranges[kpiWeekIndex] || ranges[referenceWeekIndex] || ranges[ranges.length - 1] || buildWeekRange(anchorWeekStart);
   const referenceWeek = ranges[referenceWeekIndex] || ranges[ranges.length - 1] || buildWeekRange(anchorWeekStart);
-  const collaboratorIncidentRanking = await getCollaboratorIncidentRanking(anchorDay, weekCount, referenceWeek.weekStart);
 
   const currentOperational = operationalStats[kpiWeekIndex];
   const currentQr = qrStats[kpiWeekIndex];
@@ -994,8 +831,7 @@ export async function getWeeklyJourneyDashboard(anchorDay: string, weekCount = D
     pulserasCanjeadas,
     birthdayStats,
     ratingStats,
-    collaboratorIncidentRanking,
-    alerts: buildAlerts({ qrStats, barProducts, rollBannerProducts, birthdayStats, collaboratorIncidentRanking, referenceWeekIndex }),
+    alerts: buildAlerts({ qrStats, barProducts, rollBannerProducts, birthdayStats, referenceWeekIndex }),
     notes: {
       pulserasCanjeadas: '',
     },
@@ -1032,7 +868,7 @@ async function getDailyOperationalStats(days: DayEntry[]): Promise<WeeklyOperati
       select: { businessDay: true, personId: true, type: true },
     }),
     prisma.dailyEvaluation.findMany({
-      where: { businessDay: { in: businessDays }, comment: { not: null } },
+      where: { businessDay: { in: businessDays }, closedAt: { not: null }, comment: { not: null } },
       select: { businessDay: true, comment: true },
     }),
   ]);
@@ -1067,12 +903,12 @@ async function getDailyOperationalStats(days: DayEntry[]): Promise<WeeklyOperati
       }
     }
     const comment = commentsByDay.get(businessDay);
-    const incidentDays = comment ? [{ businessDay, comment }] : [];
+    const commentDays = comment ? [{ businessDay, comment }] : [];
     return {
       weekStart: businessDay, weekEnd: businessDay, label,
       completeRecords, incompleteShifts, missingExitCount, totalRecords,
-      incidentCount: incidentDays.length,
-      incidentDays,
+      commentCount: commentDays.length,
+      commentDays,
     } satisfies WeeklyOperationalStat;
   });
 }
@@ -1318,7 +1154,6 @@ export async function getDailyJourneyDashboard(anchorDay: string, dayCount: numb
     pulserasCanjeadas,
     birthdayStats,
     ratingStats,
-    collaboratorIncidentRanking: [],
     alerts: [],
     notes: { pulserasCanjeadas: '' },
   };

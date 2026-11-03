@@ -19,8 +19,8 @@ type WeeklyOperationalStat = {
   incompleteShifts: number;
   missingExitCount: number;
   totalRecords: number;
-  incidentCount: number;
-  incidentDays: Array<{ businessDay: string; comment: string }>;
+  commentCount: number;
+  commentDays: Array<{ businessDay: string; comment: string }>;
 };
 
 type WeeklyQrStat = {
@@ -67,18 +67,8 @@ type ProductSeriesResponse = {
   historicalTotal?: number;
 };
 
-type CollaboratorIncidentRankingItem = {
-  personId: string;
-  collaborator: string;
-  area: string | null;
-  incidents: number;
-  previousIncidents: number;
-  trend: number;
-  reasons: string[];
-};
-
 type AlertItem = {
-  type: 'incident' | 'product-growth' | 'roll-banner' | 'birthday' | 'bracelets';
+  type: 'product-growth' | 'roll-banner' | 'birthday' | 'bracelets';
   severity: 'info' | 'warning' | 'critical';
   title: string;
   message: string;
@@ -107,7 +97,6 @@ type WeeklyDashboardData = {
   pulserasCanjeadas: ProductSeriesResponse;
   birthdayStats: WeeklyBirthdayStat[];
   ratingStats: WeeklyRatingStat[];
-  collaboratorIncidentRanking: CollaboratorIncidentRankingItem[];
   alerts: AlertItem[];
   notes: {
     pulserasCanjeadas: string;
@@ -322,14 +311,14 @@ function MultiLineChartCard({
   );
 }
 
-function IncidentChartCard({
+function CommentChartCard({
   title,
   subtitle,
   data,
 }: {
   title: string;
   subtitle?: string;
-  data: Array<{ label: string; incidentCount: number; comments: Array<{ businessDay: string; comment: string }> }>;
+  data: Array<{ label: string; commentCount: number; comments: Array<{ businessDay: string; comment: string }> }>;
 }) {
   return (
     <DashboardCard title={title} subtitle={subtitle}>
@@ -353,7 +342,7 @@ function IncidentChartCard({
                       <div className="mb-1.5 font-semibold text-slate-700 dark:text-slate-200">{label}</div>
                       <div className="mb-2 flex items-center gap-1.5">
                         <span className="h-2 w-2 flex-shrink-0 rounded-full bg-red-600" />
-                        <span className="text-slate-600 dark:text-slate-300">Jornadas con incidencias:</span>
+                        <span className="text-slate-600 dark:text-slate-300">Jornadas con novedades:</span>
                         <span className="font-bold text-slate-900 dark:text-slate-100">{v}</span>
                       </div>
                       {comments && comments.length > 0 && (
@@ -372,8 +361,8 @@ function IncidentChartCard({
               />
               <Line
                 type="monotone"
-                dataKey="incidentCount"
-                name="Incidencias"
+                dataKey="commentCount"
+                name="Novedades"
                 stroke="#dc2626"
                 strokeWidth={2.5}
                 dot={{ r: 3 }}
@@ -540,12 +529,12 @@ export default function WeeklyJourneyDashboard({
     }));
   }, [data]);
 
-  const incidentChart = useMemo(() => {
+  const commentChart = useMemo(() => {
     if (!data) return [];
     return data.operationalStats.map((week) => ({
       label: week.label,
-      incidentCount: week.incidentCount,
-      comments: week.incidentDays,
+      commentCount: week.commentCount,
+      comments: week.commentDays,
     }));
   }, [data]);
 
@@ -638,10 +627,10 @@ export default function WeeklyJourneyDashboard({
         ]}
       />
 
-      <IncidentChartCard
-        title="Incidencias de Personal"
-        subtitle="Días con comentario en el cierre de jornada"
-        data={incidentChart}
+      <CommentChartCard
+        title="Novedades de jornada"
+        subtitle="Jornadas cerradas con comentario"
+        data={commentChart}
       />
 
       <RatingChartCard
@@ -731,53 +720,7 @@ export default function WeeklyJourneyDashboard({
         historicalTotal={domingoChart.historicalTotal}
       />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <DashboardCard title="Ranking de incidencias" subtitle="Incidencias detectadas desde comentarios de cierre">
-          {data.collaboratorIncidentRanking.length === 0 ? (
-            <div className="text-sm text-slate-500 dark:text-slate-400">Sin incidencias detectadas en la ventana analizada.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                    <th className="py-2 pr-3">Colaborador</th>
-                    <th className="py-2 pr-3">Area</th>
-                    <th className="py-2 pr-3 text-center">Incidencias</th>
-                    <th className="py-2 text-center">Tendencia</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.collaboratorIncidentRanking.map((item) => (
-                    <tr key={item.personId} className="border-b border-slate-100 dark:border-slate-800">
-                      <td className="py-2 pr-3">
-                        <div className="font-medium text-slate-900 dark:text-slate-100">{item.collaborator}</div>
-                        {item.reasons.length > 0 ? (
-                          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{item.reasons.join(' · ')}</div>
-                        ) : null}
-                      </td>
-                      <td className="py-2 pr-3 text-slate-600 dark:text-slate-300">{item.area || 'Sin area'}</td>
-                      <td className="py-2 pr-3 text-center font-semibold text-slate-900 dark:text-slate-100">{item.incidents}</td>
-                      <td className="py-2 text-center">
-                        <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                            item.trend > 0
-                              ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                              : item.trend < 0
-                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                                : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
-                          }`}
-                        >
-                          {item.trend > 0 ? `+${item.trend}` : item.trend}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </DashboardCard>
-
+      <div>
         <DashboardCard title="Alertas inteligentes" subtitle="Reglas simples sobre la semana actual">
           {data.alerts.length === 0 ? (
             <div className="text-sm text-slate-500 dark:text-slate-400">Sin alertas activas para la semana actual.</div>

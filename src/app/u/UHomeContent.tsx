@@ -61,7 +61,7 @@ export default function UHomeContent({
   const requestedTab = searchParams?.get("tab");
 
   useEffect(() => {
-    if (requestedTab === "work") setActiveTab("work");
+    if (requestedTab === "work" || requestedTab === "today") setActiveTab(requestedTab);
   }, [requestedTab]);
   const [showPasswordResetModal, setShowPasswordResetModal] = useState(false);
 
@@ -351,6 +351,19 @@ export default function UHomeContent({
                 </Link>
 
                 {isCoordinator && (
+                  <Link href="/u/journey-updates" className="block rounded-xl border-2 border-teal-300 bg-gradient-to-br from-teal-50 to-cyan-50 p-4 shadow-md transition-all hover:shadow-lg sm:p-5 dark:border-teal-700 dark:from-teal-900/20 dark:to-cyan-900/20">
+                    <div className="mb-1 flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-100 dark:bg-teal-800/40 sm:h-10 sm:w-10">
+                        <IconMail className="h-5 w-5 text-teal-600 dark:text-teal-400 sm:h-6 sm:w-6" />
+                      </div>
+                      <div className="text-lg font-semibold text-teal-900 dark:text-teal-100 sm:text-xl">Novedades de jornada</div>
+                    </div>
+                    <p className="ml-12 text-sm text-teal-700 dark:text-teal-300 sm:ml-[52px]">Consulta los comentarios registrados al cerrar cada jornada.</p>
+                    <div className="ml-12 mt-3 text-sm font-medium text-teal-700 dark:text-teal-300 sm:ml-[52px] sm:mt-4">Ver novedades →</div>
+                  </Link>
+                )}
+
+                {isCoordinator && (
                   <Link
                     href="/u/evolucion"
                     className="block rounded-xl border-2 border-cyan-300 bg-gradient-to-br from-cyan-50 to-sky-50 p-4 sm:p-5 shadow-md hover:shadow-lg transition-all ring-1 ring-cyan-200/60 dark:border-cyan-700 dark:from-cyan-900/20 dark:to-sky-900/20 dark:ring-cyan-700/30"
@@ -387,8 +400,7 @@ export default function UHomeContent({
                       </div>
                     </div>
                     <p className="text-sm text-emerald-700 dark:text-emerald-300 ml-12 sm:ml-[52px]">
-                      Consulta los promedios individuales de los colaboradores por semana o por los
-                      últimos 30 días.
+                      Consulta los puntos por jornada y los acumulados de los colaboradores.
                     </p>
                     <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-medium text-sm ml-12 sm:ml-[52px]">
                       Ver rendimiento →

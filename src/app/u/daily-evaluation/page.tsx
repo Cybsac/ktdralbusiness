@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { canManageDailyEvaluation, DAILY_EVALUATION_TIME_ZONE, type Rating } from '@/lib/daily-evaluation';
+import { canManageDailyEvaluation, DAILY_EVALUATION_TIME_ZONE, isBusinessDay, type Rating } from '@/lib/daily-evaluation';
 import { RATING_OPTIONS } from '@/lib/daily-evaluation-options';
 import { ALLOWED_AREAS } from '@/lib/areas';
 import { REUSABLE_POLICY } from '@/lib/reusable-tokens/policy';
@@ -311,7 +311,7 @@ export default function DailyEvaluationPage() {
 
   // Initialize to today's business day
   useEffect(() => {
-    fetch('/api/admin/daily-evaluation?configuration=1').then(r => { if (!r.ok) throw new Error(); return r.json(); }).then(data => { setTodayBusinessDay(data.currentBusinessDay); setSelectedDay(data.currentBusinessDay); }).catch(() => { setLoadError('No se pudo obtener la fecha de la jornada.'); setLoading(false); });
+    fetch('/api/admin/daily-evaluation?configuration=1').then(r => { if (!r.ok) throw new Error(); return r.json(); }).then(data => { const requestedDay = new URLSearchParams(window.location.search).get('day'); setTodayBusinessDay(data.currentBusinessDay); setSelectedDay(isBusinessDay(requestedDay) ? requestedDay : data.currentBusinessDay); }).catch(() => { setLoadError('No se pudo obtener la fecha de la jornada.'); setLoading(false); });
   }, []);
 
   useEffect(() => {
@@ -825,7 +825,7 @@ export default function DailyEvaluationPage() {
         <div className="space-y-3">
           {userRole === 'ADMIN' && <ActivityMilestoneSettings onChanged={() => void activityMilestones.refresh()} />}
           {activityMilestones.error && <p role="status" className="text-xs text-amber-700">No se pudieron cargar los hitos. <button type="button" className="underline" onClick={() => void activityMilestones.refresh()}>Reintentar</button></p>}
-          {!activityMilestones.error && activityMilestones.users.length > 0 && <details className="rounded-xl border border-teal-200 bg-white p-3 text-xs dark:border-teal-800 dark:bg-slate-800"><summary className="cursor-pointer font-semibold text-teal-700 dark:text-teal-300">Ver hitos acumulados del equipo</summary><div className="mt-3 max-h-96 space-y-2 overflow-y-auto">{activityMilestones.users.filter(item => item.total > 0 || item.points > 0).sort((a, b) => b.total - a.total || (a.displayName || '').localeCompare(b.displayName || '')).map(item => <details key={item.userId} className="rounded-lg border border-slate-200 p-2 dark:border-slate-700"><summary className="flex cursor-pointer justify-between gap-2"><span>{item.displayName || 'Usuario'}{item.area ? ` · ${item.area}` : ''}</span><span className="shrink-0 font-semibold">{item.total} operaciones · {item.points} puntos</span></summary><div className="mt-2"><ActivityMilestoneProgress progress={item} /></div></details>)}</div></details>}
+          {!activityMilestones.error && activityMilestones.users.length > 0 && <details className="rounded-xl border border-teal-200 bg-white p-3 text-xs dark:border-teal-800 dark:bg-slate-800"><summary className="cursor-pointer font-semibold text-teal-700 dark:text-teal-300">Ver puntos acumulados del equipo</summary><div className="mt-3 max-h-96 space-y-2 overflow-y-auto">{activityMilestones.users.filter(item => item.total > 0 || item.totalPoints > 0).sort((a, b) => b.total - a.total || (a.displayName || '').localeCompare(b.displayName || '')).map(item => <details key={item.userId} className="rounded-lg border border-slate-200 p-2 dark:border-slate-700"><summary className="flex cursor-pointer justify-between gap-2"><span>{item.displayName || 'Usuario'}{item.area ? ` · ${item.area}` : ''}</span><span className="shrink-0 font-semibold">{item.total} operaciones · {item.totalPoints} puntos</span></summary><div className="mt-2"><ActivityMilestoneProgress progress={item} /></div></details>)}</div></details>}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             {userRole === 'ADMIN' && (
               <div className="flex flex-wrap gap-2">
@@ -860,7 +860,7 @@ export default function DailyEvaluationPage() {
             {journeyStats.operators?.length ? journeyStats.operators.map(row => (
               <details key={row.userId} className={`group rounded-xl border border-teal-200 p-3 dark:border-teal-800 ${row.userId === journeyStats.viewer.userId ? 'bg-teal-50 dark:bg-teal-900/20' : 'bg-white dark:bg-slate-800'}`}>
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
-                  <div className="min-w-0"><h4 className="break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{row.displayName}</h4><p className="mt-0.5 text-xs text-slate-500">{row.area || 'Sin área'} · {row.role}</p>{activityByUser.get(row.userId) && <p className="mt-1 text-[11px] text-teal-700 dark:text-teal-300">{activityByUser.get(row.userId)!.points} puntos acumulados</p>}</div>
+                  <div className="min-w-0"><h4 className="break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{row.displayName}</h4><p className="mt-0.5 text-xs text-slate-500">{row.area || 'Sin área'} · {row.role}</p>{activityByUser.get(row.userId) && <p className="mt-1 text-[11px] text-teal-700 dark:text-teal-300">{activityByUser.get(row.userId)!.totalPoints} puntos acumulados</p>}</div>
                   <div className="flex shrink-0 items-center gap-3"><div className="text-right"><div className="text-xl font-bold text-teal-700 dark:text-teal-300">{row.totalActions}</div><div className="text-[10px] text-slate-500">operaciones</div></div><span aria-hidden="true" className="text-lg text-teal-700 transition-transform group-open:rotate-180 dark:text-teal-300">⌄</span></div>
                 </summary>
                 {activityByUser.get(row.userId) && <div className="mt-3"><ActivityMilestoneProgress progress={activityByUser.get(row.userId)!} /></div>}
@@ -902,7 +902,7 @@ export default function DailyEvaluationPage() {
                           <td className="px-3 py-2">
                             <div className="font-medium text-slate-900 dark:text-slate-100">{row.displayName}</div>
                             <div className="text-[11px] text-slate-500 dark:text-slate-400">{row.role}</div>
-                            {activityByUser.get(row.userId) && <div className="text-[11px] text-teal-700 dark:text-teal-300">{activityByUser.get(row.userId)!.total} acumuladas · {activityByUser.get(row.userId)!.points} puntos</div>}
+                            {activityByUser.get(row.userId) && <div className="text-[11px] text-teal-700 dark:text-teal-300">{activityByUser.get(row.userId)!.total} acumuladas · {activityByUser.get(row.userId)!.totalPoints} puntos</div>}
                           </td>
                           <td className="px-3 py-2 text-center font-bold text-teal-700 dark:text-teal-300" title="Entregas, canjes y llegadas registradas">{row.totalActions}</td>
                           <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{row.area || "-"}</td>

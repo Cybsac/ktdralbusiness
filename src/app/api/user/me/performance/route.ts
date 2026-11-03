@@ -1,32 +1,11 @@
 import { NextResponse } from 'next/server';
-import { DateTime } from 'luxon';
 import { prisma } from '@/lib/prisma';
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
-import { DAILY_EVALUATION_TIME_ZONE, isRating, RATING_LEVELS, type Rating } from '@/lib/daily-evaluation';
+import { RATING_LEVELS } from '@/lib/daily-evaluation';
+import { performancePeriods, summarizeRatings } from '@/lib/performance';
 import { currentBusinessDay } from '@/lib/attendanceDay';
 
 export const dynamic = 'force-dynamic';
-
-function getLevel(score: number | null) {
-  if (score === null) return null;
-  return RATING_LEVELS[Math.min(RATING_LEVELS.length - 1, Math.max(0, Math.round(score) - 1))];
-}
-
-function summarize(ratings: { rating: string }[]) {
-  const validRatings = ratings.filter((item): item is { rating: Rating } => isRating(item.rating));
-  const distribution = Object.fromEntries(RATING_LEVELS.map(rating => [rating, 0])) as Record<Rating, number>;
-  if (validRatings.length === 0) {
-    return { averageScore: null, level: null, evaluatedDays: 0, distribution };
-  }
-
-  let total = 0;
-  for (const item of validRatings) {
-    total += RATING_LEVELS.indexOf(item.rating) + 1;
-    distribution[item.rating]++;
-  }
-  const averageScore = Number((total / validRatings.length).toFixed(2));
-  return { averageScore, level: getLevel(averageScore), evaluatedDays: validRatings.length, distribution };
-}
 
 export async function GET(req: Request) {
   try {
@@ -37,11 +16,7 @@ export async function GET(req: Request) {
     if (!user?.personId) return NextResponse.json({ ok: true, performance: null });
 
     const currentDay = currentBusinessDay();
-    const today = DateTime.fromISO(currentDay, { zone: DAILY_EVALUATION_TIME_ZONE });
-    const weekStart = today.startOf('week').toFormat('yyyy-MM-dd');
-    const thirtyDayStart = today.minus({ days: 29 }).toFormat('yyyy-MM-dd');
-    const previousStart = today.minus({ days: 59 }).toFormat('yyyy-MM-dd');
-    const previousEnd = today.minus({ days: 30 }).toFormat('yyyy-MM-dd');
+    const { weekStart, thirtyDayStart, previousStart, previousEnd } = performancePeriods(currentDay);
 
     const [allRatings, closedEvaluations] = await Promise.all([prisma.personDailyRating.findMany({
       where: {
@@ -60,9 +35,9 @@ export async function GET(req: Request) {
     const weekRatings = ratings.filter(item => item.businessDay >= weekStart);
     const recentRatings = ratings.filter(item => item.businessDay >= thirtyDayStart);
     const previousRatings = ratings.filter(item => item.businessDay >= previousStart && item.businessDay <= previousEnd);
-    const week = summarize(weekRatings);
-    const last30Days = summarize(recentRatings);
-    const previous30Days = summarize(previousRatings);
+    const week = summarizeRatings(weekRatings);
+    const last30Days = summarizeRatings(recentRatings);
+    const previous30Days = summarizeRatings(previousRatings);
 
     let trend: 'IMPROVING' | 'STABLE' | 'DECLINING' | null = null;
     if (last30Days.averageScore !== null && previous30Days.averageScore !== null) {

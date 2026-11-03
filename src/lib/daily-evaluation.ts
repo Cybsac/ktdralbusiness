@@ -9,6 +9,10 @@ export function isRating(value: unknown): value is Rating {
   return typeof value === 'string' && (RATING_LEVELS as readonly string[]).includes(value);
 }
 
+export function ratingPoints(rating: Rating): number {
+  return RATING_LEVELS.indexOf(rating) + 1;
+}
+
 export function isBusinessDay(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);

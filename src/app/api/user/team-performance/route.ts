@@ -1,96 +1,55 @@
-import { DateTime } from 'luxon';
 import { NextResponse } from 'next/server';
 
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { currentBusinessDay } from '@/lib/attendanceDay';
-import { DAILY_EVALUATION_TIME_ZONE } from '@/lib/daily-evaluation';
+import { canManageDailyEvaluation, EVALUABLE_USER_ROLES, isBusinessDay } from '@/lib/daily-evaluation';
+import { summarizeRatings } from '@/lib/performance';
+import { readActivityMilestones } from '@/lib/activity-milestones/service';
 
 export const dynamic = 'force-dynamic';
 
-const WORKER_ROLES = ['COLLAB', 'STAFF'] as const;
-const SCORE_BY_RATING: Record<string, number> = {
-  MALO: 1,
-  REGULAR: 2,
-  BUENO: 3,
-  MUY_BUENO: 4,
-};
-
 type Rating = { rating: string; businessDay: string };
-
-type Summary = {
-  averageScore: number | null;
-  level: string | null;
-  evaluatedDays: number;
-  closedDays: number;
-  distribution: { MALO: number; REGULAR: number; BUENO: number; MUY_BUENO: number };
-};
-
-function getLevel(score: number | null) {
-  if (score === null) return null;
-  if (score >= 3.5) return 'MUY_BUENO';
-  if (score >= 2.5) return 'BUENO';
-  if (score >= 1.5) return 'REGULAR';
-  return 'MALO';
-}
-
-function summarize(ratings: Rating[], closedDays = 0): Summary {
-  const distribution = { MALO: 0, REGULAR: 0, BUENO: 0, MUY_BUENO: 0 };
-  let total = 0;
-
-  for (const item of ratings) {
-    const score = SCORE_BY_RATING[item.rating];
-    if (!score) continue;
-    total += score;
-    distribution[item.rating as keyof typeof distribution]++;
-  }
-
-  const evaluatedDays = new Set(
-    ratings.filter((item) => SCORE_BY_RATING[item.rating]).map((item) => item.businessDay)
-  ).size;
-  const validCount = ratings.filter(item => SCORE_BY_RATING[item.rating]).length;
-  const averageScore = validCount > 0 ? Number((total / validCount).toFixed(2)) : null;
-
-  return {
-    averageScore,
-    level: getLevel(averageScore),
-    evaluatedDays,
-    closedDays,
-    distribution,
-  };
-}
 
 export async function GET(req: Request) {
   try {
     const session = await verifyUserSessionCookie(getUserSessionCookieFromRequest(req));
-    if (!session || !['ADMIN', 'COORDINATOR'].includes(session.role)) {
+    if (!session || !canManageDailyEvaluation(session.role)) {
       return NextResponse.json({ ok: false, code: 'FORBIDDEN' }, { status: 403 });
     }
 
-    const currentDay = currentBusinessDay();
-    const today = DateTime.fromISO(currentDay, { zone: DAILY_EVALUATION_TIME_ZONE });
-    const weekStart = today.startOf('week').toFormat('yyyy-MM-dd');
-    const thirtyDayStart = today.minus({ days: 29 }).toFormat('yyyy-MM-dd');
+    const params = new URL(req.url).searchParams;
+    const today = currentBusinessDay();
+    const start = params.get('start') ?? today;
+    const end = params.get('end') ?? start;
+    if (!isBusinessDay(start) || !isBusinessDay(end) || start > end) {
+      return NextResponse.json({ ok: false, code: 'INVALID_PERIOD', error: 'Selecciona fechas válidas y un inicio anterior o igual al fin.' }, { status: 400 });
+    }
 
     const workers = await prisma.person.findMany({
-      where: { active: true, user: { role: { in: [...WORKER_ROLES] } } },
-      select: { id: true, name: true, code: true, area: true, user: { select: { role: true } } },
+      where: { active: true, user: { role: { in: [...EVALUABLE_USER_ROLES] } } },
+      select: { id: true, name: true, code: true, area: true, user: { select: { id: true, role: true } } },
       orderBy: { name: 'asc' },
     });
     const workerIds = workers.map((worker) => worker.id);
-    const [allRatings, closedEvaluations] = await Promise.all([
+    const [allRatings, closedEvaluations, milestones] = await Promise.all([
       prisma.personDailyRating.findMany({
         where: {
           personId: { in: workerIds },
-          businessDay: { gte: thirtyDayStart, lte: currentDay },
+          businessDay: { gte: start, lte: end },
         },
         select: { personId: true, businessDay: true, rating: true },
       }),
       prisma.dailyEvaluation.findMany({
-        where: { businessDay: { gte: thirtyDayStart, lte: currentDay }, closedAt: { not: null } },
+        where: { businessDay: { gte: start, lte: end }, closedAt: { not: null } },
         select: { businessDay: true },
       }),
+      readActivityMilestones(workers.flatMap(worker => worker.user ? [worker.user.id] : [])).catch(error => {
+        console.error('Error fetching team activity milestones:', error);
+        return null;
+      }),
     ]);
+    const activityByUser = new Map((milestones?.users ?? []).map(({ userId, total, points, ratingPoints, totalPoints, next }) => [userId, { total, points, ratingPoints, totalPoints, next }]));
     const closedDays = new Set(closedEvaluations.map((evaluation) => evaluation.businessDay));
     const ratings = allRatings.filter(rating => closedDays.has(rating.businessDay));
 
@@ -103,23 +62,17 @@ export async function GET(req: Request) {
 
     const people = workers.map((person) => {
       const personRatings = ratingsByPerson.get(person.id) || [];
-      const weekRatings = personRatings.filter((rating) => rating.businessDay >= weekStart);
-      const recentRatings = personRatings.filter((rating) => rating.businessDay >= thirtyDayStart);
       return {
         person: { id: person.id, name: person.name, code: person.code, area: person.area, role: person.user?.role || null },
-        week: summarize(weekRatings, closedEvaluations.filter((evaluation) => evaluation.businessDay >= weekStart).length),
-        last30Days: summarize(recentRatings, closedDays.size),
+        period: { ...summarizeRatings(personRatings), closedDays: closedDays.size },
+        activity: person.user ? activityByUser.get(person.user.id) ?? null : null,
       };
     });
-
-    const allWeekRatings = ratings.filter((rating) => rating.businessDay >= weekStart);
-    const allRecentRatings = ratings.filter((rating) => rating.businessDay >= thirtyDayStart);
 
     return NextResponse.json({
       ok: true,
       team: {
-        week: { ...summarize(allWeekRatings, closedEvaluations.filter((evaluation) => evaluation.businessDay >= weekStart).length), start: weekStart, end: currentDay },
-        last30Days: { ...summarize(allRecentRatings, closedDays.size), start: thirtyDayStart, end: currentDay },
+        period: { ...summarizeRatings(ratings), closedDays: closedDays.size, start, end },
         people,
       },
     });

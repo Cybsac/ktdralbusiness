@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 
 import TeamPerformanceCard from '@/components/performance/TeamPerformanceCard';
 import { verifyUserSessionCookie } from '@/lib/auth';
+import { currentBusinessDay } from '@/lib/attendanceDay';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,7 @@ export default async function TeamPerformancePage() {
             <p className="text-xs text-slate-500 dark:text-slate-400 sm:text-sm">Seguimiento de las calificaciones individuales registradas.</p>
           </div>
         </div>
-        <TeamPerformanceCard />
+        <TeamPerformanceCard initialDay={currentBusinessDay()} />
       </div>
     </main>
   );

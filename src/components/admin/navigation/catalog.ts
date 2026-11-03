@@ -369,6 +369,7 @@ export function getNavigationGroups(
             icon: "cake" as const,
             items: [
               { href: `${pathPrefix}/birthdays`, label: "Reservas", icon: "cake" as const },
+              { href: `${pathPrefix}/birthdays/consolidado`, label: "Consolidado", icon: "chart" as const },
               {
                 href: `${pathPrefix}/birthdays/packs`,
                 label: "Gestión de packs",

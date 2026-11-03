@@ -1,5 +1,8 @@
 "use client";
-import { useEffect, useState, useRef, memo } from 'react';
+import { useEffect, useState, useRef, useCallback, memo } from 'react';
+import { birthdayDay, birthdayToday } from '@/lib/birthdays/calendar';
+import { BIRTHDAY_POLICY } from '@/lib/birthdays/policy';
+import { reservationFields } from '@/lib/birthdays/reservation-input';
 import { birthdayReservationSourceLabel } from '@/lib/birthdays/attribution';
 
 type Pack = {
@@ -64,38 +67,10 @@ function ReservationSkeleton() {
 }
 
 
-function fmtLima(iso?: string | null) {
-	if (!iso) return '';
-	try {
-		const d = new Date(iso);
-		if (isNaN(d.getTime())) return '';
-		const lima = new Date(d.getTime() - 5 * 3600 * 1000);
-		const y = lima.getUTCFullYear();
-		const m = String(lima.getUTCMonth() + 1).padStart(2, '0');
-		const day = String(lima.getUTCDate()).padStart(2, '0');
-		const hh = String(lima.getUTCHours()).padStart(2, '0');
-		const mm = String(lima.getUTCMinutes()).padStart(2, '0');
-		return `${y}-${m}-${day} ${hh}:${mm}`;
-	} catch { return ''; }
-}
-
-// Formato legible para fecha de celebración: '6 Nov 2025'
-function fmtCelebrationDate(iso?: string | null) {
-	if (!iso) return '';
-	let base = iso;
-	// Aceptar formato corto YYYY-MM-DD agregando medianoche UTC
-	if (/^\d{4}-\d{2}-\d{2}$/.test(base)) base = base + 'T00:00:00.000Z';
-	try {
-		const d = new Date(base);
-		if (isNaN(d.getTime())) return '';
-		// Ajustar a Lima restando 5h UTC (simplificación sin DST)
-		const lima = new Date(d.getTime() - 5 * 3600 * 1000);
-		const day = lima.getUTCDate();
-		const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-		const month = monthNames[lima.getUTCMonth()];
-		const year = lima.getUTCFullYear();
-		return `${day} ${month} ${year}`;
-	} catch { return ''; }
+function fmtCelebrationDate(value?: string | null) {
+ if (!value) return '';
+ const day = birthdayDay(value);
+ return day.isValid ? day.setLocale('es-PE').toFormat('d LLL yyyy') : '';
 }
 
 type ReservationCardProps = {
@@ -433,6 +408,12 @@ export default function StaffBirthdaysPage() {
 	const [status, setStatus] = useState('');
 	const [search, setSearch] = useState('');
 	const [page, setPage] = useState(1);
+	const [total, setTotal] = useState(0);
+	const [appliedFilters, setAppliedFilters] = useState({ status: '', search: '' });
+	const requestVersion = useRef(0);
+	const [packsLoading, setPacksLoading] = useState(true);
+	const [packsError, setPacksError] = useState('');
+	const [packsAttempt, setPacksAttempt] = useState(0);
 	const [busyApprove, setBusyApprove] = useState<Record<string, boolean>>({});
 	const [busyGenerate, setBusyGenerate] = useState<Record<string, boolean>>({});
 	const [busyDelete, setBusyDelete] = useState<Record<string, boolean>>({});
@@ -441,7 +422,7 @@ export default function StaffBirthdaysPage() {
 	const [cPhone, setCPhone] = useState('');
 	const [cDoc, setCDoc] = useState('');
 	const [cDate, setCDate] = useState('');
-	const [cSlot, setCSlot] = useState('20:00');
+	const [cSlot, setCSlot] = useState(BIRTHDAY_POLICY.staffSlots[0] ?? '');
 	const [cPack, setCPack] = useState('');
 	const [cPhoto, setCPhoto] = useState(false);
 	const [creating, setCreating] = useState(false);
@@ -463,26 +444,22 @@ export default function StaffBirthdaysPage() {
 		if (!cPack.trim()) errors.pack = 'Debes seleccionar un pack';
 
 		// Format validation
-		if (cDoc && !/^\d{8}$/.test(cDoc.replace(/\D/g, ''))) {
+		if (cDoc && !reservationFields.documento.safeParse(cDoc.replace(/\D/g, '')).success) {
 			errors.documento = 'El DNI debe tener exactamente 8 dígitos';
 		}
-		if (cPhone && !/^\d{9}$/.test(cPhone.replace(/\D/g, ''))) {
+		if (cPhone && !reservationFields.phone.safeParse(cPhone.replace(/\D/g, '')).success) {
 			errors.phone = 'El WhatsApp debe tener exactamente 9 dígitos';
 		}
-		if (cName && cName.trim().split(/\s+/).filter(word => word.length > 0).length < 2) {
-			errors.name = 'El nombre debe tener al menos 2 palabras';
+		if (cName && !reservationFields.celebrantName.safeParse(cName).success) {
+			errors.name = 'Ingresa un nombre y apellido válidos';
 		}
 
-		// Date validation
 		if (cDate) {
-			const today = new Date();
-			const limaToday = new Date(today.getTime() - 5 * 3600 * 1000); // Adjust to Lima timezone
-			const todayStr = limaToday.toISOString().slice(0, 10);
-
-			if (cDate < todayStr) {
-				errors.date = 'La fecha no puede ser en el pasado';
-			}
-		}
+            const selectedDay = birthdayDay(cDate);
+            if (!selectedDay.isValid) errors.date = 'La fecha no es válida';
+            else if (selectedDay < birthdayToday()) errors.date = 'La fecha no puede ser en el pasado';
+        }
+        if (!cSlot) errors.timeSlot = 'No hay horarios disponibles';
 
 		setFieldErrors(errors);
 		return Object.keys(errors).length === 0;
@@ -501,21 +478,36 @@ export default function StaffBirthdaysPage() {
 	// UI
 	const [activeTab, setActiveTab] = useState<'packs' | 'list' | 'create'>('create');
 
-	async function load() {
-		setLoading(true); setErr(null);
-		try {
-			const q = new URLSearchParams();
-			if (status) q.set('status', status);
-			if (search) q.set('search', search);
-			q.set('page', String(page)); q.set('pageSize','30');
-			const res = await fetch(`/api/pedidos/birthdays?${q.toString()}`);
-			const j = await res.json();
-			if (!res.ok) throw new Error(j?.code || j?.message || res.status);
-			setItems(j.items || []);
-		} catch(e:any){ setErr(String(e?.message||e)); } finally { setLoading(false); }
-	}
-	useEffect(()=>{ load(); }, [page]);
-	useEffect(()=>{ (async()=>{ try { const r = await fetch('/api/birthdays/packs'); const j = await r.json(); if (r.ok && j?.packs) { const uniquePacks = Array.from(new Map(j.packs.map((p: any) => [p.id, p as Pack])).values()) as Pack[]; setPacks(uniquePacks); } } catch{} })(); }, []);
+	useEffect(() => {
+        const frame = requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'instant' }));
+        return () => cancelAnimationFrame(frame);
+    }, []);
+    const load = useCallback(async () => {
+        const version = ++requestVersion.current;
+        setLoading(true); setErr(null);
+        try {
+            const q = new URLSearchParams({ page: String(page), pageSize: String(BIRTHDAY_POLICY.pageSize) });
+            if (appliedFilters.status) q.set('status', appliedFilters.status);
+            if (appliedFilters.search.trim()) q.set('search', appliedFilters.search.trim());
+            const res = await fetch(`/api/pedidos/birthdays?${q}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data?.message || data?.code || 'No se pudieron cargar las reservas.');
+            if (version === requestVersion.current) { setItems(data.items || []); setTotal(data.total ?? 0); }
+        } catch (error) { if (version === requestVersion.current) setErr(error instanceof Error ? error.message : 'No se pudieron cargar las reservas.'); }
+        finally { if (version === requestVersion.current) setLoading(false); }
+    }, [page, appliedFilters]);
+    useEffect(() => { void load(); return () => { requestVersion.current++; }; }, [load]);
+    useEffect(() => {
+        const controller = new AbortController();
+        setPacksLoading(true); setPacksError('');
+        fetch('/api/birthdays/packs', { signal: controller.signal }).then(async response => {
+            const data = await response.json();
+            if (!response.ok || !Array.isArray(data.packs)) throw new Error(data?.message || 'No se pudieron cargar los packs.');
+            setPacks(data.packs);
+        }).catch(error => { if (!controller.signal.aborted) setPacksError(error instanceof Error ? error.message : 'No se pudieron cargar los packs.'); })
+          .finally(() => { if (!controller.signal.aborted) setPacksLoading(false); });
+        return () => controller.abort();
+    }, [packsAttempt]);
 
 	async function approve(id:string){ setBusyApprove(p=>({...p,[id]:true})); try { const r=await fetch(`/api/admin/birthdays/${id}/approve`,{method:'POST'}); const j=await r.json(); if(!r.ok) throw new Error(j?.code||j?.message||r.status); load(); } catch(e:any){ setErr(String(e?.message||e)); } finally { setBusyApprove(p=>({...p,[id]:false})); } }
 	async function genTokens(id:string){ setBusyGenerate(p=>({...p,[id]:true})); try { const r=await fetch(`/api/admin/birthdays/${id}/tokens`,{method:'POST'}); const j=await r.json(); if(!r.ok) throw new Error(j?.code||j?.message||r.status); load(); } catch(e:any){ setErr(String(e?.message||e)); } finally { setBusyGenerate(p=>({...p,[id]:false})); } }
@@ -562,6 +554,8 @@ export default function StaffBirthdaysPage() {
 
 		setCreating(true);
 		try {
+			const selectedPack = packs.find(pack => pack.id === cPack);
+			if (!selectedPack || selectedPack.qrCount < 1) { setFieldErrors({ pack: 'El pack seleccionado no está disponible o no tiene invitaciones.' }); return; }
 			const payload = {
 				celebrantName: cName.trim(),
 				phone: cPhone.replace(/\D/g, ''), // Clean phone number
@@ -570,7 +564,7 @@ export default function StaffBirthdaysPage() {
 				timeSlot: cSlot,
 				packId: cPack,
 				wantsPhotoSession: cPhoto,
-				guestsPlanned: packs.find(p => p.id === cPack)?.qrCount || 5
+				guestsPlanned: selectedPack.qrCount
 			};
 
 			const r = await fetch('/api/pedidos/birthdays', {
@@ -583,27 +577,11 @@ export default function StaffBirthdaysPage() {
 
 			if (!r.ok || !j?.ok) {
 				// Handle specific error codes
-				if (j?.code === 'DUPLICATE_DNI') {
+				if (j?.code === 'DUPLICATE_DNI_YEAR') {
 					setFieldErrors({ documento: 'Ya existe una reserva para este DNI en el mismo año' });
 					return;
 				}
-				if (j?.code === 'INVALID_DNI_FORMAT') {
-					setFieldErrors({ documento: j.message });
-					return;
-				}
-				if (j?.code === 'INVALID_PHONE_FORMAT') {
-					setFieldErrors({ phone: j.message });
-					return;
-				}
-				if (j?.code === 'INVALID_NAME') {
-					setFieldErrors({ name: j.message });
-					return;
-				}
-				if (j?.code === 'DATE_TOO_FAR') {
-					setFieldErrors({ date: j.message });
-					return;
-				}
-				if (j?.code === 'DATE_IN_PAST') {
+				if (j?.code === 'RESERVATION_DATE_PAST') {
 					setFieldErrors({ date: j.message });
 					return;
 				}
@@ -622,11 +600,11 @@ export default function StaffBirthdaysPage() {
 			setCPhone('');
 			setCDoc('');
 			setCDate('');
-			setCSlot('20:00');
+			setCSlot(BIRTHDAY_POLICY.staffSlots[0] ?? '');
 			setCPack('');
 			setCPhoto(false);
-			setActiveTab('list'); // Switch to list view
-			load(); // Refresh the list
+			setStatus(''); setSearch(''); setPage(1); setAppliedFilters({ status: '', search: '' });
+			setActiveTab('list');
 		} catch (e: any) {
 			setGeneralError('Error de conexión. Inténtalo de nuevo.');
 		} finally {
@@ -680,16 +658,17 @@ export default function StaffBirthdaysPage() {
 					<div className="p-6">
 						{activeTab === 'packs' && (
 							<div className="space-y-6">
-								{packs.length === 0 && (
+								{packsLoading && (
 									<div className="text-sm text-slate-500 dark:text-slate-400 text-center py-8">
 										Cargando packs disponibles…
 									</div>
 								)}
-								{packs.length > 0 && (
+								{packsError && <p role="alert" className="text-sm text-rose-600">{packsError} <button type="button" className="underline" onClick={() => setPacksAttempt(value => value + 1)}>Reintentar</button></p>}
+                                {!packsLoading && !packsError && packs.length === 0 && <p className="text-sm text-slate-500">No hay packs disponibles.</p>}
+                                {packs.length > 0 && (
 									<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 										{packs.map(p => {
 											const perks = (p.perks || []).filter(Boolean);
-											const hasBottlePerk = perks.some(perk => perk.toLowerCase().startsWith('botella'));
 											return (
 												<div key={p.id} className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-800 shadow-sm hover:shadow-md transition-shadow">
 													<div className="space-y-3">
@@ -741,7 +720,7 @@ export default function StaffBirthdaysPage() {
 										<label className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Buscar</label>
 										<input className="h-10 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 text-sm" value={search} onChange={e=>setSearch(e.target.value)} placeholder="nombre, WhatsApp, doc" />
 									</div>
-									<button className="btn h-10 px-4" onClick={()=>{ setPage(1); load(); }}>Buscar</button>
+									<button className="btn h-10 px-4" onClick={() => { setPage(1); setAppliedFilters({ status, search }); }}>Buscar</button>
 								</div>
 								{/* Listado */}
 								{loading && (
@@ -773,13 +752,15 @@ export default function StaffBirthdaysPage() {
 								<div className="flex items-center justify-center gap-3 pt-4">
 									{(page > 1) && <button className="btn h-9 px-4" onClick={() => setPage(p => Math.max(1, p - 1))}>← Anterior</button>}
 									<span className="text-sm text-slate-600 dark:text-slate-400">Página {page}</span>
-									{(!empty && items.length === 30) && <button className="btn h-9 px-4" onClick={() => setPage(p => p + 1)}>Siguiente →</button>}
+									{(page * BIRTHDAY_POLICY.pageSize < total) && <button className="btn h-9 px-4" onClick={() => setPage(p => p + 1)}>Siguiente →</button>}
 								</div>
 							</div>
 						)}
 
 						{activeTab === 'create' && (
 							<div className="space-y-5">
+								{packsError && <p role="alert" className="text-sm text-rose-600">{packsError} <button type="button" className="underline" onClick={() => setPacksAttempt(value => value + 1)}>Reintentar</button></p>}
+								{!packsLoading && !packsError && packs.length === 0 && <p className="text-sm text-slate-500">No hay packs disponibles para crear una reserva.</p>}
 								{generalError && (
 									<div className="rounded border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 p-3 text-sm">
 										{generalError}
@@ -869,12 +850,9 @@ export default function StaffBirthdaysPage() {
 											value={cSlot}
 											onChange={e => setCSlot(e.target.value)}
 										>
-											<option value="20:00">20:00</option>
-											<option value="21:00">21:00</option>
-											<option value="22:00">22:00</option>
-											<option value="23:00">23:00</option>
-											<option value="00:00">00:00</option>
+											{BIRTHDAY_POLICY.staffSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)}
 										</select>
+										{fieldErrors.timeSlot && <div className="text-xs text-rose-600 dark:text-rose-400">{fieldErrors.timeSlot}</div>}
 									</div>
 
 									<div className="space-y-1">
@@ -943,7 +921,7 @@ export default function StaffBirthdaysPage() {
 								})()}
 
 								<div className="flex justify-end">
-									<button disabled={creating} onClick={submitCreate} className="btn h-10 px-6">
+									<button disabled={creating || packsLoading || !!packsError} onClick={submitCreate} className="btn h-10 px-6">
 										{creating ? 'Guardando…' : 'Guardar Reserva'}
 									</button>
 								</div>

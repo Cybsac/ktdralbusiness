@@ -1,3 +1,4 @@
+import { birthdayFailure } from "@/lib/birthdays/http";
 import { reservationCreateSchema } from "@/lib/birthdays/reservation-input";
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -154,7 +155,7 @@ export async function POST(req: NextRequest) {
       createdAt: created.createdAt.toISOString(),
     };
     return apiOk({ ok: true, reservation: dto }, 201);
-  } catch (e: any) {
-    return apiError("CREATE_RESERVATION_ERROR", "Failed to create reservation");
+  } catch (e: unknown) {
+    return birthdayFailure(e);
   }
 }

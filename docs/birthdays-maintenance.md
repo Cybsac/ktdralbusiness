@@ -30,6 +30,10 @@ Leer paquetes no crea registros. `BirthdayPackCatalog` conserva la base restaura
 
 Las métricas se agregan en la base de datos. El porcentaje de referidores refleja reservas completadas sobre el total.
 
+## Consolidado de reservas
+
+`/admin/birthdays/consolidado` es de acceso exclusivo para administradores activos. Consulta las reservas existentes sin duplicarlas; permite filtrar por fecha de celebración o registro, estado, pack, origen y búsqueda. Los indicadores y la lista usan los mismos filtros y una lectura consistente; la lista se pagina en la base. El estado completado y las llegadas son indicadores distintos. El origen, creador y referidor históricos que no estén registrados se muestran como tales. Los datos del pack son actuales, no una prueba de su precio o beneficios históricos. Las reservas eliminadas definitivamente no pueden incluirse.
+
 ## Configuración
 
 - `BIRTHDAY_CLEANUP_CRON`: frecuencia automática; por defecto cada diez minutos. Una expresión inválida impide iniciar la tarea y registra el error.
