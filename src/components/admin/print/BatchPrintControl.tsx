@@ -86,45 +86,53 @@ export function BatchPrintControl({ kind, backHref }: { kind: PrintBatchKind; ba
     [preview]
   );
 
-  async function selectTemplate(event: React.ChangeEvent<HTMLInputElement>) {
+  useEffect(() => {
+    if (!file || (kind === "static" && !selectedBatchId)) {
+      previewAbort.current?.abort();
+      previewRequest.current++;
+      setPreview(null);
+      setPreviewing(false);
+      return;
+    }
+    const controller = new AbortController();
+    previewAbort.current?.abort();
+    previewAbort.current = controller;
+    const request = ++previewRequest.current;
+    setPreview(null);
+    setError(null);
+    setPreviewing(true);
+    const form = new FormData();
+    form.append("file", file);
+    form.append("kind", kind);
+    if (selectedBatchId) form.append("batchId", selectedBatchId);
+    void (async () => {
+      try {
+        const response = await fetch("/api/print/control/preview", { method: "POST", body: form, signal: controller.signal });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.message || "No se pudo generar la vista previa.");
+        }
+        const blob = await response.blob();
+        if (!controller.signal.aborted && request === previewRequest.current) setPreview(URL.createObjectURL(blob));
+      } catch (err) {
+        if (!controller.signal.aborted && request === previewRequest.current) setError(err instanceof Error ? err.message : "Error al generar la vista previa");
+      } finally {
+        if (request === previewRequest.current) setPreviewing(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [file, kind, selectedBatchId]);
+
+  function selectTemplate(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0];
     event.target.value = "";
     if (!selected) return;
-    previewAbort.current?.abort();
-    const controller = new AbortController();
-    previewAbort.current = controller;
-    const request = ++previewRequest.current;
-    setFile(null);
-    setPreview(null);
-    setError(null);
-    setPreviewing(false);
-    if (
-      !P.imageTypes.some((type) => type === selected.type) ||
-      selected.size > P.maxTemplateBytes
-    ) {
+    if (!P.imageTypes.some((type) => type === selected.type) || selected.size > P.maxTemplateBytes) {
+      setFile(null);
       setError("Selecciona una imagen PNG, JPG o WebP de hasta 10 MB.");
       return;
     }
     setFile(selected);
-    setPreviewing(true);
-    try {
-      const form = new FormData();
-      form.append("file", selected);
-      const response = await fetch("/api/print/control/preview", {
-        method: "POST",
-        body: form,
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error("No se pudo generar la vista previa.");
-      const blob = await response.blob();
-      if (!controller.signal.aborted && request === previewRequest.current)
-        setPreview(URL.createObjectURL(blob));
-    } catch (err) {
-      if (!controller.signal.aborted && request === previewRequest.current)
-        setError(err instanceof Error ? err.message : "Error al generar la vista previa");
-    } finally {
-      if (request === previewRequest.current) setPreviewing(false);
-    }
   }
 
   async function generatePdf() {
@@ -224,7 +232,7 @@ export function BatchPrintControl({ kind, backHref }: { kind: PrintBatchKind; ba
         />
         {file && <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{file.name}</p>}
         <p className="text-xs text-slate-600 dark:text-slate-400 mt-2">
-          La imagen se usa únicamente para esta generación. PNG, JPG o WebP, máximo 10 MB.
+          La imagen se usa únicamente para esta generación. PNG, JPG o WebP, máximo 10 MB. {kind === "static" && !selectedBatchId && " Selecciona un lote para ver su premio en la vista previa."}
         </p>
       </div>
       {(preview || previewing) && (
@@ -246,7 +254,7 @@ export function BatchPrintControl({ kind, backHref }: { kind: PrintBatchKind; ba
             )}
           </div>
           <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 text-center">
-            La posición del QR representa su ubicación en la impresión final.
+            La posición del QR representa su ubicación en la impresión final. {kind === "static" && "Se muestra un premio del lote; cada pulsera llevará el premio asociado a su propio QR."}
           </p>
         </div>
       )}

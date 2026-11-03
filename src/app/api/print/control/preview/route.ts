@@ -176,6 +176,16 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
     const metaStr = (formData.get('meta') as string | null) ?? null;
+    let prizeLabel: string | undefined;
+    if (formData.get('kind') === 'static') {
+      const batchId = String(formData.get('batchId') || '');
+      if (!batchId) return apiError('BATCH_ID_REQUIRED', 'Selecciona un lote para la vista previa', undefined, 400);
+      const batch = await prisma.batch.findUnique({ where: { id: batchId }, select: { staticTargetUrl: true } });
+      if (!batch || batch.staticTargetUrl === null) return apiError('BATCH_NOT_FOUND', 'Lote estático no encontrado', undefined, 404);
+      const token = await prisma.token.findFirst({ where: { batchId }, select: { prize: { select: { label: true } } }, orderBy: { id: 'asc' } });
+      if (!token) return apiError('NO_TOKENS_FOUND', 'El lote no contiene tokens', undefined, 404);
+      prizeLabel = token.prize.label;
+    }
 
     if (!file) {
       return apiError('MISSING_FILE','Archivo requerido',undefined,400);
@@ -221,6 +231,7 @@ export async function POST(req: NextRequest) {
         templateBuffer,
         qrBuffer,
         qrMetadata: qrMeta,
+        prizeLabel,
         dpi,
       });
 
@@ -237,6 +248,8 @@ export async function POST(req: NextRequest) {
     }
   } catch (err: any) {
     console.error('print preview (upload) error', err);
+    const message = String(err?.message || '');
+    if (message.includes('La plantilla no tiene espacio suficiente')) return apiError('PRINT_LABEL_ERROR', message.replace(/^.*?: /, ''), undefined, 400);
     return apiError('INTERNAL_ERROR','Error interno',{ message: err?.message || String(err) },500);
   }
 }

@@ -24,6 +24,7 @@ export type ComposeOpts = {
   templateBuffer?: Buffer; // temporary image held in memory
   qrBuffer: Buffer; // PNG Buffer for the QR image
   qrMetadata: QrMetadata;
+  prizeLabel?: string; // Optional, shown only for static prize bracelets.
   dpi?: number; // DPI used to convert mm -> px, default 300
   // future options could include background flatten behaviour, outputFormat, etc.
 };
@@ -51,7 +52,7 @@ function mmToPx(mm: number, dpi: number): number {
  * - Throws when the template path does not exist or when inputs are invalid.
  */
 export async function composeTemplateWithQr(opts: ComposeOpts): Promise<Buffer> {
-  const { templatePath, templateBuffer, qrBuffer, qrMetadata, dpi = 300 } = opts;
+  const { templatePath, templateBuffer, qrBuffer, qrMetadata, prizeLabel, dpi = 300 } = opts;
 
   if (!templateBuffer && (!templatePath || typeof templatePath !== 'string')) {
     throw new TypeError('composeTemplateWithQr: templatePath must be a non-empty string');
@@ -242,14 +243,27 @@ export async function composeTemplateWithQr(opts: ComposeOpts): Promise<Buffer> 
       // ignore and keep computed top
     }
 
+    const overlays = [{ input: qrProcessedBuffer, left, top }];
+    if (prizeLabel !== undefined) {
+      const label = prizeLabel.replace(/\s+/g, ' ').trim();
+      if (!label) throw new Error('El token no tiene un nombre de premio para imprimir.');
+      const gap = Math.max(4, Math.round(qrProcessedW * 0.04));
+      const labelLeft = left + qrProcessedW + gap;
+      const availableWidth = templateWidth - labelLeft;
+      const height = Math.min(qrProcessedH, templateHeight);
+      // Keep a single readable line and leave the QR and its quiet zone untouched.
+      const fontSize = Math.min(18, Math.floor((height - 8) / (Array.from(label).length * 0.64)));
+      const width = fontSize + 6;
+      if (fontSize < 9 || availableWidth < width) {
+        throw new Error('La plantilla no tiene espacio suficiente a la derecha del QR para imprimir el premio.');
+      }
+      const escapeXml = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char]!));
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="white" fill-opacity="0.9"/><g transform="translate(0 ${height}) rotate(-90)"><text x="${height / 2}" y="${Math.round((width + fontSize * 0.7) / 2)}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${fontSize}" fill="#222">${escapeXml(label)}</text></g></svg>`;
+      overlays.push({ input: Buffer.from(svg), left: labelLeft, top: Math.max(0, Math.min(templateHeight - height, top + Math.round((qrProcessedH - height) / 2))) });
+    }
+
     const composed = await template
-      .composite([
-        {
-          input: qrProcessedBuffer,
-          left,
-          top,
-        },
-      ])
+      .composite(overlays)
       .png()
       .toBuffer();
 

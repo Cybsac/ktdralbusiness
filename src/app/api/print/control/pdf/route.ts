@@ -84,7 +84,7 @@ async function generatePdf(req: Request) {
 
     const tokens = await prisma.token.findMany({
       where: { batchId, id: { notIn: reservedIdArr } },
-      select: { id: true }
+      select: { id: true, prize: { select: { label: true } } }
     });
 
     if (!tokens || tokens.length === 0) {
@@ -95,9 +95,10 @@ async function generatePdf(req: Request) {
     const baseUrl = getPublicBaseUrl(req.url);
     // Usar /static/ para lotes estáticos, /r/ para lotes de ruleta
     const urlPrefix = batch.staticTargetUrl !== null ? '/static/' : '/r/';
-    let tokenData = tokens.map((t: { id: string }) => ({ 
+    let tokenData = tokens.map((t) => ({
       token_id: t.id, 
-      redeem_url: `${baseUrl}${urlPrefix}${t.id}` 
+      redeem_url: `${baseUrl}${urlPrefix}${t.id}`,
+      prizeLabel: batch.staticTargetUrl !== null ? t.prize.label : undefined
     }));
 
     // Fisher-Yates shuffle: distribute tokens randomly so they don't appear grouped by prize
@@ -202,7 +203,8 @@ async function generatePdf(req: Request) {
           templatePath,
           templateBuffer,
           qrBuffer: qrBuf, 
-          qrMetadata: qrMeta, 
+          qrMetadata: qrMeta,
+          prizeLabel: t.prizeLabel,
           dpi 
         });
         composedImages.push(composed);
@@ -296,6 +298,10 @@ async function generatePdf(req: Request) {
       }
     }
 
+    const message = String(err?.message || '');
+    if (message.includes('La plantilla no tiene espacio suficiente') || message.includes('El token no tiene un nombre de premio')) {
+      return apiError('PRINT_LABEL_ERROR', message.replace(/^.*?: /, ''), undefined, 400);
+    }
     return apiError('INTERNAL_ERROR','Error interno',{ message: err?.message || String(err) },500);
   } finally {
     // Limpiar archivo temporal si existe
