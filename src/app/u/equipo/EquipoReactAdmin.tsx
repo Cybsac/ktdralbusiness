@@ -13,6 +13,8 @@ import { CssBaseline, Button } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { dataProvider } from '@/lib/react-admin-data-provider';
+import { DOCUMENT_SEX_CODE_CHOICES, DOCUMENT_TYPE_CHOICES } from '@/lib/users/document';
+import { DniLookup } from '@/app/admin/users/DniLookup';
 
 // ─── Opciones de formulario ────────────────────────────────────────────
 // Solo COLLAB y STAFF — COORDINATOR no puede asignar roles superiores
@@ -360,6 +362,10 @@ const EquipoEdit = (props: any) => (
       <TextInput source="username" label="Usuario" validate={required()} fullWidth />
       <PasswordInput source="password" label="Nueva contraseña" helperText="Dejar vacío para no cambiarla" fullWidth />
       <TextInput source="personName" label="Nombre completo" validate={required()} fullWidth />
+      <SelectInput source="documentType" label="Tipo de documento" choices={[...DOCUMENT_TYPE_CHOICES]} fullWidth />
+      <TextInput source="dni" label="Número de documento" fullWidth />
+      <DniLookup />
+      <SelectInput source="documentSexCode" label="Sexo según documento" choices={[...DOCUMENT_SEX_CODE_CHOICES]} helperText="Código del proveedor; verifica su equivalencia." fullWidth />
       <SelectInput source="role" label="Rol" choices={roleChoices} validate={required()} fullWidth />
       <SelectInput source="area" label="Área" choices={areaChoices} fullWidth />
       <TextInput source="whatsapp" label="WhatsApp" fullWidth />
@@ -374,10 +380,14 @@ const EquipoCreate = (props: any) => (
       <TextInput source="username" label="Usuario" validate={required()} fullWidth />
       <PasswordInput source="password" label="Contraseña" validate={required()} fullWidth />
       <TextInput source="personName" label="Nombre completo" validate={required()} fullWidth />
+      <SelectInput source="documentType" label="Tipo de documento" choices={[...DOCUMENT_TYPE_CHOICES]} validate={required()} fullWidth />
+      <TextInput source="dni" label="Número de documento" validate={required()} fullWidth />
+      <DniLookup />
+      <SelectInput source="documentSexCode" label="Sexo según documento" choices={[...DOCUMENT_SEX_CODE_CHOICES]} helperText="Código del proveedor; verifica su equivalencia." fullWidth />
       <SelectInput source="role" label="Rol" choices={roleChoices} validate={required()} fullWidth />
-      <SelectInput source="area" label="Área" choices={areaChoices} fullWidth />
-      <TextInput source="whatsapp" label="WhatsApp" fullWidth />
-      <DateInput source="birthday" label="Cumpleaños" fullWidth />
+      <SelectInput source="area" label="Área" choices={areaChoices} validate={required()} fullWidth />
+      <TextInput source="whatsapp" label="WhatsApp" validate={required()} fullWidth />
+      <DateInput source="birthday" label="Cumpleaños" validate={required()} fullWidth />
     </SimpleForm>
   </Create>
 );

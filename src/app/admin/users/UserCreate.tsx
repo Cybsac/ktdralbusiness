@@ -1,22 +1,25 @@
 "use client";
-import { AREA_CHOICES, USER_POLICY } from "@/lib/users/policy";
-import { ManagedRoleInput } from "./management-context";
-
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { Box, Button } from "@mui/material";
 import {
   Create,
-  SimpleForm,
-  TextInput,
-  PasswordInput,
-  SelectInput,
   DateInput,
+  PasswordInput,
   required,
   SaveButton,
+  SelectInput,
+  SimpleForm,
+  TextInput,
   Toolbar,
   useRedirect,
   useResourceContext,
 } from "react-admin";
-import { Box, Button } from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+
+import { DOCUMENT_SEX_CODE_CHOICES, DOCUMENT_TYPE_CHOICES } from "@/lib/users/document";
+import { AREA_CHOICES, USER_POLICY } from "@/lib/users/policy";
+
+import { DniLookup } from "./DniLookup";
+import { ManagedRoleInput } from "./management-context";
 
 const CustomToolbar = () => {
   const redirect = useRedirect();
@@ -73,9 +76,10 @@ export const UserCreate = (props: any) => (
           mb: { xs: 2, sm: 2.5 },
         }}
       >
-        <TextInput source="username" validate={required()} fullWidth />
+        <TextInput source="username" label="Usuario" validate={required()} fullWidth />
         <PasswordInput
           source="password"
+          label="Contraseña"
           validate={[
             required(),
             (value) =>
@@ -97,10 +101,25 @@ export const UserCreate = (props: any) => (
           mb: { xs: 2, sm: 2.5 },
         }}
       >
+        <TextInput source="dni" label="Número de documento" validate={required()} fullWidth />
         <TextInput source="personName" label="Nombre completo" validate={required()} fullWidth />
-        <TextInput source="dni" label="DNI" validate={required()} fullWidth />
       </Box>
 
+      <SelectInput
+        source="documentType"
+        label="Tipo de documento"
+        choices={[...DOCUMENT_TYPE_CHOICES]}
+        validate={required()}
+        fullWidth
+      />
+      <DniLookup />
+      <SelectInput
+        source="documentSexCode"
+        label="Sexo según documento"
+        choices={[...DOCUMENT_SEX_CODE_CHOICES]}
+        helperText="Código recibido del proveedor; verifica su equivalencia antes de interpretarlo."
+        fullWidth
+      />
       {/* Tercera fila: Role y Area */}
       <Box
         sx={{
@@ -111,8 +130,14 @@ export const UserCreate = (props: any) => (
           mb: { xs: 2, sm: 2.5 },
         }}
       >
-        <ManagedRoleInput source="role" validate={required()} fullWidth />
-        <SelectInput source="area" choices={AREA_CHOICES} validate={required()} fullWidth />
+        <ManagedRoleInput label="Rol" source="role" validate={required()} fullWidth />
+        <SelectInput
+          label="Área"
+          source="area"
+          choices={AREA_CHOICES}
+          validate={required()}
+          fullWidth
+        />
       </Box>
 
       {/* Cuarta fila: WhatsApp y Birthday */}

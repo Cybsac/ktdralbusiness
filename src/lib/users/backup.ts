@@ -1,16 +1,19 @@
-import { z } from "zod";
 import { StaffRole } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
-import { parseBirthdayInput } from "@/lib/birthday";
-import { audit } from "@/lib/audit";
-import { USER_POLICY as P, USER_ROLES } from "./policy";
-import { lockUserManagement, protectLastAdmin, type UserActor } from "./access";
-import { UserManagementError as Failure } from "./http";
-import { temporaryPassword } from "./passwords";
+import { z } from "zod";
+
 import { ALLOWED_AREAS } from "@/lib/areas";
+import { audit } from "@/lib/audit";
+import { parseBirthdayInput } from "@/lib/birthday";
+import { prisma } from "@/lib/prisma";
+
+import { lockUserManagement, protectLastAdmin, type UserActor } from "./access";
+import { DOCUMENT_TYPES } from "./document";
+import { UserManagementError as Failure } from "./http";
 import { normalizeDocument } from "./input";
+import { temporaryPassword } from "./passwords";
+import { USER_POLICY as P, USER_ROLES } from "./policy";
 const timestamp = z
   .string()
   .refine((value) => Number.isFinite(Date.parse(value)))
@@ -26,6 +29,8 @@ const backupPerson = z.object({
   jobTitle: z.string().max(200).nullable().optional(),
   whatsapp: z.string().max(40).nullable().optional(),
   birthday: timestamp,
+  documentType: z.enum(DOCUMENT_TYPES).nullable().optional(),
+  documentSexCode: z.enum(["1", "2"]).nullable().optional(),
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -142,6 +147,12 @@ export async function restoreUsers(input: unknown, actor: UserActor) {
           jobTitle: user.person.jobTitle || null,
           whatsapp: user.person.whatsapp || null,
           birthday: user.person.birthday ? parseBirthdayInput(user.person.birthday) : null,
+          ...(user.person.documentType !== undefined
+            ? { documentType: user.person.documentType }
+            : {}),
+          ...(user.person.documentSexCode !== undefined
+            ? { documentSexCode: user.person.documentSexCode }
+            : {}),
         };
         let personId: string;
         if (existing) {

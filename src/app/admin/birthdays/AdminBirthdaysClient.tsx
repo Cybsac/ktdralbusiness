@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, memo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+
+import { BirthdayIdentityLookup } from "@/components/BirthdayIdentityLookup";
+import { suggestedCelebration } from "@/lib/birthdays/celebration";
+import { BIRTHDAY_POLICY } from "@/lib/birthdays/policy";
 import { birthdayReservationSourceLabel } from "@/lib/birthdays/attribution";
+
 
 // Formateo manual a hora Lima (UTC-5 sin DST efectivo). Restamos 5 horas y usamos componentes UTC.
 function fmtLima(iso?: string | null) {
@@ -76,7 +81,7 @@ type AdminReservationCardProps = {
   busyApprove: boolean;
   busyGenerate: boolean;
   onApprove: (id: string) => void;
-  onGenerateCards: (id: string) => void;
+  onGenerateCards: (id: string, regenerate?: boolean) => void;
   onViewCards: (id: string) => void;
   onReload: () => void;
 };
@@ -195,9 +200,18 @@ const AdminReservationCard = memo(function AdminReservationCard({
           </button>
         )}
         {r.tokensGeneratedAt && (
-          <button className="btn h-8 px-3" onClick={() => onViewCards(r.id)}>
-            Ver tarjetas
-          </button>
+          <>
+            <button className="btn h-8 px-3" onClick={() => onViewCards(r.id)}>
+              Ver tarjetas
+            </button>
+            <button
+              className="btn-outline h-8 px-3"
+              disabled={busyGenerate}
+              onClick={() => onGenerateCards(r.id, true)}
+            >
+              {busyGenerate ? "Regenerando…" : "Regenerar tarjeta"}
+            </button>
+          </>
         )}
         <a className="btn h-8 px-3" href={`/admin/birthdays/${encodeURIComponent(r.id)}`}>
           Detalle
@@ -266,10 +280,10 @@ export function AdminBirthdaysPage() {
   const [cName, setCName] = useState("");
   const [cPhone, setCPhone] = useState("");
   const [cDoc, setCDoc] = useState("");
-  const [cWhats, setCWhats] = useState("");
-  const [cEmail, setCEmail] = useState("");
+  const [lookupDocument, setLookupDocument] = useState("");
+  const [cBirthDate, setCBirthDate] = useState("");
   const [cDate, setCDate] = useState("");
-  const [cSlot, setCSlot] = useState("20:00");
+  const [cSlot, setCSlot] = useState(BIRTHDAY_POLICY.staffSlots[0] ?? "");
   const [cPackId, setCPackId] = useState("");
   const [cPhoto, setCPhoto] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -378,13 +392,18 @@ export function AdminBirthdaysPage() {
   }
 
   const [cardGenErr, setCardGenErr] = useState<Record<string, string | undefined>>({});
-  async function generateCards(id: string) {
+  const [cardGenSuccess, setCardGenSuccess] = useState<Record<string, string | undefined>>({});
+  async function generateCards(id: string, regenerate = false) {
     setBusyGenerate((prev) => ({ ...prev, [id]: true }));
     setCardGenErr((prev) => ({ ...prev, [id]: undefined }));
+    setCardGenSuccess((prev) => ({ ...prev, [id]: undefined }));
     try {
-      const res = await fetch(`/api/admin/birthdays/${encodeURIComponent(id)}/cards/generate`, {
-        method: "POST",
-      });
+      const res = await fetch(
+        `/api/admin/birthdays/${encodeURIComponent(id)}/cards/generate${regenerate ? "?regenerate=1" : ""}`,
+        {
+          method: "POST",
+        }
+      );
       const txt = await res.text();
       let j: any = {};
       if (txt) {
@@ -405,6 +424,10 @@ export function AdminBirthdaysPage() {
         setCardGenErr((prev) => ({ ...prev, [id]: friendly }));
         return;
       }
+      setCardGenSuccess((prev) => ({
+        ...prev,
+        [id]: regenerate ? "Tarjeta regenerada con la plantilla actual." : "Tarjeta generada.",
+      }));
       await load();
     } catch (e: any) {
       setCardGenErr((prev) => ({ ...prev, [id]: String(e?.message || e) }));
@@ -545,19 +568,19 @@ export function AdminBirthdaysPage() {
                     className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
                     placeholder="Número de documento"
                     value={cDoc}
-                    onChange={(e) => setCDoc(e.target.value)}
+                    onChange={(e) => { setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); } }}
                   />
+                  <BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setCName(person.name); setCBirthDate(person.birthday || ""); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); }} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
-                    Email (Opcional)
+                    Fecha de nacimiento *
                   </label>
                   <input
-                    type="email"
+                    type="date"
                     className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
-                    placeholder="correo@ejemplo.com"
-                    value={cEmail}
-                    onChange={(e) => setCEmail(e.target.value)}
+                    value={cBirthDate}
+                    onChange={(e) => { setCBirthDate(e.target.value); setCDate(suggestedCelebration(e.target.value)); }}
                   />
                 </div>
                 <div>
@@ -580,11 +603,7 @@ export function AdminBirthdaysPage() {
                     value={cSlot}
                     onChange={(e) => setCSlot(e.target.value)}
                   >
-                    <option value="20:00">20:00</option>
-                    <option value="21:00">21:00</option>
-                    <option value="22:00">22:00</option>
-                    <option value="23:00">23:00</option>
-                    <option value="00:00">00:00</option>
+                    {BIRTHDAY_POLICY.staffSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)}
                   </select>
                 </div>
                 <div className="col-span-1 sm:col-span-2 lg:col-span-3">
@@ -647,6 +666,7 @@ export function AdminBirthdaysPage() {
                       if (!cPhone.trim()) throw new Error("WhatsApp requerido");
                       if (!cDoc.trim()) throw new Error("Documento requerido");
                       if (!cPackId) throw new Error("Pack requerido");
+                      if (!cBirthDate) throw new Error("Fecha de nacimiento requerida");
                       let finalDate = cDate;
                       if (!finalDate) {
                         const d = new Date();
@@ -659,7 +679,7 @@ export function AdminBirthdaysPage() {
                         celebrantName: cName.trim(),
                         phone: cPhone.trim(),
                         documento: cDoc.trim(),
-                        email: cEmail.trim() || null,
+                        birthDate: cBirthDate,
                         date: finalDate,
                         timeSlot: cSlot,
                         packId: cPackId,
@@ -683,9 +703,9 @@ export function AdminBirthdaysPage() {
                       setCName("");
                       setCPhone("");
                       setCDoc("");
-                      setCEmail("");
+                      setCBirthDate("");
                       setCDate("");
-                      setCSlot("20:00");
+                      setCSlot(BIRTHDAY_POLICY.staffSlots[0] ?? "");
                       setCPackId("");
                       setCPhoto(false);
                       await load();
@@ -777,8 +797,8 @@ export function AdminBirthdaysPage() {
                     busyApprove={!!busyApprove[r.id]}
                     busyGenerate={!!busyGenerate[r.id]}
                     onApprove={approve}
-                    onGenerateCards={async (id) => {
-                      await generateCards(id);
+                    onGenerateCards={async (id, regenerate) => {
+                      await generateCards(id, regenerate);
                     }}
                     onViewCards={(id) => {
                       window.open(
@@ -789,6 +809,16 @@ export function AdminBirthdaysPage() {
                     }}
                     onReload={load}
                   />
+                  {cardGenSuccess[r.id] && (
+                    <p role="status" className="text-sm text-green-600">
+                      {cardGenSuccess[r.id]}
+                    </p>
+                  )}
+                  {cardGenErr[r.id] && (
+                    <p role="alert" className="text-sm text-red-600">
+                      {cardGenErr[r.id]}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

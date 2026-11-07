@@ -1,213 +1,62 @@
-export const runtime = 'nodejs';
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from '@/lib/auth';
-import { getUserSessionCookieFromRequest as getUserCookie, verifyUserSessionCookie } from '@/lib/auth';
-import { rangeBusinessDays } from '@/lib/date';
-import { prisma as _p } from '@/lib/prisma';
-import type { Period } from '@/types/metrics';
-import { currentBusinessDay } from '@/lib/attendanceDay';
+import { Prisma } from "@prisma/client";
 
-export const dynamic = 'force-dynamic';
-
-function badRequest(message: string, code: string = 'BAD_REQUEST') {
-  return NextResponse.json({ ok: false, code, message }, { status: 400 });
-}
-
-function ensureYmd(input?: string | null): string | null {
-  if (!input) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input)) return null;
-  return input;
-}
-
+import { canViewAttendance } from "@/lib/attendance/access";
+import {
+  attendanceFilters,
+  type AttendanceRaw,
+  attendanceReportCte,
+  attendanceRow,
+} from "@/lib/attendance/report";
+import { prisma } from "@/lib/prisma";
+import { getPrizeOperator } from "@/lib/prize-authorization/service";
+import { canEditRoster } from "@/lib/roster/input";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
+  if (!(await canViewAttendance(req)))
+    return Response.json({ ok: false, message: "Sin acceso" }, { status: 401 });
   try {
-    const raw = getSessionCookieFromRequest(req);
-    const session = await verifySessionCookie(raw);
-    let authorized = false;
-    if (session && requireRole(session, ['ADMIN', 'STAFF']).ok) authorized = true;
-    if (!authorized) {
-      const uRaw = getUserCookie(req);
-      const uSession = await verifyUserSessionCookie(uRaw);
-      if (uSession?.role === 'STAFF') authorized = true;
-    }
-    if (!authorized) return NextResponse.json({ ok: false, code: 'UNAUTHORIZED' }, { status: 401 });
-
-    const url = new URL(req.url);
-    const periodParam = (url.searchParams.get('period') || 'today').toLowerCase() as Period;
-    const allowed: Period[] = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'custom'];
-    if (!allowed.includes(periodParam)) return badRequest(`Invalid period: ${periodParam}`);
-    const startDate = ensureYmd(url.searchParams.get('startDate')) || undefined;
-    const endDate = ensureYmd(url.searchParams.get('endDate')) || undefined;
-    if (periodParam === 'custom') {
-      if (!startDate || !endDate) return badRequest('custom period requires startDate and endDate in YYYY-MM-DD');
-      if (startDate > endDate) return badRequest('startDate must be <= endDate');
-    }
-
-    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('pageSize') || '20', 10) || 20));
-
-  const { startIso, endIso, startDay, endDay } = rangeBusinessDays(periodParam, startDate, endDate);
-
-    const area = url.searchParams.get('area') || undefined;
-    const person = url.searchParams.get('person') || undefined;
-    const esc = (s: any) => String(s).replace(/'/g, "''");
-    const personWhereConds: string[] = [];
-    if (area) personWhereConds.push(`p."area" = '${esc(area)}'`);
-    if (person) {
-      if (person.startsWith('id:')) {
-        personWhereConds.push(`p."id" = '${esc(person.slice(3))}'`);
-      } else {
-        personWhereConds.push(`p."code" = '${esc(person)}'`);
-      }
-    }
-    // Exclude admins/system users
-    // personWhereConds.push(`p."name" NOT ILIKE '%Deivis Contreras%'`);
-    // personWhereConds.push(`p."name" NOT ILIKE '%Gabriela Mayhua%'`);
-    // personWhereConds.push(`p."name" NOT ILIKE '%Administrador%'`);
-
-    const personWhereCond = personWhereConds.join(' AND ');
-
-    // Aggregate per person/day rows
-    const rows: any[] = await prisma.$queryRawUnsafe(
-      `WITH scans AS (
-    SELECT s."personId", s."businessDay" as day,
-      MIN(CASE WHEN s."type"='IN' THEN s."scannedAt" END) as firstIn,
-      MAX(CASE WHEN s."type"='OUT' THEN s."scannedAt" END) as lastOut
-    FROM "Scan" s
-    LEFT JOIN "Person" p ON p."id" = s."personId"
-    WHERE s."businessDay" >= '${startDay}' AND s."businessDay" <= '${endDay}'
-    ${personWhereCond ? `AND ${personWhereCond}` : ''}
-    GROUP BY s."personId", s."businessDay"
-  ), tasks AS (
-    SELECT pts."personId", pts."day",
-      SUM(CASE WHEN pts."done" THEN 1 ELSE 0 END) as doneCount,
-      COUNT(1) as totalCount
-    FROM "PersonTaskStatus" pts
-    LEFT JOIN "Person" p ON p."id" = pts."personId"
-    WHERE pts."day" >= '${startDay}' AND pts."day" <= '${endDay}'
-    ${personWhereCond ? `AND ${personWhereCond}` : ''}
-    GROUP BY pts."personId", pts."day"
-  ), days AS (
-         SELECT "personId", day FROM scans
-         UNION
-         SELECT "personId", day FROM tasks
-       ), merged AS (
-         SELECT p."code" as "personCode", p."name" as "personName", p."area" as "area",
-                d.day as "day",
-                sc.firstIn as "firstIn",
-                sc.lastOut as "lastOut",
-                CASE WHEN sc.firstIn IS NOT NULL AND sc.lastOut IS NOT NULL AND sc.lastOut > sc.firstIn
-                     THEN EXTRACT(EPOCH FROM (sc.lastOut - sc.firstIn)) / 60.0 END as "durationMin",
-                coalesce(tk.doneCount, 0) as "doneCount",
-                coalesce(tk.totalCount, 0) as "totalCount"
-         FROM days d
-         JOIN "Person" p ON p."id" = d."personId"
-         LEFT JOIN scans sc ON sc."personId" = d."personId" AND sc.day = d.day
-         LEFT JOIN tasks tk ON tk."personId" = d."personId" AND tk.day = d.day
-         ${personWhereCond ? `WHERE ${personWhereCond}` : ''}
-       )
-       SELECT * FROM merged
-     ORDER BY day DESC, "personName" ASC
-       LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`
+    const url = new URL(req.url),
+      filter = attendanceFilters(url),
+      query = attendanceReportCte(filter);
+    const page = Math.max(1, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1);
+    const pageSize = Math.min(
+      100,
+      Math.max(1, Number.parseInt(url.searchParams.get("pageSize") || "20", 10) || 20)
     );
-
-    let countRows: any[];
-    try {
-      countRows = await prisma.$queryRawUnsafe(
-        `WITH scans AS (
-           SELECT s."personId", s."businessDay" as day
-           FROM "Scan" s LEFT JOIN "Person" p ON p."id" = s."personId"
-           WHERE s."businessDay" >= '${startDay}' AND s."businessDay" <= '${endDay}'
-           ${personWhereCond ? `AND ${personWhereCond}` : ''}
-           GROUP BY s."personId", s."businessDay"
-         ), tasks AS (
-           SELECT pts."personId", pts."day"
-           FROM "PersonTaskStatus" pts LEFT JOIN "Person" p ON p."id" = pts."personId"
-           WHERE pts."day" >= '${startDay}' AND pts."day" <= '${endDay}'
-           ${personWhereCond ? `AND ${personWhereCond}` : ''}
-           GROUP BY pts."personId", pts."day"
-         ), merged AS (
-           SELECT coalesce(sc.day, tk.day) as day, coalesce(sc."personId", tk."personId") as "personId"
-           FROM scans sc
-           FULL OUTER JOIN tasks tk ON tk."personId" = sc."personId" AND tk.day = sc.day
-         )
-         SELECT COUNT(1) as total FROM merged`
+    const [rows, totals] = await Promise.all([
+      prisma.$queryRaw<AttendanceRaw[]>(
+        Prisma.sql`${query} SELECT * FROM merged ORDER BY day DESC, "personName" ASC, "personId" ASC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`
+      ),
+      prisma.$queryRaw<{ total: bigint }[]>(
+        Prisma.sql`${query} SELECT COUNT(*) AS total FROM merged`
+      ),
+    ]);
+    const total = Number(totals[0]?.total || 0);
+    const actor = await getPrizeOperator(req);
+    return Response.json(
+      {
+        ok: true,
+        rows: rows.map((row) => attendanceRow(row)),
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        canEditContext: !!actor && canEditRoster(actor.role),
+      },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (["INVALID_PERIOD", "INVALID_RANGE", "INVALID_FILTER"].includes(code))
+      return Response.json(
+        { ok: false, message: "Filtros de asistencia inválidos" },
+        { status: 400 }
       );
-    } catch {
-      // SQLite fallback (no FULL OUTER JOIN): use UNION
-      countRows = await prisma.$queryRawUnsafe(
-        `WITH scans AS (
-           SELECT s."personId", s."businessDay" as day
-           FROM "Scan" s LEFT JOIN "Person" p ON p."id" = s."personId"
-           WHERE s."businessDay" >= '${startDay}' AND s."businessDay" <= '${endDay}'
-           ${personWhereCond ? `AND ${personWhereCond}` : ''}
-           GROUP BY s."personId", s."businessDay"
-         ), tasks AS (
-           SELECT pts."personId", pts."day"
-           FROM "PersonTaskStatus" pts LEFT JOIN "Person" p ON p."id" = pts."personId"
-           WHERE pts."day" >= '${startDay}' AND pts."day" <= '${endDay}'
-           ${personWhereCond ? `AND ${personWhereCond}` : ''}
-           GROUP BY pts."personId", pts."day"
-         ), merged AS (
-           SELECT "personId", day FROM scans
-           UNION
-           SELECT "personId", day FROM tasks
-         )
-         SELECT COUNT(1) as total FROM merged`
-      );
-    }
-
-    const total = Number(countRows?.[0]?.total || 0);
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
-    const todayBusinessDay = currentBusinessDay();
-    const mapped = (rows || []).map(r => {
-      const done = Number(r.doneCount || 0);
-      const tot = Number(r.totalCount || 0);
-      const completionPct = tot > 0 ? (100 * done) / tot : 0;
-      const firstIn = r.firstIn ? (r.firstIn instanceof Date ? r.firstIn.toISOString() : String(r.firstIn)) : null;
-      const lastOut = r.lastOut ? (r.lastOut instanceof Date ? r.lastOut.toISOString() : String(r.lastOut)) : null;
-      const day = String(r.day);
-      
-      // Modificado: Marcar como incompleto si falta salida, sin importar si el día ya pasó.
-      // El usuario solicitó que "todos los que no tienen salida se marquen con rojo".
-      const missingOut = !!firstIn && !lastOut;
-      const isPast = day < todayBusinessDay;
-      
-      // Mantenemos la propiedad 'incomplete' para compatibilidad con el frontend (que lo pinta rojo)
-      const incomplete = missingOut; 
-
-      let status: string;
-      if (incomplete) {
-        status = isPast ? 'Incompleta' : 'En curso';
-      } else if (firstIn && lastOut) {
-        status = completionPct >= 100 ? 'Completa' : 'Con faltantes';
-      } else {
-        // Día actual en curso o sin OUT todavía (pero sin IN tampoco? No, si no hay IN no entra aquí o firstIn es null)
-        // Si firstIn es null, incomplete es false.
-        status = completionPct >= 100 ? 'Con faltantes' : 'Con faltantes';
-      }
-      return {
-        day,
-        personCode: String(r.personCode),
-        personName: String(r.personName),
-        area: r.area ? String(r.area) : null,
-        firstIn,
-        lastOut,
-        durationMin: r.durationMin != null ? Number(r.durationMin) : null,
-        doneCount: done,
-        totalCount: tot,
-        completionPct,
-        status,
-        incomplete,
-        isPast, // Enviamos flag extra por si el front lo necesita
-      };
-    });
-
-    return NextResponse.json({ ok: true, rows: mapped, page, pageSize, total, totalPages }, { status: 200 });
-  } catch (e: any) {
-    const msg = String(e?.message || e);
-    return NextResponse.json({ ok: false, code: 'INTERNAL', message: msg }, { status: 500 });
+    console.error("attendance table failed", error);
+    return Response.json(
+      { ok: false, message: "No se pudo cargar la asistencia" },
+      { status: 500 }
+    );
   }
 }

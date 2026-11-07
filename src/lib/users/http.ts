@@ -38,6 +38,7 @@ export function userFailure(error: unknown) {
               NOT_FOUND: "Usuario no encontrado",
               INVALID_BACKUP: "Respaldo inválido",
               CONFIRM_REQUIRED: "Confirma la operación",
+              INVALID_DOCUMENT: "El DNI peruano debe tener 8 dígitos",
               INVALID_DNI_OR_CODE: "Documento o código inválido",
               USERNAME_TAKEN: "El nombre de usuario ya existe",
               DNI_TAKEN: "El documento ya está registrado",
@@ -48,18 +49,19 @@ export function userFailure(error: unknown) {
     );
   const unique = error as { code?: string; meta?: { target?: string[] } };
   if (unique.code === "P2002") {
-    const field = String(unique.meta?.target || "");
-    return NextResponse.json(
-      {
-        ok: false,
-        code: field.includes("username")
-          ? "USERNAME_TAKEN"
-          : field.includes("dni")
-            ? "DNI_TAKEN"
-            : "CODE_TAKEN",
-      },
-      { status: 409 }
-    );
+    const field = String(unique.meta?.target || "").toLowerCase();
+    const code = field.includes("username")
+      ? "USERNAME_TAKEN"
+      : field.includes("dni")
+        ? "DNI_TAKEN"
+        : "CODE_TAKEN";
+    const message =
+      code === "USERNAME_TAKEN"
+        ? "El nombre de usuario ya existe"
+        : code === "DNI_TAKEN"
+          ? "El documento ya está registrado"
+          : "El código de persona ya está registrado";
+    return NextResponse.json({ ok: false, code, message }, { status: 409 });
   }
   console.error("users.operation.failed", error);
   return NextResponse.json(

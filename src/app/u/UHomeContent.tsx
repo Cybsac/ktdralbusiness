@@ -3,11 +3,13 @@ import {
   IconAlertTriangle,
   IconBell,
   IconBolt,
+  IconBriefcase,
   IconCake,
   IconChartBar,
   IconClipboardCheck,
   IconConfetti,
   IconDice6,
+  IconDeviceMobile,
   IconGlass,
   IconListCheck,
   IconMail,
@@ -16,6 +18,8 @@ import {
   IconRefresh,
   IconShieldLock,
   IconUser,
+  IconUserCheck,
+  IconUsersGroup,
   IconVideo,
 } from "@tabler/icons-react";
 import Link from "next/link";
@@ -53,15 +57,17 @@ export default function UHomeContent({
   const searchParams = useSearchParams();
   const isCoordinator = ["COORDINATOR", "ADMIN"].includes(session.role);
   const isMultimedia = userArea === "Multimedia";
+  const canAccessAdmission = isStaff || (session.role === "COLLAB" && userArea === "Seguridad");
   const hasReusableTokensAccess =
     isCoordinator || (isStaff && (userArea === "Animación" || userArea === "Multimedia"));
   const [activeTab, setActiveTab] = useState<
-    "quick" | "today" | "personal" | "work" | "cumpleanos" | "novedades"
+    "quick" | "management" | "personal" | "work" | "cumpleanos" | "novedades"
   >("quick");
   const requestedTab = searchParams?.get("tab");
 
   useEffect(() => {
-    if (requestedTab === "work" || requestedTab === "today") setActiveTab(requestedTab);
+    if (requestedTab === "work") setActiveTab("work");
+    if (requestedTab === "gestion" || requestedTab === "today") setActiveTab("management");
   }, [requestedTab]);
   const [showPasswordResetModal, setShowPasswordResetModal] = useState(false);
 
@@ -184,24 +190,19 @@ export default function UHomeContent({
               >
                 <IconBolt className="h-5 w-5" />
               </button>
-              {/* Hoy */}
+              {/* Gestión */}
               <button
-                title="Hoy"
-                onClick={() => setActiveTab("today")}
+                title="Gestión"
+                aria-label="Gestión"
+                aria-pressed={activeTab === "management"}
+                onClick={() => setActiveTab("management")}
                 className={`py-3 px-2 sm:px-4 border-b-2 ${
-                  activeTab === "today"
+                  activeTab === "management"
                     ? "border-blue-500 text-blue-600 dark:text-blue-400"
                     : "border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-300 dark:text-gray-500 dark:hover:text-gray-300"
                 }`}
               >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
+                <IconBriefcase className="h-5 w-5" aria-hidden="true" />
               </button>
 
               {/* Mi Perfil */}
@@ -307,6 +308,16 @@ export default function UHomeContent({
                 <h1 id="quick-access-title" className="text-base font-semibold text-slate-900 dark:text-slate-100">Accesos rápidos</h1>
                 <SharedAutoAttendanceCard initialLastType={lastType} basePath="/u" />
                 <div className="grid grid-cols-1 gap-3">
+                  {canAccessAdmission && (
+                    <div className="rounded-lg border border-blue-200 bg-white p-5 shadow-sm dark:border-blue-800/60 dark:bg-slate-800">
+                      <div className="mb-2 flex items-center gap-3">
+                        <IconUserCheck aria-hidden="true" className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                        <h2 className="text-lg font-medium text-gray-900 dark:text-slate-100">Admisión de clientes</h2>
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-slate-300">Verifica la edad y registra entradas y salidas.</p>
+                      <div className="mt-4"><Link href="/u/admission" className="btn">Abrir admisión</Link></div>
+                    </div>
+                  )}
                   <div className="rounded-lg border border-green-200 bg-white p-5 shadow-sm dark:border-green-800/60 dark:bg-slate-800">
                     <div className="mb-2 flex items-center gap-3">
                       <IconQrcode aria-hidden="true" className="h-6 w-6 text-green-600 dark:text-green-400" />
@@ -326,9 +337,9 @@ export default function UHomeContent({
                 </div>
               </section>
             )}
-            {activeTab === "today" && (
-              <div className="grid grid-cols-1 gap-3 sm:gap-6">
-                <SharedAutoAttendanceCard initialLastType={lastType} basePath="/u" />
+            {activeTab === "management" && (
+              <section aria-labelledby="management-title" className="grid grid-cols-1 gap-3 sm:gap-6">
+                <h1 id="management-title" className="text-base font-semibold text-slate-900 dark:text-slate-100">Gestión</h1>
 
                 <Link
                   href="/u/daily-evaluation"
@@ -350,16 +361,25 @@ export default function UHomeContent({
                   </div>
                 </Link>
 
+                <Link href="/u/roster" className="block rounded-xl border-2 border-indigo-300 bg-gradient-to-br from-indigo-50 to-blue-50 p-4 shadow-md transition-all hover:shadow-lg sm:p-5 dark:border-indigo-700 dark:from-indigo-900/20 dark:to-blue-900/20">
+                  <div className="mb-1 flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-800/40 sm:h-10 sm:w-10"><IconUsersGroup aria-hidden="true" className="h-5 w-5 text-indigo-600 dark:text-indigo-400 sm:h-6 sm:w-6" /></div>
+                    <div className="text-lg font-semibold text-indigo-900 dark:text-indigo-100 sm:text-xl">Rol de la jornada</div>
+                  </div>
+                  <p className="ml-12 text-sm text-indigo-700 dark:text-indigo-300 sm:ml-[52px]">Consulta el equipo asignado a cada función.</p>
+                  <div className="ml-12 mt-3 text-sm font-medium text-indigo-700 dark:text-indigo-300 sm:ml-[52px] sm:mt-4">Ver rol →</div>
+                </Link>
+
                 {isCoordinator && (
                   <Link href="/u/journey-updates" className="block rounded-xl border-2 border-teal-300 bg-gradient-to-br from-teal-50 to-cyan-50 p-4 shadow-md transition-all hover:shadow-lg sm:p-5 dark:border-teal-700 dark:from-teal-900/20 dark:to-cyan-900/20">
                     <div className="mb-1 flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-100 dark:bg-teal-800/40 sm:h-10 sm:w-10">
-                        <IconMail className="h-5 w-5 text-teal-600 dark:text-teal-400 sm:h-6 sm:w-6" />
+                        <IconAlertTriangle aria-hidden="true" className="h-5 w-5 text-teal-600 dark:text-teal-400 sm:h-6 sm:w-6" />
                       </div>
-                      <div className="text-lg font-semibold text-teal-900 dark:text-teal-100 sm:text-xl">Novedades de jornada</div>
+                      <div className="text-lg font-semibold text-teal-900 dark:text-teal-100 sm:text-xl">Incidencias</div>
                     </div>
                     <p className="ml-12 text-sm text-teal-700 dark:text-teal-300 sm:ml-[52px]">Consulta los comentarios registrados al cerrar cada jornada.</p>
-                    <div className="ml-12 mt-3 text-sm font-medium text-teal-700 dark:text-teal-300 sm:ml-[52px] sm:mt-4">Ver novedades →</div>
+                    <div className="ml-12 mt-3 text-sm font-medium text-teal-700 dark:text-teal-300 sm:ml-[52px] sm:mt-4">Ver incidencias →</div>
                   </Link>
                 )}
 
@@ -427,7 +447,7 @@ export default function UHomeContent({
                     </div>
                   </Link>
                 )}
-              </div>
+              </section>
             )}
 
             {activeTab === "personal" && (
@@ -492,6 +512,10 @@ export default function UHomeContent({
 
             {activeTab === "work" && (
               <div className="grid grid-cols-1 gap-3 sm:gap-6">
+                {canAccessAdmission && <Link href="/u/admission" className="block rounded-lg border border-blue-300 bg-white p-4 shadow-sm dark:border-blue-800 dark:bg-slate-800">
+                  <div className="mb-2 flex items-center gap-3"><IconUserCheck aria-hidden="true" className="h-6 w-6 shrink-0 text-blue-600 dark:text-blue-400" /><div className="text-lg font-semibold">Admisión de clientes</div></div>
+                  <p className="ml-9 text-sm text-slate-600 dark:text-slate-300">Consulta la edad y registra entradas y salidas.</p>
+                </Link>}
                 <Link
                   href="/u/scanner"
                   className="block rounded-lg border border-teal-200 bg-white p-3 sm:p-5 shadow-sm hover:shadow-md transition dark:border-teal-800/60 dark:bg-slate-800"
@@ -510,8 +534,8 @@ export default function UHomeContent({
                   </div>
                 </Link>
                 <Link href="/u/estacion/terminal" className="block rounded-lg border border-teal-200 bg-white p-4 shadow-sm dark:border-teal-800 dark:bg-slate-800">
-                  <div className="text-lg font-medium">Escáner de estación</div>
-                  <p className="text-sm text-gray-600 dark:text-slate-300">Escanea el QR de la estación para conectar este celular o vuelve a tu conexión activa.</p>
+                  <div className="mb-2 flex items-center gap-3"><IconDeviceMobile aria-hidden="true" className="h-6 w-6 shrink-0 text-teal-600 dark:text-teal-400" /><div className="text-lg font-medium">Escáner remoto</div></div>
+                  <p className="ml-9 text-sm text-gray-600 dark:text-slate-300">Escanea el QR de la estación para conectar este celular o vuelve a tu conexión activa.</p>
                 </Link>
                 {isCoordinator && (
                   <Link

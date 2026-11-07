@@ -8,6 +8,8 @@ export const BIRTHDAY_POLICY = {
   maxName: 160,
   maxPackQr: 1000,
   publicBookingDays: 15,
+  closedWeekdays: (process.env.NEXT_PUBLIC_BIRTHDAY_CLOSED_WEEKDAYS || "1")
+    .split(",").map(Number).filter(day => Number.isInteger(day) && day >= 1 && day <= 7),
   cleanupBatchSize: positiveInteger(process.env.BIRTHDAY_CLEANUP_BATCH_SIZE, 10),
   cleanupSchedule: process.env.BIRTHDAY_CLEANUP_CRON || "*/10 * * * *",
   storageScanPageSize: positiveInteger(process.env.BIRTHDAY_STORAGE_SCAN_PAGE_SIZE, 100),

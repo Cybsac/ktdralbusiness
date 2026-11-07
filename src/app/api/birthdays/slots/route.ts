@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
     if (!dateStr) return apiError("INVALID_DATE", "date (YYYY-MM-DD) is required", undefined, 400);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || !birthdayDay(dateStr).isValid)
       return apiError("INVALID_DATE", "Fecha inválida", undefined, 400);
+    if (P.closedWeekdays.includes(birthdayDay(dateStr).weekday)) return apiOk({ date: dateStr, slots: [] });
     const range = birthdayStoredRange(dateStr);
     const reservations = await prisma.birthdayReservation.findMany({
       where: {

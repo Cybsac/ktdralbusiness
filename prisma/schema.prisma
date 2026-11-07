@@ -179,6 +179,14 @@ model PrizeAuthorizationConfig {
   updatedAt DateTime @updatedAt
 }
 
+model CluzterLookupLimit {
+  key      String   @id
+  attempts Int
+  resetAt  DateTime
+
+  @@index([resetAt])
+}
+
 model PrizeAuthorizationAttempt {
   key      String   @id
   attempts Int
@@ -347,6 +355,8 @@ model Person {
   jobTitle         String?
   whatsapp         String?
   birthday         DateTime?          @db.Timestamp(6)
+  documentSexCode  String?
+  documentType     String?
   PersonTaskStatus PersonTaskStatus[]
   scans            Scan[]
   user             User?
@@ -354,6 +364,9 @@ model Person {
   dailyRatings     PersonDailyRating[]
   productionAssignments ProductionAssignee[]
   recurringTaskAssignments RecurringTaskAssignee[]
+  rosterAssignments RosterAssignment[]
+  attendanceContexts AttendanceContext[]
+  attendanceJustifications AttendanceJustification[]
 
   @@index([code])
 }
@@ -557,6 +570,7 @@ model BirthdayReservation {
   phone             String
   documento         String
   email             String?
+  birthDate         DateTime?          @db.Date
   date              DateTime
   timeSlot          String
   packId            String
@@ -2580,4 +2594,127 @@ model InvitationTemplateAsset {
   attempts Int @default(0)
   lastError String?
   @@index([nextCheckAt])
+}
+
+// Admission identities are keyed with a server-side HMAC; no document number is stored.
+model AdmissionVisit {
+  id String @id @default(cuid())
+  businessDay String
+  documentType String
+  documentHash String
+  source String
+  firstEntryAt DateTime @default(now())
+  lastEntryAt DateTime @default(now())
+  lastExitAt DateTime?
+  inside Boolean @default(true)
+  entryCount Int @default(1)
+  createdBy String
+  updatedBy String
+  updatedAt DateTime @updatedAt
+  @@unique([businessDay, documentType, documentHash])
+  @@index([businessDay, inside])
+}
+
+model AdmissionCheck {
+  id String @id @default(cuid())
+  businessDay String
+  result String
+  source String
+  actorId String
+  createdAt DateTime @default(now())
+  @@index([businessDay, result])
+}
+
+model AdmissionMovement {
+  id String @id @default(cuid())
+  businessDay String
+  visitId String
+  action String
+  actorId String
+  createdAt DateTime @default(now())
+  @@index([businessDay, createdAt])
+  @@index([visitId])
+}
+
+model RosterRole {
+  id String @id @default(cuid())
+  name String
+  nameKey String @unique
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  assignments RosterAssignment[]
+}
+
+model RosterAssignment {
+  id String @id @default(cuid())
+  businessDay String
+  personId String
+  roleId String
+  active Boolean @default(true)
+  createdBy String
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  person Person @relation(fields: [personId], references: [id], onDelete: Restrict)
+  role RosterRole @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  events RosterEvent[]
+  @@unique([businessDay, personId, roleId])
+  @@index([businessDay, active, roleId])
+}
+
+model RosterEvent {
+  id String @id @default(cuid())
+  businessDay String
+  assignmentId String
+  personName String
+  roleName String
+  action String
+  actorId String
+  createdAt DateTime @default(now())
+  assignment RosterAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  @@index([businessDay, createdAt])
+}
+
+model AttendanceContext {
+  id String @id @default(cuid())
+  businessDay String
+  personId String
+  reason String
+  createdBy String
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  person Person @relation(fields: [personId], references: [id], onDelete: Restrict)
+  @@unique([businessDay, personId])
+  @@index([businessDay])
+}
+
+model AttendanceJustification {
+  id String @id @default(cuid())
+  businessDay String
+  personId String
+  entryScanId String
+  reason String
+  active Boolean @default(true)
+  createdBy String
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  person Person @relation(fields: [personId], references: [id], onDelete: Restrict)
+  events AttendanceJustificationEvent[]
+  @@unique([businessDay, personId])
+  @@index([businessDay, active])
+}
+
+model AttendanceJustificationEvent {
+  id String @id @default(cuid())
+  justificationId String
+  entryScanId String
+  action String
+  reason String
+  actorId String
+  createdAt DateTime @default(now())
+  justification AttendanceJustification @relation(fields: [justificationId], references: [id], onDelete: Restrict)
+  @@index([justificationId, createdAt])
 }

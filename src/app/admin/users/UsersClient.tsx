@@ -33,17 +33,18 @@ export function UsersClient({ role }: UsersClientProps) {
   }, []);
 
   async function deleteUser(id: string) {
-    if (!confirm("¿Eliminar usuario?")) return;
+    if (!confirm("¿Retirar el acceso? La cuenta quedará inactiva y se conservará su historial."))
+      return;
     setErr(null);
     setMsg(null);
     try {
       const r = await fetch(`/api/admin/users/${id}`, { method: "DELETE", credentials: "include" });
       const j = await r.json();
       if (r.ok && j?.ok) {
-        setMsg("Usuario eliminado");
+        setMsg("Acceso retirado");
         load(); // reload list
       } else {
-        setErr(j?.message || "Error al eliminar");
+        setErr(j?.message || "Error al retirar el acceso");
       }
     } catch (e: any) {
       setErr(e?.message || "Error");
@@ -53,7 +54,7 @@ export function UsersClient({ role }: UsersClientProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Usuarios (Admin)</h1>
+        <h1 className="text-2xl font-semibold">Usuarios</h1>
         {isStaff && <span className="text-xs rounded bg-slate-700/60 px-2 py-1">Modo STAFF</span>}
       </div>
       {msg && (
@@ -68,8 +69,7 @@ export function UsersClient({ role }: UsersClientProps) {
       )}
       {!canDelete && (
         <div className="rounded border border-amber-500/40 bg-amber-900/20 p-4 text-xs">
-          La creación / edición completa permanece en la versión anterior (formulario completo).
-          Este modo no permite modificaciones.
+          Este modo permite consultar usuarios.
         </div>
       )}
 
@@ -112,7 +112,7 @@ export function UsersClient({ role }: UsersClientProps) {
                         onClick={() => deleteUser(u.id)}
                         className="text-red-400 hover:text-red-300 text-sm underline"
                       >
-                        Eliminar
+                        Retirar acceso
                       </button>
                     </td>
                   )}

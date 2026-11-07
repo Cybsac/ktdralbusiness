@@ -5,3 +5,9 @@ export async function birthdayAdministrator(req: Request) {
   const user = await birthdayManager(req);
   return user && ["ADMIN", "COORDINATOR", "STAFF"].includes(user.role) ? user : null;
 }
+
+/** Catalog configuration is restricted independently from reservation operations. */
+export async function birthdayPackAdministrator(req: Request) {
+  const user = await birthdayManager(req);
+  return user?.role === "ADMIN" ? user : null;
+}

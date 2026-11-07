@@ -1,9 +1,11 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { formatBirthdayLabel } from "@/lib/birthday";
 import { z } from "zod";
-import { USER_POLICY as P } from "./policy";
+
+import { formatBirthdayLabel } from "@/lib/birthday";
+import { prisma } from "@/lib/prisma";
+
 import type { UserActor } from "./access";
+import { USER_POLICY as P } from "./policy";
 export const userSelection = {
   id: true,
   username: true,
@@ -16,10 +18,12 @@ export const userSelection = {
       code: true,
       name: true,
       dni: true,
+      documentType: true,
       area: true,
       jobTitle: true,
       whatsapp: true,
       birthday: true,
+      documentSexCode: true,
       active: true,
     },
   },
@@ -34,11 +38,13 @@ export function userDto(user: Prisma.UserGetPayload<{ select: typeof userSelecti
     personCode: user.person.code,
     personName: user.person.name,
     dni: user.person.dni,
+    documentType: user.person.documentType,
     area: user.person.area,
     jobTitle: user.person.jobTitle,
     whatsapp: user.person.whatsapp,
     birthday: user.person.birthday?.toISOString().slice(0, 10) || null,
     birthdayLabel: formatBirthdayLabel(user.person.birthday),
+    documentSexCode: user.person.documentSexCode,
     active: user.person.active,
   };
 }

@@ -7,6 +7,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 
 import { signBirthdayClaim } from "./token";
+import { BIRTHDAY_POLICY } from "./policy";
 
 export const reservationEditSchema = z
   .object({ ...reservationFields, expectedUpdatedAt: z.string().datetime() })
@@ -31,6 +32,7 @@ export async function updateBirthdayReservation(
       const dateChanged = birthdayDateKey(current.date) !== input.date;
       const packChanged = current.packId !== input.packId;
       if (dateChanged && date < birthdayToday()) throw new Error("DATE_PAST");
+      if (dateChanged && BIRTHDAY_POLICY.closedWeekdays.includes(date.weekday)) throw new Error("CLOSED_DAY");
       if (
         (dateChanged || packChanged) &&
         (current.hostArrivedAt ||
@@ -52,7 +54,7 @@ export async function updateBirthdayReservation(
             })
           : null;
       if (duplicate) throw new Error("DUPLICATE_RESERVATION");
-      const { expectedUpdatedAt, ...fields } = input;
+      const { expectedUpdatedAt, birthDate, ...fields } = input;
       let specialBottle = current.specialBottle;
       if (dateChanged || packChanged) {
         const config =
@@ -68,6 +70,7 @@ export async function updateBirthdayReservation(
         where: { id, updatedAt: new Date(expectedUpdatedAt) },
         data: {
           ...fields,
+          ...(birthDate !== undefined ? { birthDate: new Date(`${birthDate}T00:00:00.000Z`) } : {}),
           email: input.email || null,
           date: date.toJSDate(),
           updatedBy: actor,

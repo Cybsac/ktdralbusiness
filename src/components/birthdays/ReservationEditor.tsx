@@ -36,6 +36,7 @@ export function ReservationEditor({
         phone: data.phone,
         documento: data.documento,
         email: data.email || "",
+        birthDate: data.birthDate?.slice(0, 10) || "",
         date: data.date.slice(0, 10),
         timeSlot: data.timeSlot,
         packId: data.packId,
@@ -68,7 +69,7 @@ export function ReservationEditor({
       const response = await fetch(`/api/admin/birthdays/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, birthDate: form.birthDate || undefined }),
       });
       const data = await response.json();
       if (!response.ok)
@@ -89,7 +90,7 @@ export function ReservationEditor({
       {label}
       <input
         className="block w-full rounded border border-slate-400 bg-transparent p-2"
-        required={key !== "email"}
+        required={key !== "email" && key !== "birthDate"}
         type={type}
         value={form[key]}
         onChange={(e) =>
@@ -145,7 +146,7 @@ export function ReservationEditor({
             {field("celebrantName", "Nombre y apellido")}
             {field("documento", "DNI (8 dígitos)")}
             {field("phone", "WhatsApp (9 dígitos)")}
-            {field("email", "Correo", "email")}
+            {field("birthDate", "Fecha de nacimiento", "date")}
             {field("date", "Fecha", "date")}
             {field("timeSlot", "Hora", "time")}
             {field("guestsPlanned", "Invitados previstos", "number")}

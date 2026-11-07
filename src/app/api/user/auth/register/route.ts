@@ -1,3 +1,4 @@
+import { DOCUMENT_TYPES, isValidDocumentNumber, normalizeDocumentNumber } from "@/lib/users/document";
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -7,7 +8,7 @@ import { createUserSessionCookie, buildSetUserCookie } from '@/lib/auth';
 import { parseBirthdayInput } from '@/lib/birthday';
 
 const esc = (s: string) => s.replace(/'/g, "''");
-const normalizeDni = (s: string) => String(s || '').replace(/\D+/g, '');
+const normalizeDni = normalizeDocumentNumber;
 
 function isValidName(n: string) {
   if (typeof n !== 'string') return false;
@@ -34,16 +35,19 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({} as any));
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     const dniRaw = typeof body?.dni === 'string' ? body.dni.trim() : '';
+    const documentType = body?.documentType ?? null;
+    if (documentType !== null && !DOCUMENT_TYPES.includes(documentType)) return NextResponse.json({ok:false, code:'INVALID_DOCUMENT_TYPE'}, {status:400});
     const area = typeof body?.area === 'string' ? body.area.trim() : '';
     const password = typeof body?.password === 'string' ? body.password : '';
     const whatsappRaw = typeof body?.whatsapp === 'string' ? body.whatsapp.trim() : '';
     const birthdayRaw = typeof body?.birthday === 'string' ? body.birthday.trim() : '';
+    const documentSexCode = body?.documentSexCode === '1' || body?.documentSexCode === '2' ? body.documentSexCode : null;
 
     if (!isValidName(name)) {
       return NextResponse.json({ ok: false, code: 'INVALID_NAME' }, { status: 400 });
     }
     const dni = normalizeDni(dniRaw);
-    if (!dni) {
+    if (!dni || !isValidDocumentNumber(dni, documentType)) {
       return NextResponse.json({ ok: false, code: 'INVALID_DNI' }, { status: 400 });
     }
     if (!isValidArea(area)) {
@@ -73,7 +77,7 @@ export async function POST(req: Request) {
 
     const created = await prisma.$transaction(async (tx) => {
       const person = await tx.person.create({
-        data: { code, name, dni, area, active: true, whatsapp: normalizeWhatsapp(whatsappRaw), birthday: birthdayDate },
+        data: { code, name, dni, area, active: true, whatsapp: normalizeWhatsapp(whatsappRaw), birthday: birthdayDate, documentType, documentSexCode: documentType === "DNI" ? documentSexCode : null },
       });
       const user = await tx.user.create({
         data: { username, passwordHash, role: 'COLLAB', personId: person.id },

@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
+
+import { apiError, apiOk } from "@/lib/apiError";
+import { birthdayPackAdministrator } from "@/lib/birthdays/managementAuth";
+import { birthdayPackDto, packUpdateSchema } from "@/lib/birthdays/pack-catalog";
 import { prisma } from "@/lib/prisma";
-import { apiOk, apiError } from "@/lib/apiError";
-import { birthdayAdministrator } from "@/lib/birthdays/managementAuth";
-import { packUpdateSchema, birthdayPackDto } from "@/lib/birthdays/pack-catalog";
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  if (!(await birthdayAdministrator(req)))
+  if (!(await birthdayPackAdministrator(req)))
     return apiError("UNAUTHORIZED", "Sin acceso", undefined, 401);
   const parsed = packUpdateSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success)
@@ -18,11 +19,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     });
     return apiOk({ pack: birthdayPackDto(pack) });
   } catch (error) {
-    return apiError(
-      (error as { code?: string }).code === "P2002" ? "NAME_TAKEN" : "UPDATE_FAILED",
-      "No se pudo guardar el paquete",
-      undefined,
-      409
-    );
+    const code = (error as { code?: string }).code;
+    if (code === "P2025") return apiError("NOT_FOUND", "El paquete ya no existe", undefined, 404);
+    if (code === "P2002")
+      return apiError("NAME_TAKEN", "Ya existe un paquete con ese nombre", undefined, 409);
+    console.error("[birthday packs] update failed", error);
+    return apiError("UPDATE_FAILED", "No se pudo guardar el paquete", undefined, 500);
   }
 }

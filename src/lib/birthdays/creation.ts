@@ -13,6 +13,7 @@ export async function createReservation(
   if (!day.isValid) throw new Error("INVALID_DATE");
   const fields = reservationCreateSchema.parse({ ...input, date: birthdayDateKey(input.date) });
   if (day < birthdayToday()) throw new Error("RESERVATION_DATE_PAST");
+  if (P.closedWeekdays.includes(day.weekday)) throw new Error("CLOSED_DAY");
   if (!input.isAdmin && day > birthdayToday().plus({ days: P.publicBookingDays }))
     throw new Error("DATE_TOO_FAR");
   if (!input.isAdmin && !P.publicSlots.includes(fields.timeSlot)) throw new Error("INVALID_SLOT");
@@ -54,6 +55,7 @@ export async function createReservation(
         phone: fields.phone,
         documento: fields.documento,
         email: fields.email || null,
+        birthDate: fields.birthDate ? new Date(`${fields.birthDate}T00:00:00.000Z`) : null,
         date: day.toJSDate(),
         timeSlot: fields.timeSlot,
         packId: fields.packId,

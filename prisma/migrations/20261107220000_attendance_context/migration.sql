@@ -1,0 +1,3 @@
+CREATE TABLE "AttendanceContext" ("id" TEXT NOT NULL, "businessDay" TEXT NOT NULL, "personId" TEXT NOT NULL, "reason" TEXT NOT NULL, "createdBy" TEXT NOT NULL, "updatedBy" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "AttendanceContext_pkey" PRIMARY KEY ("id"), CONSTRAINT "AttendanceContext_personId_fkey" FOREIGN KEY ("personId") REFERENCES "Person"("id") ON DELETE RESTRICT ON UPDATE CASCADE);
+CREATE UNIQUE INDEX "AttendanceContext_businessDay_personId_key" ON "AttendanceContext"("businessDay", "personId");
+CREATE INDEX "AttendanceContext_businessDay_idx" ON "AttendanceContext"("businessDay");

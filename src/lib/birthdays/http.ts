@@ -3,6 +3,7 @@ const messages: Record<string, string> = {
   RESERVATION_NOT_CANCELED: "Solo se pueden eliminar reservas canceladas",
   RESERVATION_DATE_PAST: "La fecha de reserva ya pasó",
   DATE_TOO_FAR: "La fecha excede la anticipación permitida",
+  CLOSED_DAY: "No atendemos en la fecha seleccionada. Elige otro día.",
   INVALID_REFERRER: "Referidor no disponible",
   NOT_FOUND: "Reserva no encontrada",
   RESERVATION_NOT_FOUND: "Reserva no encontrada",

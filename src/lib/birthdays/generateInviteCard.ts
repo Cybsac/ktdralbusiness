@@ -1,8 +1,11 @@
 import fs from "fs/promises";
 import path from "path";
 import sharp from "sharp";
-import { birthdayInviteTemplate, type InviteTemplateKind } from "./inviteTemplates";
+
 import { generateQrPngBuffer } from "@/lib/qr-server";
+
+import { birthdayInviteTemplate, type InviteTemplateKind } from "./inviteTemplates";
+import { BIRTHDAY_STORED_CARD } from "./card-format";
 
 function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
@@ -36,35 +39,12 @@ export async function generateInviteCard(
   reservationDateISO?: string
 ) {
   const tpl = birthdayInviteTemplate;
-  let templateInput: Buffer | null = null;
-
-  try {
-    // Descargar plantilla desde Supabase Storage
-    const response = await fetch(tpl.path);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch template: ${response.status} ${response.statusText}`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    templateInput = Buffer.from(arrayBuffer);
-  } catch (e: any) {
-    if (!process.env.SILENCE_INVITE_CARD_LOGS) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        "[inviteCard] no se pudo descargar plantilla desde Supabase, usando fondo plano",
-        { path: tpl.path, error: e?.message }
-      );
-    }
-    templateInput = await sharp({
-      create: {
-        width: tpl.width,
-        height: tpl.height,
-        channels: 4,
-        background: { r: 12, g: 12, b: 12, alpha: 1 },
-      },
-    })
-      .png()
-      .toBuffer();
-  }
+  // A missing template must not be saved as a seemingly successful blank card.
+  const templateUrl = new URL(tpl.path);
+  templateUrl.searchParams.set("v", String(Date.now()));
+  const response = await fetch(templateUrl, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Birthday template request failed: ${response.status}`);
+  const templateInput = Buffer.from(await response.arrayBuffer());
 
   const qrSize = Math.round(tpl.width * tpl.area.sizeRatio);
   const left = Math.round(tpl.width * tpl.area.leftRatio);
@@ -315,5 +295,5 @@ export async function generateInviteCard(
   if (format === "png") {
     return await composite.png({ compressionLevel: 9 }).toBuffer();
   }
-  return await composite.webp({ quality: 92 }).toBuffer();
+  return await composite.webp({ quality: BIRTHDAY_STORED_CARD.quality }).toBuffer();
 }

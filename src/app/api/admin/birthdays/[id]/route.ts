@@ -36,6 +36,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       NOT_FOUND: "Reserva no encontrada",
       INVALID_PACK: "Paquete no disponible",
       DATE_PAST: "La nueva fecha no puede ser pasada",
+      CLOSED_DAY: "No atendemos en la fecha seleccionada. Elige otro día.",
       ALREADY_USED: "No se puede cambiar fecha o paquete cuando ya se registraron ingresos",
       DUPLICATE_RESERVATION: "Ya existe una reserva con ese DNI en el mismo año",
       EDIT_CONFLICT: "La reserva cambió. Recarga antes de guardar.",

@@ -1,5 +1,6 @@
 "use client";
 import { DataProvider, fetchUtils } from "react-admin";
+// eslint-disable-next-line no-undef
 const call = async (url: string, options: RequestInit = {}) => {
   const { json } = await fetchUtils.fetchJson(url, {
     ...options,
@@ -14,7 +15,7 @@ const list = (json: any, resource: string) => {
   return { data, total: json.total ?? data.length };
 };
 const date = (value: unknown) => (value ? String(value).split("T")[0] : null);
-function userPayload(data: any, create = false) {
+export function userPayload(data: any, create = false, previous?: any) {
   if (create)
     return {
       username: data.username,
@@ -23,17 +24,33 @@ function userPayload(data: any, create = false) {
       person: {
         name: data.personName,
         dni: data.dni,
+        documentType: data.documentType || null,
         area: data.area,
         whatsapp: data.whatsapp || null,
         birthday: date(data.birthday),
+        documentSexCode: data.documentSexCode || null,
       },
     };
   const result: Record<string, unknown> = {};
-  for (const key of ["username", "dni", "personName", "role", "area"])
-    if (data[key] !== undefined) result[key] = data[key];
+  for (const key of ["username", "dni", "documentType", "personName", "role", "area"])
+    if (data[key] !== undefined && !((key === "dni" || key === "area") && data[key] === null))
+      result[key] = data[key];
+  if (data.documentSexCode !== undefined) result.documentSexCode = data.documentSexCode || null;
   if (data.whatsapp !== undefined) result.whatsapp = data.whatsapp || null;
   if (data.birthday !== undefined) result.birthday = date(data.birthday);
   if (typeof data.password === "string" && data.password.trim()) result.password = data.password;
+  if (previous) {
+    for (const key of Object.keys(result)) {
+      if (key === "password" || !(key in previous)) continue;
+      const oldValue =
+        key === "birthday"
+          ? date(previous[key])
+          : key === "whatsapp"
+            ? previous[key] || null
+            : previous[key];
+      if (result[key] === oldValue) delete result[key];
+    }
+  }
   return result;
 }
 function listUrl(resource: string, params: any, reference = false) {
@@ -72,14 +89,20 @@ export const dataProvider: DataProvider = {
       })
     ),
   }),
-  update: async (resource, params) => ({
-    data: record(
-      await call(`/api/admin/${resource}/${encodeURIComponent(params.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify(resource === "users" ? userPayload(params.data) : params.data),
-      })
-    ),
-  }),
+  update: async (resource, params) => {
+    const payload =
+      resource === "users" ? userPayload(params.data, false, params.previousData) : params.data;
+    if (resource === "users" && Object.keys(payload).length === 0)
+      return { data: params.previousData };
+    return {
+      data: record(
+        await call(`/api/admin/${resource}/${encodeURIComponent(params.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        })
+      ),
+    };
+  },
   updateMany: async (resource, params) => {
     await Promise.all(
       params.ids.map((id) =>

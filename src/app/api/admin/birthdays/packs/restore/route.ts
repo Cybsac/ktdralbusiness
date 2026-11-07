@@ -1,13 +1,14 @@
 import { NextRequest } from "next/server";
+
 import { apiError, apiOk } from "@/lib/apiError";
-import { birthdayAdministrator } from "@/lib/birthdays/managementAuth";
+import { birthdayPackAdministrator } from "@/lib/birthdays/managementAuth";
 import {
+  birthdayPackDto,
   restoreBirthdayPackCatalog,
   saveBirthdayPackCatalog,
-  birthdayPackDto,
 } from "@/lib/birthdays/pack-catalog";
 export async function POST(req: NextRequest) {
-  if (!(await birthdayAdministrator(req)))
+  if (!(await birthdayPackAdministrator(req)))
     return apiError("UNAUTHORIZED", "Sin acceso", undefined, 401);
   try {
     const packs = await restoreBirthdayPackCatalog();
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
 }
 /** Explicit administrative API for updating the restore baseline; never performed by a GET. */
 export async function PUT(req: NextRequest) {
-  if (!(await birthdayAdministrator(req)))
+  if (!(await birthdayPackAdministrator(req)))
     return apiError("UNAUTHORIZED", "Sin acceso", undefined, 401);
   await saveBirthdayPackCatalog();
   return apiOk({ saved: true });

@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
+import { BirthdayIdentityLookup } from "@/components/BirthdayIdentityLookup";
+import { suggestedCelebration } from "@/lib/birthdays/celebration";
 import { birthdayDay, birthdayToday } from '@/lib/birthdays/calendar';
 import { BIRTHDAY_POLICY } from '@/lib/birthdays/policy';
 import { reservationFields } from '@/lib/birthdays/reservation-input';
@@ -421,6 +423,8 @@ export default function StaffBirthdaysPage() {
 	const [cName, setCName] = useState('');
 	const [cPhone, setCPhone] = useState('');
 	const [cDoc, setCDoc] = useState('');
+  const [lookupDocument, setLookupDocument] = useState("");
+	const [cBirthDate, setCBirthDate] = useState('');
 	const [cDate, setCDate] = useState('');
 	const [cSlot, setCSlot] = useState(BIRTHDAY_POLICY.staffSlots[0] ?? '');
 	const [cPack, setCPack] = useState('');
@@ -440,6 +444,7 @@ export default function StaffBirthdaysPage() {
 		if (!cName.trim()) errors.name = 'El nombre es obligatorio';
 		if (!cPhone.trim()) errors.phone = 'El número de WhatsApp es obligatorio';
 		if (!cDoc.trim()) errors.documento = 'El DNI es obligatorio';
+		if (!cBirthDate || !reservationFields.birthDate.safeParse(cBirthDate).success) errors.birthDate = 'La fecha de nacimiento es obligatoria';
 		if (!cDate.trim()) errors.date = 'La fecha es obligatoria';
 		if (!cPack.trim()) errors.pack = 'Debes seleccionar un pack';
 
@@ -458,6 +463,7 @@ export default function StaffBirthdaysPage() {
             const selectedDay = birthdayDay(cDate);
             if (!selectedDay.isValid) errors.date = 'La fecha no es válida';
             else if (selectedDay < birthdayToday()) errors.date = 'La fecha no puede ser en el pasado';
+            else if (BIRTHDAY_POLICY.closedWeekdays.includes(selectedDay.weekday)) errors.date = 'No atendemos en la fecha seleccionada';
         }
         if (!cSlot) errors.timeSlot = 'No hay horarios disponibles';
 
@@ -560,6 +566,7 @@ export default function StaffBirthdaysPage() {
 				celebrantName: cName.trim(),
 				phone: cPhone.replace(/\D/g, ''), // Clean phone number
 				documento: cDoc.replace(/\D/g, ''), // Clean DNI
+				birthDate: cBirthDate,
 				date: cDate,
 				timeSlot: cSlot,
 				packId: cPack,
@@ -599,6 +606,7 @@ export default function StaffBirthdaysPage() {
 			setCName('');
 			setCPhone('');
 			setCDoc('');
+			setCBirthDate('');
 			setCDate('');
 			setCSlot(BIRTHDAY_POLICY.staffSlots[0] ?? '');
 			setCPack('');
@@ -816,17 +824,19 @@ export default function StaffBirthdaysPage() {
 											placeholder="Documento (DNI - 8 dígitos)"
 											value={cDoc}
 											onChange={e => {
-												setCDoc(e.target.value);
+												setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); }
 												clearFieldError('documento');
 											}}
 										/>
+										<BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setCName(person.name); setCBirthDate(person.birthday || ''); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); }} />
 										{fieldErrors.documento && (
 											<div className="text-xs text-rose-600 dark:text-rose-400">{fieldErrors.documento}</div>
 										)}
 									</div>
 
+									<div><label>Fecha de nacimiento</label><input type="date" value={cBirthDate} onChange={e => { setCBirthDate(e.target.value); setCDate(suggestedCelebration(e.target.value)); }} className="h-10 rounded border px-3 text-sm w-full dark:bg-slate-800" />{fieldErrors.birthDate && <div className="text-xs text-rose-600">{fieldErrors.birthDate}</div>}</div>
 									<div className="space-y-1">
-										<input
+										<label>Fecha de celebración</label><input
 											type="date"
 											className={`h-10 rounded border px-3 text-sm w-full ${
 												fieldErrors.date

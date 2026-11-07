@@ -1,16 +1,16 @@
-import { assertBirthdayCardAvailable } from "./card-policy";
-import { enqueueBirthdayCleanup, tryBirthdayStorageCleanup } from "./storage-cleanup";
-import { BIRTHDAY_POLICY as P } from "./policy";
 import { randomUUID } from "crypto";
-import { tmpdir } from "os";
-import path from "path";
-import { writeFile, unlink } from "fs/promises";
+
 import { prisma } from "@/lib/prisma";
-import { uploadFileToSupabase, BIRTHDAY_CARDS_BUCKET } from "@/lib/supabase-server";
+import { BIRTHDAY_CARDS_BUCKET, uploadBufferToSupabase } from "@/lib/supabase-server";
+
+import { BIRTHDAY_STORED_CARD } from "./card-format";
+import { assertBirthdayCardAvailable } from "./card-policy";
 import { generateInviteCard } from "./generateInviteCard";
 import { generateInviteTokens } from "./invitations";
-import { universalInvitation } from "./universal";
 import { lockBirthdayReservation } from "./locking";
+import { BIRTHDAY_POLICY as P } from "./policy";
+import { enqueueBirthdayCleanup, tryBirthdayStorageCleanup } from "./storage-cleanup";
+import { universalInvitation } from "./universal";
 export async function ensureBirthdayCards(
   reservationId: string,
   baseUrl: string,
@@ -26,26 +26,29 @@ export async function ensureBirthdayCards(
   const previous = await prisma.inviteTokenCard.findUnique({ where: { inviteTokenId: token.id } });
   const priorUrl =
     previous?.storageUrl ||
-    (previous?.filePath ? `/${previous.filePath.replace(/^[\/]+/, "")}` : null);
+    (previous?.filePath ? `/${previous.filePath.replace(/^[/]+/, "")}` : null);
   if (previous && !options.regenerate && priorUrl)
     return { already: true, paths: { guest: priorUrl } };
   const buffer = await generateInviteCard(
     "guest",
     token.code,
     `${baseUrl}/b/${encodeURIComponent(token.code)}`,
-    "png",
+    BIRTHDAY_STORED_CARD.format,
     reservation.celebrantName,
     reservation.date.toISOString()
   );
-  const temp = path.join(tmpdir(), `birthday-card-${randomUUID()}.png`);
-  const storageKey = `${reservationId}/guest-${randomUUID()}.png`;
+  const storageKey = `${reservationId}/guest-${randomUUID()}.${BIRTHDAY_STORED_CARD.extension}`;
   await enqueueBirthdayCleanup(prisma, [storageKey], new Date(Date.now() + P.cleanupLeaseMs));
-  let uploaded: Awaited<ReturnType<typeof uploadFileToSupabase>>;
+  let uploaded: { storageKey: string; url: string };
   try {
-    await writeFile(temp, new Uint8Array(buffer));
-    uploaded = await uploadFileToSupabase(temp, storageKey, BIRTHDAY_CARDS_BUCKET);
+    const url = await uploadBufferToSupabase(
+      buffer,
+      storageKey,
+      BIRTHDAY_STORED_CARD.contentType,
+      BIRTHDAY_CARDS_BUCKET
+    );
+    uploaded = { storageKey, url };
   } catch (error) {
-    await unlink(temp).catch(() => undefined);
     try {
       await enqueueBirthdayCleanup(prisma, [storageKey]);
     } catch {
@@ -115,6 +118,6 @@ export async function getBirthdayCards(reservationId: string) {
     ? await prisma.inviteTokenCard.findUnique({ where: { inviteTokenId: token.id } })
     : null;
   const url =
-    card?.storageUrl || (card?.filePath ? `/${card.filePath.replace(/^[\/]+/, "")}` : null);
+    card?.storageUrl || (card?.filePath ? `/${card.filePath.replace(/^[/]+/, "")}` : null);
   return { paths: url ? { guest: url } : {}, tokens };
 }

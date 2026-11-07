@@ -11,6 +11,7 @@ export type CreateReservationInput = {
   phone: string;
   documento: string;
   email?: string | null;
+  birthDate?: string;
   date: Date;
   timeSlot: string;
   packId: string;

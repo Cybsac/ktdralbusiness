@@ -1,15 +1,23 @@
-import { reservationCreateSchema } from "@/lib/birthdays/reservation-input";
 import { NextRequest } from "next/server";
-import { birthdayFailure } from "@/lib/birthdays/http";
-import { apiError, apiOk } from "@/lib/apiError";
-import { checkRateLimit } from "@/lib/rateLimit";
-import { createReservation } from "@/lib/birthdays/service";
-import { signClientSecret } from "@/lib/birthdays/clientAuth";
-import { isBirthdaysEnabledPublic } from "@/lib/featureFlags";
-import { corsHeadersFor } from "@/lib/cors";
-import { parseDateStringToLima, limaDateTimeToJSDate } from "@/lib/birthdays/service";
+import { z } from "zod";
 
-const CreateReservationSchema = reservationCreateSchema;
+import { apiError, apiOk } from "@/lib/apiError";
+import { signClientSecret } from "@/lib/birthdays/clientAuth";
+import { birthdayFailure } from "@/lib/birthdays/http";
+import { verifyBirthdayIdentity } from "@/lib/birthdays/identity-proof";
+import { reservationCreateSchema } from "@/lib/birthdays/reservation-input";
+import {
+  createReservation,
+  limaDateTimeToJSDate,
+  parseDateStringToLima,
+} from "@/lib/birthdays/service";
+import { corsHeadersFor } from "@/lib/cors";
+import { isBirthdaysEnabledPublic } from "@/lib/featureFlags";
+import { checkRateLimit } from "@/lib/rateLimit";
+
+const CreateReservationSchema = reservationCreateSchema.extend({
+  identityProof: z.string().min(1).max(512),
+});
 
 export async function POST(req: NextRequest) {
   const cors = corsHeadersFor(req as unknown as Request);
@@ -19,7 +27,11 @@ export async function POST(req: NextRequest) {
   }
   const ip = req.headers.get("x-forwarded-for") || req.ip || "unknown";
   const rateLimit = checkRateLimit(`birthdays:reservations:create:${ip}`);
-  if (!rateLimit.ok) return apiError("RATE_LIMITED", "Demasiadas solicitudes", undefined, 429, { ...cors, "Retry-After": String(rateLimit.retryAfterSeconds) });
+  if (!rateLimit.ok)
+    return apiError("RATE_LIMITED", "Demasiadas solicitudes", undefined, 429, {
+      ...cors,
+      "Retry-After": String(rateLimit.retryAfterSeconds),
+    });
   try {
     const body = await req.json();
     const parsed = CreateReservationSchema.safeParse(body);
@@ -31,13 +43,27 @@ export async function POST(req: NextRequest) {
       phone,
       documento,
       email,
+      birthDate,
       date,
       timeSlot,
       packId,
       guestsPlanned,
       wantsPhotoSession,
       referrerId,
+      identityProof,
     } = parsed.data;
+    if (
+      !birthDate ||
+      !verifyBirthdayIdentity({ documento, name: celebrantName, birthDate }, identityProof)
+    ) {
+      return apiError(
+        "INVALID_IDENTITY",
+        "No pudimos validar los datos. Vuelve a consultar tu DNI.",
+        undefined,
+        400,
+        cors
+      );
+    }
     const dt = limaDateTimeToJSDate(parseDateStringToLima(date));
     if (!isFinite(dt.getTime())) return apiError("INVALID_DATE", "invalid date", undefined, 400);
 
@@ -46,6 +72,7 @@ export async function POST(req: NextRequest) {
       phone,
       documento,
       email: email || undefined,
+      birthDate,
       date: dt,
       timeSlot,
       packId,

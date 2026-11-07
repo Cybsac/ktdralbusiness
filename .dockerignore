@@ -1,6 +1,8 @@
 # ─── Node / Next.js build output ────────────────────────────────────────────
 node_modules
 .next
+.next-recovery-*
+.next-build-check
 dist
 out
 

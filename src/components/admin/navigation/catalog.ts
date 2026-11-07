@@ -23,6 +23,7 @@ export function getNavigationGroups(
 ): NavigationGroup[] {
   const pathPrefix = basePath === "admin" ? "/admin" : "/u";
   const groups: NavigationGroup[] = [
+    ...(basePath === "admin" && ["ADMIN", "COORDINATOR"].includes(userRole || "") ? [{ id: "control-ingreso", title: "ADMISIÓN DE CLIENTES", icon: "check" as const, items: [{ href: "/admin/admission", label: "Admisión y resumen", icon: "check" as const }] }] : []),
     ...(basePath === "admin" && ["ADMIN", "COORDINATOR"].includes(userRole || "") ? [{
       id: "estacion-operacion",
       title: "ESTACIÓN DE OPERACIÓN",
@@ -288,6 +289,7 @@ export function getNavigationGroups(
         basePath === "admin"
           ? [
               { href: `${pathPrefix}/users`, label: "Colaboradores", icon: "usersSmall" as const },
+                ...(["ADMIN", "COORDINATOR"].includes(userRole || "") ? [{ href: `${pathPrefix}/roster`, label: "Rol de la jornada", icon: "usersSmall" as const }] : []),
               ...(["ADMIN", "COORDINATOR"].includes(userRole || "")
                 ? [
                     {
@@ -385,6 +387,11 @@ export function getNavigationGroups(
                 label: "Métricas",
                 icon: "chart" as const,
               },
+              ...(userRole === "ADMIN" ? [{
+                href: `${pathPrefix}/birthdays/template`,
+                label: "Plantilla de invitación",
+                icon: "settings" as const,
+              }] : []),
               {
                 href: `${pathPrefix}/birthdays/special-bottle`,
                 label: "Botella especial",

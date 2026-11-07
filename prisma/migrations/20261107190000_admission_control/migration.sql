@@ -1,0 +1,8 @@
+CREATE TABLE "AdmissionVisit" ("id" TEXT NOT NULL, "businessDay" TEXT NOT NULL, "documentType" TEXT NOT NULL, "documentHash" TEXT NOT NULL, "source" TEXT NOT NULL, "firstEntryAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "lastEntryAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "lastExitAt" TIMESTAMP(3), "inside" BOOLEAN NOT NULL DEFAULT true, "entryCount" INTEGER NOT NULL DEFAULT 1, "createdBy" TEXT NOT NULL, "updatedBy" TEXT NOT NULL, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "AdmissionVisit_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "AdmissionVisit_businessDay_documentType_documentHash_key" ON "AdmissionVisit"("businessDay", "documentType", "documentHash");
+CREATE INDEX "AdmissionVisit_businessDay_inside_idx" ON "AdmissionVisit"("businessDay", "inside");
+CREATE TABLE "AdmissionCheck" ("id" TEXT NOT NULL, "businessDay" TEXT NOT NULL, "result" TEXT NOT NULL, "source" TEXT NOT NULL, "actorId" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "AdmissionCheck_pkey" PRIMARY KEY ("id"));
+CREATE INDEX "AdmissionCheck_businessDay_result_idx" ON "AdmissionCheck"("businessDay", "result");
+CREATE TABLE "AdmissionMovement" ("id" TEXT NOT NULL, "businessDay" TEXT NOT NULL, "visitId" TEXT NOT NULL, "action" TEXT NOT NULL, "actorId" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "AdmissionMovement_pkey" PRIMARY KEY ("id"));
+CREATE INDEX "AdmissionMovement_businessDay_createdAt_idx" ON "AdmissionMovement"("businessDay", "createdAt");
+CREATE INDEX "AdmissionMovement_visitId_idx" ON "AdmissionMovement"("visitId");

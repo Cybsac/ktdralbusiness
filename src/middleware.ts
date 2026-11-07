@@ -181,6 +181,7 @@ export async function middleware(req: NextRequest) {
     "/marketing/",
     "/reservatucumple",
     "/u/login",
+    "/u/register",
     "/api/user/auth/login",
   ];
 

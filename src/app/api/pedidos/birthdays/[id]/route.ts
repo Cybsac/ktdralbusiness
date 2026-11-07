@@ -16,6 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     phone: r.phone,
     documento: r.documento,
     email: r.email ?? null,
+    birthDate: r.birthDate?.toISOString().slice(0, 10) ?? null,
     date: r.date.toISOString().slice(0,10),
     timeSlot: r.timeSlot,
     pack: r.pack ? { id: r.pack.id, name: r.pack.name, qrCount: r.pack.qrCount, bottle: r.pack.bottle, perks: r.pack.perks } : null,

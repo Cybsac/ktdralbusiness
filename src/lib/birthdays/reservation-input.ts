@@ -10,6 +10,7 @@ export const reservationFields = {
     .refine((value) => value.split(/\s+/).length >= 2, "Ingresa nombre y apellido"),
   phone: z.string().regex(/^\d{9}$/, "El WhatsApp debe tener 9 dígitos"),
   documento: z.string().regex(/^\d{8}$/, "El DNI debe tener 8 dígitos"),
+  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => birthdayDay(value).isValid && birthdayDay(value) <= birthdayDay(new Date()), "Fecha de nacimiento inválida").optional(),
   email: z.union([z.string().email(), z.literal(""), z.null()]).optional(),
   date: z
     .string()

@@ -1,3 +1,4 @@
+import { DOCUMENT_TYPES, isValidDocumentNumber, normalizeDocumentNumber } from "@/lib/users/document";
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
@@ -51,12 +52,15 @@ export async function POST(req: Request) {
     const body = await req.json().catch(()=>({}));
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const dniRaw = typeof body.dni === 'string' ? body.dni.trim() : '';
+    const documentType = body?.documentType ?? null;
+    const documentSexCode = documentType === 'DNI' && (body?.documentSexCode === '1' || body?.documentSexCode === '2') ? body.documentSexCode : null;
+    if (documentType !== null && !DOCUMENT_TYPES.includes(documentType)) return NextResponse.json({ok:false, code:'INVALID_DOCUMENT_TYPE'}, {status:400});
     const area = typeof body.area === 'string' ? body.area.trim() : '';
     const password = typeof body.password === 'string' ? body.password : '';
     const whatsappRaw = typeof body.whatsapp === 'string' ? body.whatsapp.trim() : '';
     const birthdayRaw = typeof body.birthday === 'string' ? body.birthday.trim() : '';
 
-    const normalizeDni = (s:string)=> String(s||'').replace(/\D+/g,'');
+    const normalizeDni = normalizeDocumentNumber;
     const normalizeWhatsapp = (s:string)=> String(s||'').replace(/\D+/g,'');
     function isValidName(n:string){ const t=n.trim(); return t.length>=2 && t.length<=120; }
     function isValidPassword(pw:string){ return typeof pw==='string' && pw.length>=8; }
@@ -67,7 +71,7 @@ export async function POST(req: Request) {
     const birthdayDate = parseBirthdayInput(birthdayRaw);
 
     if (!isValidName(name)) return NextResponse.json({ ok:false, code:'INVALID_NAME' }, { status:400 });
-    if (!dni) return NextResponse.json({ ok:false, code:'INVALID_DNI' }, { status:400 });
+    if (!dni || !isValidDocumentNumber(dni, documentType)) return NextResponse.json({ ok:false, code:'INVALID_DNI' }, { status:400 });
     if (!isValidArea(area)) return NextResponse.json({ ok:false, code:'INVALID_AREA' }, { status:400 });
     if (!isValidPassword(password)) return NextResponse.json({ ok:false, code:'INVALID_PASSWORD' }, { status:400 });
     if (!isValidWhatsapp(whatsapp)) return NextResponse.json({ ok:false, code:'INVALID_WHATSAPP' }, { status:400 });
@@ -88,7 +92,7 @@ export async function POST(req: Request) {
     const salt = bcrypt.genSaltSync(10);
     const passwordHash = bcrypt.hashSync(password, salt);
     const created = await prisma.$transaction(async (tx) => {
-      const person = await tx.person.create({ data: { code, name, dni, area, active: true, whatsapp, birthday: birthdayDate } });
+      const person = await tx.person.create({ data: { code, name, dni, area, active: true, whatsapp, birthday: birthdayDate, documentType, documentSexCode } });
       const user = await tx.user.create({ data: { username, passwordHash, role: 'COLLAB', personId: person.id } });
       return { user, person };
     });

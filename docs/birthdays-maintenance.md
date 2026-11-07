@@ -12,6 +12,8 @@ La creación y reactivación comprueban DNI/año con bloqueo transaccional. La e
 
 La reserva pública consulta los horarios disponibles y verifica nuevamente su capacidad al crearla. Las creaciones públicas del mismo horario se serializan en la transacción; las reservas de administración conservan su flujo operativo. El pack público debe estar activo y no ser personalizado, y los invitados previstos se toman de ese pack. Si falla la generación del QR después de guardar, el formulario permite reintentar con la reserva existente. La cancelación pública exige el enlace firmado de esa reserva y no procede si ya hay llegadas. Los comentarios y datos de reservas se conservan.
 
+Las tarjetas nuevas almacenadas se generan en WebP (calidad 92, 1080 × 1920) y se suben directamente desde memoria con el tipo `image/webp`. Las referencias PNG históricas siguen siendo válidas y las descargas explícitas en PNG se mantienen. Regenerar conserva el código y sustituye la referencia mediante la cola de limpieza existente; no hay migración ni borrado masivo de imágenes.
+
 ## Limpieza automática de tarjetas
 
 `card-scheduler.ts` inicia una tarea por proceso de producción mediante el registro de instrumentación de Next. Corre al iniciar y según la frecuencia configurada. No depende del interruptor del programador global de tokens, no requiere visitas al administrador y no se ejecuta durante compilaciones ni en desarrollo.
@@ -28,7 +30,7 @@ El inventario incremental del bucket `birthday-cards` encuentra archivos histór
 
 ## Paquetes y referidores
 
-Leer paquetes no crea registros. `BirthdayPackCatalog` conserva la base restaurable, inicialmente copiada de los paquetes existentes; no hay precios ni beneficios comerciales fijos en código. `POST /api/admin/birthdays/packs/restore` restaura esa base; `PUT` en la misma ruta guarda explícitamente el catálogo actual como nueva base con autorización administrativa.
+El portal `/u/birthdays` permite a los colaboradores activos consultar los paquetes activos, incluido el personalizado, sin modificar el catálogo. La pantalla administrativa y las API de configuración, restauración y base del catálogo requieren un usuario activo con rol `ADMIN`; los demás roles conservan sus permisos operativos de reservas. Leer paquetes no crea registros. `BirthdayPackCatalog` conserva la base restaurable, inicialmente copiada de los paquetes existentes; no hay precios ni beneficios comerciales fijos en código. `POST /api/admin/birthdays/packs/restore` restaura esa base; `PUT` en la misma ruta guarda explícitamente el catálogo actual como nueva base con autorización administrativa.
 
 Las métricas se agregan en la base de datos. El porcentaje de referidores refleja reservas completadas sobre el total.
 
@@ -47,7 +49,7 @@ En la vista por filas se puede ordenar toda la consulta por fecha de celebració
 - `NEXT_PUBLIC_BIRTHDAY_SLOTS`: horarios públicos separados por comas.
 - `NEXT_PUBLIC_BIRTHDAY_STAFF_SLOTS`: horarios del portal de colaboradores, separados por comas.
 - `BIRTHDAY_MAX_RESERVATIONS_PER_SLOT`: capacidad por horario.
-- `BIRTHDAY_TEMPLATE_URL`: URL opcional de la plantilla universal.
+- La plantilla universal se configura en `/admin/birthdays/template` para administradores activos. Se guarda como `birthday-templates/newversioncard.webp`, sobrescribiendo ese único objeto; se admiten JPG, PNG y WebP 9:16 de al menos 1080 × 1920 y hasta 10 MB, normalizados a WebP 1080 × 1920. La regeneración manual conserva los códigos y se permite solo mientras la reserva esté vigente. Las imágenes guardadas anteriormente no cambian hasta regenerarse. La antigua variable `BIRTHDAY_TEMPLATE_URL` ya no determina la plantilla.
 - `NEXT_PUBLIC_SUPABASE_URL`: origen de almacenamiento para la plantilla predeterminada.
 
 ## Migración y validación

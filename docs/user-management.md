@@ -16,6 +16,8 @@ React Admin envía `sort`, `range` y `filter`. La API los valida y aplica en Pos
 
 El proveedor guarda perfil y contraseña en una sola petición. Username y documento se guardan realmente; WhatsApp y cumpleaños pueden limpiarse. Cuando el código de persona deriva del documento, ambos cambian juntos; los códigos históricos independientes se conservan. Las operaciones masivas del proveedor devuelven IDs, como exige React Admin.
 
+La edición envía únicamente los campos modificados, conserva los valores históricos de área aunque ya no aparezcan en el catálogo y admite perfiles sin DNI o área sin reenviar valores nulos inválidos. En pantallas pequeñas las acciones de editar y retirar acceso permanecen disponibles. La retirada se explica como desactivación con historial conservado.
+
 Todas las entradas se validan antes de escribir. Los cambios relacionados se agrupan en una transacción y las operaciones sensibles comparten un bloqueo para proteger concurrencia y el último administrador activo. Las restricciones únicas se traducen en conflictos comprensibles.
 
 ## Permisos y sesiones

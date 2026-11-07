@@ -1,6 +1,8 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ALLOWED_AREAS } from "@/lib/areas";
+import { attendanceLabel } from "@/lib/attendance/state-label";
+import { AttendanceJustificationModal } from "@/components/attendance/AttendanceJustificationModal";
 
 type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'custom';
 
@@ -8,6 +10,13 @@ type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' |
 
 type TableRow = {
   day: string;
+  personId: string;
+  userId: string | null;
+  scheduled: boolean;
+  roles: string[];
+  contextReason: string | null;
+  justification: { reason: string; by: string; at: string | null } | null;
+  attendanceState: string;
   personCode: string;
   personName: string;
   area: string | null;
@@ -22,7 +31,7 @@ type TableRow = {
   isPast?: boolean;
 };
 
-type TableResp = { ok: boolean; rows: TableRow[]; page: number; pageSize: number; total: number; totalPages: number };
+type TableResp = { canEditContext: boolean; ok: boolean; rows: TableRow[]; page: number; pageSize: number; total: number; totalPages: number };
 
 type MetricsResp = {
   ok: boolean;
@@ -34,6 +43,10 @@ type MetricsResp = {
     avgDurationMin: number;
     totalUniquePeople: number;
     totalBusinessDays: number;
+    scheduledShifts: number;
+    pending: number;
+    missingEntry: number;
+    unscheduled: number;
   };
   topAbsences: { personCode: string; personName: string; daysAttended: number; daysMissed: number }[];
   topIncomplete: { personCode: string; personName: string; incompleteCount: number }[];
@@ -51,10 +64,6 @@ function formatMinutes(min: number | null | undefined) {
   return `${h}h ${m}m`;
 }
 
-function pct(n: number, digits = 0) {
-  return `${n.toFixed(digits)}%`;
-}
-
 export function AdminAttendancePage() {
   const [period, setPeriod] = useState<Period>('today');
   const [startDate, setStartDate] = useState<string>('');
@@ -68,20 +77,15 @@ export function AdminAttendancePage() {
   const [table, setTable] = useState<TableResp | null>(null);
   const [area, setArea] = useState<string>("");
   const [person, setPerson] = useState<string>("");
+  const [justificationTarget, setJustificationTarget] = useState<TableRow | null>(null);
+  const [contextTarget, setContextTarget] = useState<TableRow | null>(null);
+  const [contextReason, setContextReason] = useState("");
+  const [contextBusy, setContextBusy] = useState(false);
+  const [contextError, setContextError] = useState("");
   const [metricsData, setMetricsData] = useState<MetricsResp | null>(null);
+  const [metricsError, setMetricsError] = useState("");
+  useEffect(() => { const selectedPerson = new URLSearchParams(window.location.search).get("person"); if (selectedPerson) setPerson(selectedPerson); }, []);
   // (Lista IN/OUT eliminada)
-
-  const query = useMemo(() => {
-    const p = new URLSearchParams();
-    p.set('period', period);
-    if (period === 'custom') {
-      if (startDate) p.set('startDate', startDate);
-      if (endDate) p.set('endDate', endDate);
-    }
-    if (area) p.set('area', area);
-    if (person) p.set('person', person);
-    return p.toString();
-  }, [period, startDate, endDate, area, person]);
 
   // Fetch metrics
   useEffect(() => {
@@ -91,13 +95,19 @@ export function AdminAttendancePage() {
       if (startDate) p.set('startDate', startDate);
       if (endDate) p.set('endDate', endDate);
     }
+    if (area) p.set('area', area);
+    if (person) p.set('person', person);
+    if (period === 'custom' && (!startDate || !endDate)) { setMetricsData(null); return; }
+    let cancelled = false;
+    setMetricsError(""); setMetricsData(null);
     fetch(`/api/admin/attendance/metrics?${p.toString()}`)
-      .then(r => r.json())
-      .then(j => { if (j?.ok) setMetricsData(j as MetricsResp); })
-      .catch(console.error);
-  }, [period, startDate, endDate, tick]);
+      .then(async r => { const j = await r.json(); if (!r.ok || !j?.ok) throw new Error(j?.message || "No se pudieron cargar las métricas"); return j; })
+      .then(j => { if (!cancelled) setMetricsData(j as MetricsResp); })
+      .catch(e => { if (!cancelled) { setMetricsData(null); setMetricsError(e.message || "No se pudieron cargar las métricas"); } });
+    return () => { cancelled = true; };
+  }, [period, startDate, endDate, area, person, tick]);
 
-  useEffect(() => { setLoading(false); }, [query, tick]);
+
 
   // Load table
   useEffect(() => {
@@ -112,11 +122,13 @@ export function AdminAttendancePage() {
     p.set('pageSize', String(pageSize));
     if (area) p.set('area', area);
     if (person) p.set('person', person);
+    if (period === 'custom' && (!startDate || !endDate)) { setTable(null); setLoading(false); return; }
+    setLoading(true); setError(null);
     fetch(`/api/admin/attendance/table?${p.toString()}`)
-      .then(r => r.json())
-      .then(j => { if (cancelled) return; if (j?.ok) setTable(j as TableResp); })
-      .catch(() => {})
-      .finally(() => {});
+      .then(async r => { const j = await r.json(); if (!r.ok || !j?.ok) throw new Error(j?.message || 'No se pudo cargar la asistencia'); return j; })
+      .then(j => { if (!cancelled) setTable(j as TableResp); })
+      .catch(e => { if (!cancelled) { setTable(null); setError(e.message || 'No se pudo cargar la asistencia'); } })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [period, startDate, endDate, page, pageSize, area, person, tick]);
 
@@ -166,10 +178,6 @@ export function AdminAttendancePage() {
       return `${hh}:${mm}`;
     }
   };
-
-  // ================== Métricas derivadas (cliente) ==================
-  // Reemplazado por métricas de servidor
-  const metrics = null; 
 
   const DurationCard = ({ label, value }: { label: string; value: number | null | undefined }) => (
     <div className="p-4 rounded-lg border bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 flex flex-col gap-1">
@@ -250,25 +258,31 @@ export function AdminAttendancePage() {
       {error && (
         <div className="alert-danger">Error: {error}</div>
       )}
+      {metricsError && <div role="alert" className="alert-danger">{metricsError}</div>}
 
+      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">Una jornada sin programación registrada no demuestra que la persona haya trabajado fuera de turno. Los registros anteriores se conservan.</p>{table?.canEditContext && <a href="/admin/users#/users/create" className="text-sm text-blue-700 underline dark:text-blue-300">Registrar colaborador</a>}</div>
       {/* MÉTRICAS (servidor) */}
       {metricsData && !loading && !error && (
         <div className="space-y-6">
           {/* Summary Cards */}
           <div className="grid gap-3 grid-cols-1 xs:grid-cols-2 sm:grid-cols-4">
-            <SimpleCard label="Total Asistencias" value={metricsData.summary.totalShifts} suffix={` / ${metricsData.summary.totalBusinessDays} días hábiles`} />
-            <SimpleCard label="Tasa Completitud" value={metricsData.summary.completionRate.toFixed(1)} suffix="%" color={metricsData.summary.completionRate < 90 ? 'text-warning' : 'text-success'} />
+            <SimpleCard label="Programaciones" value={metricsData.summary.scheduledShifts} />
+            <SimpleCard label="Programaciones pendientes" value={metricsData.summary.pending} />
+            <SimpleCard label="Faltas por entrada no registrada" value={metricsData.summary.missingEntry} />
+            <SimpleCard label="Ingresos sin programación registrada" value={metricsData.summary.unscheduled} />
+            <SimpleCard label="Entradas registradas" value={metricsData.summary.totalShifts} />
+            <SimpleCard label="Marcas completas (sin jornadas en curso)" value={metricsData.summary.completionRate.toFixed(1)} suffix="%" color={metricsData.summary.completionRate < 90 ? 'text-warning' : 'text-success'} />
             <SimpleCard label="Faltas de Salida" value={metricsData.summary.incompleteShifts} color="text-danger" />
-            <DurationCard label="Promedio Horas" value={metricsData.summary.avgDurationMin} />
+            <DurationCard label="Promedio entre marcas" value={metricsData.summary.avgDurationMin} />
           </div>
 
           {/* Rankings */}
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
             {/* Top Absences */}
             <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-              <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-200">Top Ausencias (Días faltados)</h3>
+              <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-200">Faltas por entrada no registrada</h3>
               <div className="space-y-2">
-                {metricsData.topAbsences.length === 0 ? <div className="text-xs text-soft">Sin datos</div> : 
+                {metricsData.topAbsences.length === 0 ? <div className="text-xs text-soft">Sin jornadas cerradas pendientes de revisión</div> :
                   metricsData.topAbsences.map((p, i) => (
                     <div key={i} className="flex items-center justify-between text-sm border-b border-slate-100 dark:border-slate-700 pb-2 last:border-0">
                       <div>
@@ -277,7 +291,7 @@ export function AdminAttendancePage() {
                       </div>
                       <div className="text-right">
                         <div className="font-bold text-danger">{p.daysMissed} días</div>
-                        <div className="text-xs text-soft">Asistió {p.daysAttended}</div>
+                        <div className="text-xs text-soft">Con entrada {p.daysAttended}</div>
                       </div>
                     </div>
                   ))
@@ -289,7 +303,7 @@ export function AdminAttendancePage() {
             <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
               <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-200">Top Sin Marcar Salida</h3>
               <div className="space-y-2">
-                {metricsData.topIncomplete.length === 0 ? <div className="text-xs text-soft">Nadie olvidó marcar salida</div> : 
+                {metricsData.topIncomplete.length === 0 ? <div className="text-xs text-soft">Sin jornadas cerradas con salida pendiente</div> :
                   metricsData.topIncomplete.map((p, i) => (
                     <div key={i} className="flex items-center justify-between text-sm border-b border-slate-100 dark:border-slate-700 pb-2 last:border-0">
                       <div>
@@ -323,7 +337,7 @@ export function AdminAttendancePage() {
 
             {/* Top Duration */}
             <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-              <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-200">Más Horas Trabajadas</h3>
+              <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-200">Mayor tiempo entre marcas</h3>
               <div className="space-y-2">
                 {metricsData.topDuration.length === 0 ? <div className="text-xs text-soft">Sin datos</div> : 
                   metricsData.topDuration.map((p, i) => (
@@ -365,7 +379,7 @@ export function AdminAttendancePage() {
                   <tr className="text-left border-b border-slate-200 dark:border-slate-700">
                     <th className="py-2 px-3">Día</th>
                     <th className="py-2 px-3">Persona</th>
-                    <th className="py-2 px-3">Área</th>
+                    <th className="py-2 px-3">Área / programación</th>
                     <th className="py-2 px-3">ENTRADA</th>
                     <th className="py-2 px-3">SALIDA</th>
                     <th className="py-2 px-3">Duración</th>
@@ -377,21 +391,18 @@ export function AdminAttendancePage() {
                   {(table?.rows || []).map((r, i) => (
                     <tr key={`${r.day}-${r.personCode}-${i}`} className={`border-b border-slate-100 dark:border-slate-800 ${r.incomplete ? 'bg-danger-soft' : ''}`}>
                       <td className="py-2 px-3 whitespace-nowrap">{r.day}</td>
-                      <td className="py-2 px-3 whitespace-nowrap">{r.personName} <span className="text-xs text-soft">({r.personCode})</span></td>
-                      <td className="py-2 px-3 whitespace-nowrap">{r.area || '-'}</td>
+                      <td className="py-2 px-3 whitespace-nowrap">{r.userId ? <a href={`/admin/users#/users/${encodeURIComponent(r.userId)}`} className="font-medium text-blue-700 underline dark:text-blue-300">{r.personName}</a> : r.personName} <span className="text-xs text-soft">({r.personCode})</span></td>
+                      <td className="py-2 px-3"><div>{r.area || '-'}</div><div className="text-xs text-soft">{r.scheduled ? `Programado: ${r.roles.join(", ")}` : "Sin programación registrada"}{r.contextReason ? ` · ${r.contextReason}` : ""}</div></td>
                       <td className="py-2 px-3 whitespace-nowrap">{fmtHHmmLima(r.firstIn)}</td>
                       <td className="py-2 px-3 whitespace-nowrap">{fmtHHmmLima(r.lastOut)}</td>
                       <td className="py-2 px-3 whitespace-nowrap">{formatMinutes(r.durationMin)}</td>
                       <td className="py-2 px-3 whitespace-nowrap">
-                        {r.incomplete ? (
-                          <span title={r.isPast === false ? "Jornada en curso (sin salida aún)" : "Jornada no completada (sin salida registrada)"} className="badge-warning inline-flex items-center gap-1">
-                            <span className="font-bold">!</span> {r.isPast === false ? "En curso" : "Falta salida"}
-                          </span>
-                        ) : (
-                          <span className="text-soft text-xs">-</span>
-                        )}
+                        <span className={r.attendanceState === 'COMPLETED' ? 'badge-success' : r.attendanceState === 'MISSING_EXIT' || r.attendanceState === 'MISSING_ENTRY' || r.attendanceState === 'NOT_MARKED' || r.attendanceState === 'ABSENT' ? 'badge-warning' : 'text-soft text-xs'}>{attendanceLabel(r.attendanceState)}{r.justification ? " · Justificada" : ""}</span>
                       </td>
                       <td className="py-2 px-3 whitespace-nowrap">
+                        {r.justification && <p className="mt-1 max-w-xs whitespace-normal text-xs text-soft">{r.justification.reason} · {r.justification.by}</p>}
+                        {table?.canEditContext && r.firstIn && ["MISSING_EXIT", "IN_PROGRESS"].includes(r.attendanceState) && <button type="button" onClick={() => setJustificationTarget(r)} className="mr-2 rounded border px-2 py-1 text-xs">{r.justification ? "Ver justificación" : "Justificar salida"}</button>}
+                        {table?.canEditContext && !r.scheduled && (r.firstIn || r.lastOut) && <button type="button" onClick={() => { setContextTarget(r); setContextReason(r.contextReason || ""); setContextError(""); }} className="mr-2 rounded border px-2 py-1 text-xs">{r.contextReason ? "Editar motivo" : "Indicar motivo"}</button>}
                         <button
                           onClick={async () => {
                             const allow = window.confirm(`¿Reiniciar jornada de ${r.personName} (${r.personCode}) del día ${r.day}? Esta acción elimina las marcas IN/OUT de ese businessDay.`);
@@ -439,26 +450,26 @@ export function AdminAttendancePage() {
             <div key={`${r.day}-${r.personCode}-m-${i}`} className={`rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm flex flex-col gap-3 ${r.incomplete ? 'ring-1 ring-warning' : ''}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="text-base font-semibold truncate">{r.personName}</div>
+                  <div className="text-base font-semibold break-words">{r.userId ? <a href={`/admin/users#/users/${encodeURIComponent(r.userId)}`} className="text-blue-700 underline dark:text-blue-300">{r.personName}</a> : r.personName}</div>
                   <div className="text-sm text-soft truncate">{r.personCode} · {r.day}</div>
                 </div>
                 <div>
-                  {r.incomplete ? (
-                    <span className="badge-warning text-xs px-2 py-1">{r.isPast === false ? "En curso" : "Falta salida"}</span>
-                  ) : (
-                    <span className="badge-success text-xs px-2 py-1">OK</span>
-                  )}
+                  <span className={r.attendanceState === 'COMPLETED' ? 'badge-success text-xs px-2 py-1' : 'badge-warning text-xs px-2 py-1'}>{attendanceLabel(r.attendanceState)}{r.justification ? " · Justificada" : ""}</span>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div><span className="text-soft">Área:</span> <span className="font-medium">{r.area || '-'}</span></div>
+                <div className="col-span-2"><span className="text-soft">Programación:</span> {r.scheduled ? r.roles.join(", ") : "Sin programación registrada"}{r.contextReason ? ` · ${r.contextReason}` : ""}</div>
                 <div><span className="text-soft">Duración:</span> <span className="font-medium">{formatMinutes(r.durationMin)}</span></div>
                 <div className="col-span-2 grid grid-cols-2 gap-x-4 gap-y-1">
                   <div><span className="text-soft">ENTRADA:</span> <span className="font-medium">{fmtHHmmLima(r.firstIn)}</span></div>
                   <div><span className="text-soft">SALIDA:</span> <span className="font-medium">{fmtHHmmLima(r.lastOut)}</span></div>
                 </div>
               </div>
+              {r.justification && <p className="text-sm"><span className="font-semibold">Justificación:</span> {r.justification.reason} · {r.justification.by}</p>}
               <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+                {table?.canEditContext && r.firstIn && ["MISSING_EXIT", "IN_PROGRESS"].includes(r.attendanceState) && <button type="button" onClick={() => setJustificationTarget(r)} className="mb-2 w-full rounded-md border px-4 py-2 text-sm">{r.justification ? "Ver justificación" : "Justificar salida"}</button>}
+                {table?.canEditContext && !r.scheduled && (r.firstIn || r.lastOut) && <button type="button" onClick={() => { setContextTarget(r); setContextReason(r.contextReason || ""); setContextError(""); }} className="mb-2 w-full rounded-md border px-4 py-2 text-sm">{r.contextReason ? "Editar motivo" : "Indicar motivo"}</button>}
                 <button
                   onClick={async () => {
                     const allow = window.confirm(`¿Reiniciar jornada de ${r.personName} (${r.personCode}) del día ${r.day}? Esta acción elimina las marcas IN/OUT de ese businessDay.`);
@@ -490,6 +501,8 @@ export function AdminAttendancePage() {
             </div>
           </div>
         </div>
+        {justificationTarget && <AttendanceJustificationModal target={justificationTarget} onClose={() => setJustificationTarget(null)} onSaved={() => setTick(v => v + 1)} />}
+        {contextTarget && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="attendance-context-title"><form className="w-full max-w-md space-y-4 rounded-xl bg-white p-5 shadow-xl dark:bg-slate-800" onSubmit={async e => { e.preventDefault(); setContextBusy(true); setContextError(""); try { const response = await fetch('/api/admin/attendance/context', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ day: contextTarget.day, personId: contextTarget.personId, reason: contextReason }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message || 'No se pudo guardar'); setContextTarget(null); setTick(v => v + 1); } catch (error) { setContextError(error instanceof Error ? error.message : 'No se pudo guardar'); } finally { setContextBusy(false); } }}><h2 id="attendance-context-title" className="text-lg font-semibold">Motivo de ingreso sin programación registrada</h2><p className="text-sm">{contextTarget.personName} · {contextTarget.day}</p><label className="block text-sm">Motivo<input autoFocus list="attendance-context-reasons" value={contextReason} onChange={e => setContextReason(e.target.value)} maxLength={120} required className="mt-1 w-full rounded border p-3 dark:bg-slate-900" placeholder="Pasantía, entrenamiento u otro" /></label><datalist id="attendance-context-reasons"><option value="Pasantía" /><option value="Entrenamiento" /><option value="Apoyo" /></datalist>{contextError && <p role="alert" className="text-sm text-rose-600">{contextError}</p>}<div className="flex justify-end gap-2"><button type="button" disabled={contextBusy} onClick={() => setContextTarget(null)} className="rounded border px-4 py-2">Cancelar</button><button type="submit" disabled={contextBusy || contextReason.trim().length < 2} className="btn px-4 py-2 disabled:opacity-50">{contextBusy ? 'Guardando…' : 'Guardar'}</button></div></form></div>}
       </div>
   );
 }

@@ -132,6 +132,7 @@ export async function POST(req: NextRequest) {
       phone,
       documento,
       email,
+      birthDate,
       date,
       timeSlot,
       packId,
@@ -146,6 +147,7 @@ export async function POST(req: NextRequest) {
       phone,
       documento,
       email: email || undefined,
+      birthDate,
       date: dt,
       timeSlot,
       packId,
@@ -185,6 +187,7 @@ export async function POST(req: NextRequest) {
     console.error("CREATE_RESERVATION_ERROR:", e);
     // Map specific errors to user-friendly codes
     const errorMessage = String((e as any)?.message || e);
+    if (errorMessage.includes("CLOSED_DAY")) return apiError("CLOSED_DAY", "No atendemos en la fecha seleccionada. Elige otro día.", undefined, 400);
     if (errorMessage.includes("DUPLICATE_DNI_YEAR")) {
       return apiError(
         "DUPLICATE_DNI",

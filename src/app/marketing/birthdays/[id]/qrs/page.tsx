@@ -1,7 +1,6 @@
 "use client";
-import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { generateQrPngDataUrl } from "@/lib/qr"; // still used for fallback if card fails (optional)
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type TokenDto = {
   id: string;
@@ -15,7 +14,7 @@ type TokenDto = {
 
 export default function QRsFinalesPage() {
   const params = useParams<{ id: string }>() || {};
-  const id = (params && typeof params === 'object' && 'id' in params) ? params.id : "";
+  const id = params && typeof params === "object" && "id" in params ? params.id : "";
   const qs = useSearchParams();
   const cs = qs ? qs.get("cs") || "" : "";
   const mode = qs ? qs.get("mode") || "" : "";
@@ -23,7 +22,6 @@ export default function QRsFinalesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tokens, setTokens] = useState<TokenDto[]>([]);
-  const [qrData, setQrData] = useState<Record<string, string>>({}); // tokenId -> dataURL (fallback QR only)
   const [cardFailed, setCardFailed] = useState<Record<string, boolean>>({});
 
   const host = useMemo(() => tokens.find((t) => t.kind === "host") || null, [tokens]);
@@ -133,38 +131,9 @@ export default function QRsFinalesPage() {
     })();
   }, [id, cs, mode]);
 
-  // Generate QR PNG data URLs client-side for each token code (fallback only)
-  useEffect(() => {
-    (async () => {
-      const entries: Record<string, string> = {};
-      for (const t of tokens) {
-        // Use dedicated birthday invite path (/b/) separate from roulette tokens
-        const url =
-          typeof window !== "undefined" ? `${location.origin}/b/${t.code}` : `/b/${t.code}`;
-        try {
-          entries[t.id] = await generateQrPngDataUrl(url);
-        } catch {
-          // ignore individual failures; keep others
-        }
-      }
-      setQrData(entries);
-    })();
-  }, [tokens]);
-
   function copyLink(code: string) {
     const url = typeof window !== "undefined" ? `${location.origin}/b/${code}` : `/b/${code}`;
     navigator.clipboard.writeText(url).catch(() => {});
-  }
-
-  function downloadPng(tokenId: string, filename: string) {
-    const dataUrl = qrData[tokenId];
-    if (!dataUrl) return;
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
   }
 
   if (loading) {
@@ -221,9 +190,7 @@ export default function QRsFinalesPage() {
         </a>
       </div>
       <h1 className="text-2xl font-extrabold">Tu tarjeta QR</h1>
-      <p className="opacity-80 mt-1">
-        Descarga y comparte tu código de acceso.
-      </p>
+      <p className="opacity-80 mt-1">Descarga y comparte tu código de acceso.</p>
 
       {/* Slider móvil */}
       <div className="mt-6 md:hidden">
@@ -278,27 +245,20 @@ export default function QRsFinalesPage() {
                       alt="Tarjeta cumpleañero"
                       className="w-full max-w-[280px] rounded-lg shadow-lg"
                       onError={() => setCardFailed((p) => ({ ...p, [host.id]: true }))}
+                      style={{ display: cardFailed[host.id] ? "none" : undefined }}
                     />
-                    {cardFailed[host.id] &&
-                      (qrData[host.id] ? (
-                        <img
-                          src={qrData[host.id]}
-                          alt="QR cumpleañero"
-                          data-testid="qr-host-img"
-                          className="w-56 h-56 bg-white p-3 rounded-xl absolute"
-                          style={{ boxShadow: "0 0 0 4px #D4AF37" }}
-                        />
-                      ) : (
-                        <div
-                          className="w-56 h-56 rounded-xl animate-pulse absolute"
-                          style={{ background: "rgba(255,255,255,0.08)" }}
-                        />
-                      ))}
+                    {cardFailed[host.id] && (
+                      <p role="alert" className="text-sm text-amber-200">
+                        No se pudo mostrar la tarjeta. La reserva puede haber vencido o no estar
+                        habilitada; si est� vigente, intenta de nuevo.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2 justify-center">
                   <a
                     href={`/api/birthdays/invite/${host.code}/card?fmt=png`}
+                    hidden={cardFailed[host.id]}
                     download
                     className="rounded px-3 py-2 text-sm font-semibold"
                     style={{ background: "#D4AF37", color: "#111" }}
@@ -338,23 +298,20 @@ export default function QRsFinalesPage() {
                       alt="Tarjeta invitados"
                       className="w-full max-w-[280px] rounded-lg shadow-lg"
                       onError={() => setCardFailed((p) => ({ ...p, [guest.id]: true }))}
+                      style={{ display: cardFailed[guest.id] ? "none" : undefined }}
                     />
-                    {cardFailed[guest.id] &&
-                      (qrData[guest.id] ? (
-                        <img
-                          src={qrData[guest.id]}
-                          alt="QR invitados"
-                          data-testid="qr-guest-img"
-                          className="w-56 h-56 bg-white p-2 rounded-xl absolute"
-                        />
-                      ) : (
-                        <div className="w-56 h-56 bg-white/10 rounded-xl animate-pulse absolute" />
-                      ))}
+                    {cardFailed[guest.id] && (
+                      <p role="alert" className="text-sm text-amber-200">
+                        No se pudo mostrar la tarjeta. La reserva puede haber vencido o no estar
+                        habilitada; si est� vigente, intenta de nuevo.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2 justify-center">
                   <a
                     href={`/api/birthdays/invite/${guest.code}/card?fmt=png`}
+                    hidden={cardFailed[guest.id]}
                     download
                     className="rounded px-3 py-2 text-sm font-semibold"
                     style={{ background: "#3D2EFF" }}
@@ -373,7 +330,7 @@ export default function QRsFinalesPage() {
           )}
         </div>
         {/* Solo mostrar indicadores si hay más de una tarjeta */}
-        {(host && guest) && (
+        {host && guest && (
           <div className="mt-4 flex items-center justify-center gap-2">
             {[host, guest].filter(Boolean).map((_, i) => (
               <button
@@ -388,14 +345,12 @@ export default function QRsFinalesPage() {
       </div>
 
       {/* Grid para pantallas medianas y grandes */}
-      <div className={`md:mt-6 ${host && guest ? 'hidden md:grid grid-cols-1 md:grid-cols-2 gap-6' : 'hidden md:flex md:justify-center'}`}>
-
+      <div
+        className={`md:mt-6 ${host && guest ? "hidden md:grid grid-cols-1 md:grid-cols-2 gap-6" : "hidden md:flex md:justify-center"}`}
+      >
         {/* Cumpleañero (host) */}
         {host && (
-          <div
-            className="relative overflow-hidden rounded-2xl p-5"
-            data-testid="qr-host"
-          >
+          <div className="relative overflow-hidden rounded-2xl p-5" data-testid="qr-host">
             <div
               className="pointer-events-none absolute inset-0 rounded-2xl"
               style={{
@@ -428,27 +383,20 @@ export default function QRsFinalesPage() {
                   alt="Tarjeta cumpleañero"
                   className="w-full max-w-[280px] rounded-lg shadow-lg"
                   onError={() => setCardFailed((p) => ({ ...p, [host.id]: true }))}
+                  style={{ display: cardFailed[host.id] ? "none" : undefined }}
                 />
-                {cardFailed[host.id] &&
-                  (qrData[host.id] ? (
-                    <img
-                      src={qrData[host.id]}
-                      alt="QR cumpleañero"
-                      data-testid="qr-host-img"
-                      className="w-56 h-56 bg-white p-3 rounded-xl absolute"
-                      style={{ boxShadow: "0 0 0 4px #D4AF37" }}
-                    />
-                  ) : (
-                    <div
-                      className="w-56 h-56 rounded-xl animate-pulse absolute"
-                      style={{ background: "rgba(255,255,255,0.08)" }}
-                    />
-                  ))}
+                {cardFailed[host.id] && (
+                  <p role="alert" className="text-sm text-amber-200">
+                    No se pudo mostrar la tarjeta. La reserva puede haber vencido o no estar
+                    habilitada; si est� vigente, intenta de nuevo.
+                  </p>
+                )}
               </div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2 justify-center">
               <a
                 href={`/api/birthdays/invite/${host.code}/card?fmt=png`}
+                hidden={cardFailed[host.id]}
                 download
                 className="rounded px-3 py-2 text-sm font-semibold"
                 style={{ background: "#D4AF37", color: "#111" }}
@@ -468,10 +416,7 @@ export default function QRsFinalesPage() {
 
         {/* Invitados (guest) */}
         {guest && (
-          <div
-            className={`${host && guest ? '' : 'max-w-md w-full'}`}
-            data-testid="qr-guest"
-          >
+          <div className={`${host && guest ? "" : "max-w-md w-full"}`} data-testid="qr-guest">
             <div className="text-sm font-semibold opacity-90" style={{ color: "#E2E6EC" }}>
               Invitados
             </div>
@@ -483,23 +428,20 @@ export default function QRsFinalesPage() {
                   alt="Tarjeta invitados"
                   className="w-full max-w-[280px] rounded-lg shadow-lg"
                   onError={() => setCardFailed((p) => ({ ...p, [guest.id]: true }))}
+                  style={{ display: cardFailed[guest.id] ? "none" : undefined }}
                 />
-                {cardFailed[guest.id] &&
-                  (qrData[guest.id] ? (
-                    <img
-                      src={qrData[guest.id]}
-                      alt="QR invitados"
-                      data-testid="qr-guest-img"
-                      className="w-56 h-56 bg-white p-2 rounded-xl absolute"
-                    />
-                  ) : (
-                    <div className="w-56 h-56 bg-white/10 rounded-xl animate-pulse absolute" />
-                  ))}
+                {cardFailed[guest.id] && (
+                  <p role="alert" className="text-sm text-amber-200">
+                    No se pudo mostrar la tarjeta. La reserva puede haber vencido o no estar
+                    habilitada; si est� vigente, intenta de nuevo.
+                  </p>
+                )}
               </div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2 justify-center">
               <a
                 href={`/api/birthdays/invite/${guest.code}/card?fmt=png`}
+                hidden={cardFailed[guest.id]}
                 download
                 className="rounded px-3 py-2 text-sm font-semibold"
                 style={{ background: "#3D2EFF" }}
@@ -517,7 +459,7 @@ export default function QRsFinalesPage() {
         )}
       </div>
 
-      {(!host && !guest) && (
+      {!host && !guest && (
         <p className="mt-4 text-sm opacity-70">
           Nota: No se encontraron tokens para esta reserva. Si el problema persiste, vuelve a
           intentarlo desde el formulario.

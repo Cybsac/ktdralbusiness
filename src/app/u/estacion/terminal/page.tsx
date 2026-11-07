@@ -165,7 +165,7 @@ export default function RemoteScannerPage() {
         <Link href="/u/scanner" className="text-teal-600">
           ← Volver al escáner
         </Link>
-        <h1 className="text-2xl font-bold">Escáner vinculado</h1>
+        <h1 className="text-2xl font-bold">Escáner remoto</h1>
         <p>
           {terminalId
             ? reachable

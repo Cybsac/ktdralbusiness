@@ -26,6 +26,7 @@ type Reservation = {
   phone: string;
   documento: string;
   email: string | null;
+  birthDate: string | null;
   date: string; // YYYY-MM-DD
   timeSlot: string;
   pack: { id: string; name: string; qrCount: number; bottle: string | null; perks?: any };
@@ -108,6 +109,7 @@ export default function AdminBirthdayDetailPage({ params }: Props) {
       phone: r.phone,
       documento: r.documento,
       email: r.email ?? null,
+      birthDate: r.birthDate?.slice?.(0, 10) ?? null,
       date: r.date?.slice?.(0,10) || r.date,
       timeSlot: r.timeSlot,
       pack: r.pack,
@@ -196,7 +198,7 @@ export default function AdminBirthdayDetailPage({ params }: Props) {
           <div className="text-sm text-slate-300">Set fotográfico: {resv.wantsPhotoSession ? 'Sí' : 'No'}</div>
           <div className="text-sm text-slate-300">Documento: {resv.documento}</div>
           <div className="text-sm text-slate-300">WhatsApp: {resv.phone}</div>
-          <div className="text-sm text-slate-300">Email: {resv.email || '-'}</div>
+          <div className="text-sm text-slate-300">Fecha de nacimiento: {resv.birthDate || '-'}</div>
           <div className="text-sm text-slate-300">Origen: {birthdayReservationSourceLabel(resv.reservationSource)}{resv.createdByUser ? ` · ${resv.createdByUser.person?.name || resv.createdByUser.username}` : ''}</div>
           <div className="text-sm text-slate-300">Estado: {resv.status}</div>
           <div className="text-sm text-slate-300">

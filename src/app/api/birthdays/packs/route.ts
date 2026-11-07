@@ -1,57 +1,55 @@
-import { birthdayManager } from '@/lib/birthdays/managementAuth';
-import { NextRequest } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { apiError, apiOk } from '@/lib/apiError';
-import { checkRateLimit } from '@/lib/rateLimit';
-import { isBirthdaysEnabledPublic } from '@/lib/featureFlags';
-import { corsHeadersFor } from '@/lib/cors';
+import { NextRequest } from "next/server";
+
+import { apiError, apiOk } from "@/lib/apiError";
+import { birthdayManager } from "@/lib/birthdays/managementAuth";
+import { birthdayPackDto } from "@/lib/birthdays/pack-catalog";
+import { corsHeadersFor } from "@/lib/cors";
+import { isBirthdaysEnabledPublic } from "@/lib/featureFlags";
+import { prisma } from "@/lib/prisma";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 export async function GET(req: NextRequest) {
   const cors = corsHeadersFor(req as unknown as Request);
   // If public flag is off, still allow ADMIN/STAFF to fetch packs from admin UI.
-  const isAdmin = !!await birthdayManager(req);
+  const isAdmin = !!(await birthdayManager(req));
   if (!isBirthdaysEnabledPublic() && !isAdmin) {
-    return apiError('NOT_FOUND', 'Not found', undefined, 404, cors);
+    return apiError("NOT_FOUND", "Not found", undefined, 404, cors);
   }
   // Rate limit only for public requests; skip for admin/staff
   if (!isAdmin) {
-    const ip = req.headers.get('x-forwarded-for') || (req as any).ip || 'unknown';
+    const ip = req.headers.get("x-forwarded-for") || (req as any).ip || "unknown";
     const rl = checkRateLimit(`birthdays:packs:${ip}`);
     if (!rl.ok) {
-      return apiError('RATE_LIMITED', 'Too many requests', undefined, 429, { ...cors, 'Retry-After': String(rl.retryAfterSeconds) });
+      return apiError("RATE_LIMITED", "Too many requests", undefined, 429, {
+        ...cors,
+        "Retry-After": String(rl.retryAfterSeconds),
+      });
     }
   }
   try {
-    const packs = await prisma.birthdayPack.findMany({ where: { active: true }, orderBy: { name: 'asc' } });
+    const packs = await prisma.birthdayPack.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+    });
     const data = packs.map((p: any) => ({
       id: p.id,
       name: p.name,
       qrCount: p.qrCount,
       bottle: p.bottle,
       featured: p.featured,
-      perks: safeParseJsonArray(p.perks),
+      perks: birthdayPackDto(p).perks,
       priceSoles: (p as any).priceSoles ?? 0,
       isCustom: (p as any).isCustom === true,
     }));
-    const publicView = req.nextUrl.searchParams.get('scope') === 'public';
+    const publicView = req.nextUrl.searchParams.get("scope") === "public";
     const filtered = isAdmin && !publicView ? data : data.filter((p: any) => !p.isCustom);
     return apiOk({ packs: filtered }, 200, cors);
   } catch (e) {
-    return apiError('PACKS_FETCH_ERROR', 'Failed to load packs', undefined, 500, cors);
+    return apiError("PACKS_FETCH_ERROR", "Failed to load packs", undefined, 500, cors);
   }
 }
 
 export async function OPTIONS(req: NextRequest) {
   const cors = corsHeadersFor(req as unknown as Request);
   return new Response(null, { status: 204, headers: cors });
-}
-
-function safeParseJsonArray(s: string | null | undefined): string[] {
-  if (!s) return [];
-  try {
-    const v = JSON.parse(s);
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
-  }
 }
