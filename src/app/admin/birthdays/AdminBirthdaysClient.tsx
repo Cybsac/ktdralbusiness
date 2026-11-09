@@ -281,6 +281,7 @@ export function AdminBirthdaysPage() {
   const [cPhone, setCPhone] = useState("");
   const [cDoc, setCDoc] = useState("");
   const [lookupDocument, setLookupDocument] = useState("");
+  const [identityProof, setIdentityProof] = useState("");
   const [cBirthDate, setCBirthDate] = useState("");
   const [cDate, setCDate] = useState("");
   const [cSlot, setCSlot] = useState(BIRTHDAY_POLICY.staffSlots[0] ?? "");
@@ -538,6 +539,19 @@ export function AdminBirthdaysPage() {
                 Crear Nueva Reserva
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
+                    Documento (DNI) *
+                  </label>
+                  <input
+                    className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
+                    placeholder="Número de documento"
+                    value={cDoc}
+                    onChange={(e) => { setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); setIdentityProof(""); } }}
+                  />
+                  <BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setIdentityProof(person.birthdayIdentityProof || ""); setCName(person.name); setCBirthDate(person.birthday || ""); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); }} />
+                </div>
+{lookupDocument && identityProof && cBirthDate && (
                 <div className="sm:col-span-2 lg:col-span-1">
                   <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
                     Nombre del Cumpleañero *
@@ -546,9 +560,10 @@ export function AdminBirthdaysPage() {
                     className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
                     placeholder="Nombre completo"
                     value={cName}
-                    onChange={(e) => setCName(e.target.value)}
+                    readOnly
                   />
                 </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
                     WhatsApp *
@@ -560,19 +575,7 @@ export function AdminBirthdaysPage() {
                     onChange={(e) => setCPhone(e.target.value)}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
-                    Documento (DNI) *
-                  </label>
-                  <input
-                    className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
-                    placeholder="Número de documento"
-                    value={cDoc}
-                    onChange={(e) => { setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); } }}
-                  />
-                  <BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setCName(person.name); setCBirthDate(person.birthday || ""); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); }} />
-                </div>
-                <div>
+                {lookupDocument && identityProof && cBirthDate && <div>
                   <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
                     Fecha de nacimiento *
                   </label>
@@ -580,9 +583,9 @@ export function AdminBirthdaysPage() {
                     type="date"
                     className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
                     value={cBirthDate}
-                    onChange={(e) => { setCBirthDate(e.target.value); setCDate(suggestedCelebration(e.target.value)); }}
+                    readOnly
                   />
-                </div>
+                </div>}
                 <div>
                   <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
                     Fecha de Celebración *
@@ -662,7 +665,7 @@ export function AdminBirthdaysPage() {
                     setErr(null);
                     try {
                       // Validaciones básicas
-                      if (!cName.trim()) throw new Error("Nombre requerido");
+                      if (!cName.trim() || lookupDocument !== cDoc || !identityProof) throw new Error("Consulta el DNI para completar los datos del cumpleañero");
                       if (!cPhone.trim()) throw new Error("WhatsApp requerido");
                       if (!cDoc.trim()) throw new Error("Documento requerido");
                       if (!cPackId) throw new Error("Pack requerido");
@@ -679,6 +682,7 @@ export function AdminBirthdaysPage() {
                         celebrantName: cName.trim(),
                         phone: cPhone.trim(),
                         documento: cDoc.trim(),
+                        identityProof,
                         birthDate: cBirthDate,
                         date: finalDate,
                         timeSlot: cSlot,
@@ -693,6 +697,11 @@ export function AdminBirthdaysPage() {
                       });
                       const j = await res.json();
                       if (!res.ok || !j?.ok) {
+                        if (j?.code === "INVALID_IDENTITY") {
+                          setLookupDocument("");
+                          setIdentityProof("");
+                          throw new Error(j?.message || "Vuelve a consultar el DNI.");
+                        }
                         // Mostrar detalles de validación si existen
                         if (j?.errors) {
                           const firstErr = Object.values(j.errors).flat()?.[0];
@@ -703,6 +712,8 @@ export function AdminBirthdaysPage() {
                       setCName("");
                       setCPhone("");
                       setCDoc("");
+                      setLookupDocument("");
+                      setIdentityProof("");
                       setCBirthDate("");
                       setCDate("");
                       setCSlot(BIRTHDAY_POLICY.staffSlots[0] ?? "");

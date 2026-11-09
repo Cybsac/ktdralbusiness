@@ -190,24 +190,12 @@ export default function UHomeContent({
               >
                 <IconBolt className="h-5 w-5" />
               </button>
-              {/* Gestión */}
-              <button
-                title="Gestión"
-                aria-label="Gestión"
-                aria-pressed={activeTab === "management"}
-                onClick={() => setActiveTab("management")}
-                className={`py-3 px-2 sm:px-4 border-b-2 ${
-                  activeTab === "management"
-                    ? "border-blue-500 text-blue-600 dark:text-blue-400"
-                    : "border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-300 dark:text-gray-500 dark:hover:text-gray-300"
-                }`}
-              >
-                <IconBriefcase className="h-5 w-5" aria-hidden="true" />
-              </button>
-
               {/* Mi Perfil */}
               <button
+                type="button"
                 title="Mi Perfil"
+                aria-label="Mi perfil"
+                aria-pressed={activeTab === "personal"}
                 onClick={() => setActiveTab("personal")}
                 className={`py-3 px-2 sm:px-4 border-b-2 ${
                   activeTab === "personal"
@@ -223,6 +211,21 @@ export default function UHomeContent({
                     d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
                   />
                 </svg>
+              </button>
+
+              {/* Gestión */}
+              <button
+                title="Gestión"
+                aria-label="Gestión"
+                aria-pressed={activeTab === "management"}
+                onClick={() => setActiveTab("management")}
+                className={`py-3 px-2 sm:px-4 border-b-2 ${
+                  activeTab === "management"
+                    ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                    : "border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-300 dark:text-gray-500 dark:hover:text-gray-300"
+                }`}
+              >
+                <IconBriefcase className="h-5 w-5" aria-hidden="true" />
               </button>
 
               {/* Herramientas */}
@@ -371,37 +374,22 @@ export default function UHomeContent({
                 </Link>
 
                 {isCoordinator && (
-                  <Link href="/u/journey-updates" className="block rounded-xl border-2 border-teal-300 bg-gradient-to-br from-teal-50 to-cyan-50 p-4 shadow-md transition-all hover:shadow-lg sm:p-5 dark:border-teal-700 dark:from-teal-900/20 dark:to-cyan-900/20">
-                    <div className="mb-1 flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-100 dark:bg-teal-800/40 sm:h-10 sm:w-10">
-                        <IconAlertTriangle aria-hidden="true" className="h-5 w-5 text-teal-600 dark:text-teal-400 sm:h-6 sm:w-6" />
-                      </div>
-                      <div className="text-lg font-semibold text-teal-900 dark:text-teal-100 sm:text-xl">Incidencias</div>
-                    </div>
-                    <p className="ml-12 text-sm text-teal-700 dark:text-teal-300 sm:ml-[52px]">Consulta los comentarios registrados al cerrar cada jornada.</p>
-                    <div className="ml-12 mt-3 text-sm font-medium text-teal-700 dark:text-teal-300 sm:ml-[52px] sm:mt-4">Ver incidencias →</div>
-                  </Link>
-                )}
-
-                {isCoordinator && (
                   <Link
-                    href="/u/evolucion"
-                    className="block rounded-xl border-2 border-cyan-300 bg-gradient-to-br from-cyan-50 to-sky-50 p-4 sm:p-5 shadow-md hover:shadow-lg transition-all ring-1 ring-cyan-200/60 dark:border-cyan-700 dark:from-cyan-900/20 dark:to-sky-900/20 dark:ring-cyan-700/30"
+                    href="/u/equipo"
+                    className="block rounded-lg border-2 border-indigo-300 bg-gradient-to-br from-indigo-50 to-slate-50 p-3 sm:p-5 shadow-sm hover:shadow-md transition dark:border-indigo-700/60 dark:from-indigo-900/20 dark:to-slate-800"
                   >
-                    <div className="flex items-center gap-3 mb-1">
-                      <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-cyan-100 dark:bg-cyan-800/40">
-                        <IconRefresh className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-600 dark:text-cyan-400" />
-                      </div>
-                      <div className="text-lg sm:text-xl font-semibold text-cyan-900 dark:text-cyan-100">
-                        Evolución
+                    <div className="flex items-center gap-3 mb-2">
+                      <IconUser className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
+                      <div className="text-base sm:text-lg font-semibold text-indigo-900 dark:text-indigo-100">
+                        Gestión de Equipo
                       </div>
                     </div>
-                    <p className="text-sm text-cyan-700 dark:text-cyan-300 ml-12 sm:ml-[52px]">
-                      Sigue la evolución operativa por semanas y compara tendencias reales del
-                      equipo.
+                    <p className="text-sm text-indigo-700 dark:text-indigo-300 ml-8 sm:ml-9">
+                      Edita datos, cumpleaños y áreas de colaboradores, o elimina usuarios que ya no
+                      trabajen con nosotros.
                     </p>
-                    <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-cyan-700 dark:text-cyan-300 font-medium text-sm ml-12 sm:ml-[52px]">
-                      Ver evolución →
+                    <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-medium text-sm ml-8 sm:ml-9">
+                      Gestionar equipo →
                     </div>
                   </Link>
                 )}
@@ -424,6 +412,62 @@ export default function UHomeContent({
                     </p>
                     <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-medium text-sm ml-12 sm:ml-[52px]">
                       Ver rendimiento →
+                    </div>
+                  </Link>
+                )}
+
+                {isCoordinator && (
+                  <Link href="/u/journey-updates" className="block rounded-xl border-2 border-red-300 bg-gradient-to-br from-red-50 to-cyan-50 p-4 shadow-md transition-all hover:shadow-lg sm:p-5 dark:border-red-700 dark:from-red-900/20 dark:to-cyan-900/20">
+                    <div className="mb-1 flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-100 dark:bg-red-800/40 sm:h-10 sm:w-10">
+                        <IconAlertTriangle aria-hidden="true" className="h-5 w-5 text-red-600 dark:text-red-400 sm:h-6 sm:w-6" />
+                      </div>
+                      <div className="text-lg font-semibold text-red-900 dark:text-red-100 sm:text-xl">Incidencias &amp; Comentarios</div>
+                    </div>
+                    <p className="ml-12 text-sm text-red-700 dark:text-red-300 sm:ml-[52px]">Consulta los comentarios registrados al cerrar cada jornada.</p>
+                    <div className="ml-12 mt-3 text-sm font-medium text-red-700 dark:text-red-300 sm:ml-[52px] sm:mt-4">Ver incidencias y comentarios →</div>
+                  </Link>
+                )}
+
+                {isStaff && (
+                  <Link
+                    href="/u/producciones"
+                    className="block rounded-lg border border-pink-200 bg-white p-3 sm:p-5 shadow-sm hover:shadow-md transition dark:border-pink-800/60 dark:bg-slate-800"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <IconVideo className="w-5 h-5 sm:w-6 sm:h-6 text-pink-600 dark:text-pink-400 flex-shrink-0" />
+                      <div className="text-base sm:text-lg font-medium text-gray-900 dark:text-slate-100">
+                        Producción Multimedia
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-slate-300 ml-8 sm:ml-9">
+                      Solicitudes, seguimiento de tareas e ideas del equipo multimedia.
+                    </p>
+                    <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-pink-600 dark:text-pink-400 text-sm ml-8 sm:ml-9">
+                      Ver producciones →
+                    </div>
+                  </Link>
+                )}
+
+                {isCoordinator && (
+                  <Link
+                    href="/u/evolucion"
+                    className="block rounded-xl border-2 border-cyan-300 bg-gradient-to-br from-cyan-50 to-sky-50 p-4 sm:p-5 shadow-md hover:shadow-lg transition-all ring-1 ring-cyan-200/60 dark:border-cyan-700 dark:from-cyan-900/20 dark:to-sky-900/20 dark:ring-cyan-700/30"
+                  >
+                    <div className="flex items-center gap-3 mb-1">
+                      <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-cyan-100 dark:bg-cyan-800/40">
+                        <IconRefresh className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-600 dark:text-cyan-400" />
+                      </div>
+                      <div className="text-lg sm:text-xl font-semibold text-cyan-900 dark:text-cyan-100">
+                        Evolución
+                      </div>
+                    </div>
+                    <p className="text-sm text-cyan-700 dark:text-cyan-300 ml-12 sm:ml-[52px]">
+                      Sigue la evolución operativa por semanas y compara tendencias reales del
+                      equipo.
+                    </p>
+                    <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-cyan-700 dark:text-cyan-300 font-medium text-sm ml-12 sm:ml-[52px]">
+                      Ver evolución →
                     </div>
                   </Link>
                 )}
@@ -556,45 +600,8 @@ export default function UHomeContent({
                     </div>
                   </Link>
                 )}
-                {isMultimedia && isStaff && (
-                  <Link
-                    href="/u/producciones"
-                    className="block rounded-lg border border-pink-200 bg-white p-3 sm:p-5 shadow-sm hover:shadow-md transition dark:border-pink-800/60 dark:bg-slate-800"
-                  >
-                    <div className="flex items-center gap-3 mb-2">
-                      <IconVideo className="w-5 h-5 sm:w-6 sm:h-6 text-pink-600 dark:text-pink-400 flex-shrink-0" />
-                      <div className="text-base sm:text-lg font-medium text-gray-900 dark:text-slate-100">
-                        Producción Multimedia
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-600 dark:text-slate-300 ml-8 sm:ml-9">
-                      Solicitudes, seguimiento de tareas e ideas del equipo multimedia.
-                    </p>
-                    <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-pink-600 dark:text-pink-400 text-sm ml-8 sm:ml-9">
-                      Ver producciones →
-                    </div>
-                  </Link>
-                )}
-                {isCoordinator && (
-                  <Link
-                    href="/u/equipo"
-                    className="block rounded-lg border-2 border-indigo-300 bg-gradient-to-br from-indigo-50 to-slate-50 p-3 sm:p-5 shadow-sm hover:shadow-md transition dark:border-indigo-700/60 dark:from-indigo-900/20 dark:to-slate-800"
-                  >
-                    <div className="flex items-center gap-3 mb-2">
-                      <IconUser className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
-                      <div className="text-base sm:text-lg font-semibold text-indigo-900 dark:text-indigo-100">
-                        Gestión de Equipo
-                      </div>
-                    </div>
-                    <p className="text-sm text-indigo-700 dark:text-indigo-300 ml-8 sm:ml-9">
-                      Edita datos, cumpleaños y áreas de colaboradores, o elimina usuarios que ya no
-                      trabajen con nosotros.
-                    </p>
-                    <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-medium text-sm ml-8 sm:ml-9">
-                      Gestionar equipo →
-                    </div>
-                  </Link>
-                )}
+
+
                 {isStaff && (
                   <Link
                     href="/u/birthdays"
@@ -709,25 +716,7 @@ export default function UHomeContent({
                     </div>
                   </Link>
                 )}
-                {isStaff && !isMultimedia && (
-                  <Link
-                    href="/u/producciones"
-                    className="block rounded-lg border border-pink-200 bg-white p-3 sm:p-5 shadow-sm hover:shadow-md transition dark:border-pink-800/60 dark:bg-slate-800"
-                  >
-                    <div className="flex items-center gap-3 mb-2">
-                      <IconVideo className="w-5 h-5 sm:w-6 sm:h-6 text-pink-600 dark:text-pink-400 flex-shrink-0" />
-                      <div className="text-base sm:text-lg font-medium text-gray-900 dark:text-slate-100">
-                        Producción Multimedia
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-600 dark:text-slate-300 ml-8 sm:ml-9">
-                      Solicitudes, seguimiento de tareas e ideas del equipo multimedia.
-                    </p>
-                    <div className="mt-3 sm:mt-4 inline-flex items-center gap-2 text-pink-600 dark:text-pink-400 text-sm ml-8 sm:ml-9">
-                      Ver producciones →
-                    </div>
-                  </Link>
-                )}
+
               </div>
             )}
 

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import { BirthdayIdentityLookup } from "@/components/BirthdayIdentityLookup";
+import { birthdayCardName } from "@/lib/birthdays/card-name";
 import { suggestedCelebration } from "@/lib/birthdays/celebration";
 import { birthdayDay, birthdayToday } from '@/lib/birthdays/calendar';
 import { BIRTHDAY_POLICY } from '@/lib/birthdays/policy';
@@ -177,7 +178,7 @@ const ReservationCard = memo(function ReservationCard({ r, busyApprove, busyGene
 						</div>
 						<div className="flex items-center gap-2 col-span-1 sm:col-span-2">
 							<span className="text-slate-400">🚪</span>
-							<span className="flex items-center gap-3">
+							<span className="flex flex-wrap items-center gap-x-3 gap-y-1">
 								<span className={r.hostArrivedAt ? 'text-emerald-600 dark:text-emerald-400' : 'text-yellow-600 dark:text-yellow-400'}>
 									{r.hostArrivedAt ? '✅ Host llegó' : '⏳ Esperando host'}
 								</span>
@@ -193,8 +194,7 @@ const ReservationCard = memo(function ReservationCard({ r, busyApprove, busyGene
 					</div>
 
 					{/* Botones de acción */}
-					<div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-						                        <a className="btn-outline h-8 px-3 text-xs inline-flex items-center justify-center" href={`/u/birthdays/${encodeURIComponent(r.id)}`}>Editar reserva</a>
+					<div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100 dark:border-slate-700 [&_button]:min-h-11 [&_a]:min-h-11">
                         {r.status==='pending_review' && (
 							<button className="btn h-8 px-3 text-xs min-w-[80px] touch-manipulation" disabled={busyApprove} onClick={()=>onApprove(r.id)}>
 								{busyApprove? '⏳ Aprobando…':'✅ Aprobar'}
@@ -424,6 +424,7 @@ export default function StaffBirthdaysPage() {
 	const [cPhone, setCPhone] = useState('');
 	const [cDoc, setCDoc] = useState('');
   const [lookupDocument, setLookupDocument] = useState("");
+  const [identityProof, setIdentityProof] = useState("");
 	const [cBirthDate, setCBirthDate] = useState('');
 	const [cDate, setCDate] = useState('');
 	const [cSlot, setCSlot] = useState(BIRTHDAY_POLICY.staffSlots[0] ?? '');
@@ -441,7 +442,7 @@ export default function StaffBirthdaysPage() {
 		setGeneralError('');
 
 		// Required fields
-		if (!cName.trim()) errors.name = 'El nombre es obligatorio';
+		if (!cName.trim() || lookupDocument !== cDoc || !identityProof) errors.documento = 'Consulta el DNI para completar los datos del cumpleañero';
 		if (!cPhone.trim()) errors.phone = 'El número de WhatsApp es obligatorio';
 		if (!cDoc.trim()) errors.documento = 'El DNI es obligatorio';
 		if (!cBirthDate || !reservationFields.birthDate.safeParse(cBirthDate).success) errors.birthDate = 'La fecha de nacimiento es obligatoria';
@@ -566,6 +567,7 @@ export default function StaffBirthdaysPage() {
 				celebrantName: cName.trim(),
 				phone: cPhone.replace(/\D/g, ''), // Clean phone number
 				documento: cDoc.replace(/\D/g, ''), // Clean DNI
+                identityProof,
 				birthDate: cBirthDate,
 				date: cDate,
 				timeSlot: cSlot,
@@ -583,6 +585,12 @@ export default function StaffBirthdaysPage() {
 			const j = await r.json();
 
 			if (!r.ok || !j?.ok) {
+				if (j?.code === 'INVALID_IDENTITY') {
+					setLookupDocument('');
+					setIdentityProof('');
+					setGeneralError(j?.message || 'Vuelve a consultar el DNI.');
+					return;
+				}
 				// Handle specific error codes
 				if (j?.code === 'DUPLICATE_DNI_YEAR') {
 					setFieldErrors({ documento: 'Ya existe una reserva para este DNI en el mismo año' });
@@ -606,6 +614,8 @@ export default function StaffBirthdaysPage() {
 			setCName('');
 			setCPhone('');
 			setCDoc('');
+			setLookupDocument('');
+			setIdentityProof('');
 			setCBirthDate('');
 			setCDate('');
 			setCSlot(BIRTHDAY_POLICY.staffSlots[0] ?? '');
@@ -624,46 +634,49 @@ export default function StaffBirthdaysPage() {
 
 	return (
 		<div className="min-h-screen bg-[var(--color-bg)]">
-			<div className="mx-auto max-w-6xl px-4 py-6 space-y-6">
+			<div className="mx-auto max-w-6xl px-3 py-4 space-y-4 sm:px-4 sm:py-6 sm:space-y-6">
 				{err && <div className="rounded border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 p-3 text-sm">{err}</div>}
 
 				{/* Tabs */}
 				<div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
-					<div className="flex border-b border-slate-200 dark:border-slate-700">
+					<div role="tablist" aria-label="Reservas de cumpleaños" className="grid grid-cols-3 border-b border-slate-200 dark:border-slate-700">
 						<button
+							type="button" role="tab" aria-selected={activeTab === 'create'}
 							onClick={() => setActiveTab('create')}
-							className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+							className={`min-w-0 px-1 py-3 text-xs sm:px-4 sm:text-sm font-medium transition-colors ${
 								activeTab === 'create'
 									? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
 									: 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
 							}`}
 						>
-							Crear Reserva
+							Crear reserva
 						</button>
 						<button
+							type="button" role="tab" aria-selected={activeTab === 'list'}
 							onClick={() => setActiveTab('list')}
-							className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+							className={`min-w-0 px-1 py-3 text-xs sm:px-4 sm:text-sm font-medium transition-colors ${
 								activeTab === 'list'
 									? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
 									: 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
 							}`}
 						>
-							Ver Reservas
+							Reservas
 						</button>
 						<button
+							type="button" role="tab" aria-selected={activeTab === 'packs'}
 							onClick={() => setActiveTab('packs')}
-							className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+							className={`min-w-0 px-1 py-3 text-xs sm:px-4 sm:text-sm font-medium transition-colors ${
 								activeTab === 'packs'
 									? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
 									: 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
 							}`}
 						>
-							Packs Disponibles
+							Packs
 						</button>
 					</div>
 
 					{/* Tab Content */}
-					<div className="p-6">
+					<div className="min-w-0 p-4 sm:p-6">
 						{activeTab === 'packs' && (
 							<div className="space-y-6">
 								{packsLoading && (
@@ -724,7 +737,7 @@ export default function StaffBirthdaysPage() {
 											<option value="">Todos</option><option value="pending_review">Pendientes</option><option value="approved">Aprobadas</option><option value="completed">Completadas</option><option value="canceled">Canceladas</option>
 										</select>
 									</div>
-									<div className="grid gap-1 flex-1 min-w-[220px] max-w-xs">
+									<div className="grid min-w-0 gap-1 flex-1 sm:max-w-xs">
 										<label className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Buscar</label>
 										<input className="h-10 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 text-sm" value={search} onChange={e=>setSearch(e.target.value)} placeholder="nombre, WhatsApp, doc" />
 									</div>
@@ -775,29 +788,59 @@ export default function StaffBirthdaysPage() {
 									</div>
 								)}
 
-								<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+								<div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+
 									<div className="space-y-1">
-										<input
-											className={`h-10 rounded border px-3 text-sm w-full ${
+										<label htmlFor="staff-birthday-dni" className="block text-sm font-medium text-slate-700 dark:text-slate-300">DNI del cumpleañero</label>
+										<BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setIdentityProof(person.birthdayIdentityProof || ""); setCName(person.name); setCBirthDate(person.birthday || ''); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); }} input={
+										<input id="staff-birthday-dni" inputMode="numeric" autoComplete="off" maxLength={8}
+											className={`min-h-11 min-w-0 rounded-l-lg border px-3 text-base sm:text-sm w-full ${
+												fieldErrors.documento
+													? 'border-rose-300 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/30'
+													: 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+											}`}
+											placeholder="Documento (DNI - 8 dígitos)"
+											value={cDoc}
+											onChange={e => {
+												setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); setIdentityProof(""); }
+												clearFieldError('documento');
+											}}
+										/>} />
+										{fieldErrors.documento && (
+											<div className="text-xs text-rose-600 dark:text-rose-400">{fieldErrors.documento}</div>
+										)}
+									</div>
+
+{lookupDocument && identityProof && cBirthDate && (
+									<div className="space-y-1">
+										<label htmlFor="staff-birthday-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Nombre y apellido</label>
+										<input id="staff-birthday-name"
+											className={`min-h-11 min-w-0 rounded border px-3 text-base sm:text-sm w-full ${
 												fieldErrors.name
 													? 'border-rose-300 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/30'
 													: 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
 											}`}
 											placeholder="Nombre completo"
 											value={cName}
-											onChange={e => {
-												setCName(e.target.value);
-												clearFieldError('name');
-											}}
+											readOnly
 										/>
 										{fieldErrors.name && (
 											<div className="text-xs text-rose-600 dark:text-rose-400">{fieldErrors.name}</div>
 										)}
 									</div>
 
+)}
+{lookupDocument && identityProof && cBirthDate && (
+  <div className="space-y-1">
+    <label htmlFor="staff-birthday-card-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Nombre en la tarjeta</label>
+    <input id="staff-birthday-card-name" className="min-h-11 min-w-0 w-full rounded border border-slate-300 bg-slate-50 px-3 text-base dark:border-slate-600 dark:bg-slate-800 sm:text-sm" value={birthdayCardName(cName)} readOnly />
+    <p className="text-xs text-slate-500 dark:text-slate-400">La tarjeta muestra el primer nombre del cumpleañero.</p>
+  </div>
+)}
 									<div className="space-y-1">
-										<input
-											className={`h-10 rounded border px-3 text-sm w-full ${
+										<label htmlFor="staff-birthday-phone" className="block text-sm font-medium text-slate-700 dark:text-slate-300">WhatsApp (obligatorio)</label>
+										<input id="staff-birthday-phone" type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={9} aria-required="true"
+											className={`min-h-11 min-w-0 rounded border px-3 text-base sm:text-sm w-full ${
 												fieldErrors.phone
 													? 'border-rose-300 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/30'
 													: 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
@@ -805,7 +848,7 @@ export default function StaffBirthdaysPage() {
 											placeholder="WhatsApp (9 dígitos)"
 											value={cPhone}
 											onChange={e => {
-												setCPhone(e.target.value);
+												setCPhone(e.target.value.replace(/\D/g, '').slice(0, 9));
 												clearFieldError('phone');
 											}}
 										/>
@@ -814,31 +857,11 @@ export default function StaffBirthdaysPage() {
 										)}
 									</div>
 
+									{lookupDocument && identityProof && cBirthDate && <div className="min-w-0"><label htmlFor="staff-birthday-birthdate" className="block text-sm font-medium">Fecha de nacimiento</label><input id="staff-birthday-birthdate" type="date" value={cBirthDate} readOnly className="min-h-11 min-w-0 rounded border px-3 text-base sm:text-sm w-full dark:bg-slate-800" />{fieldErrors.birthDate && <div className="text-xs text-rose-600">{fieldErrors.birthDate}</div>}</div>}
 									<div className="space-y-1">
-										<input
-											className={`h-10 rounded border px-3 text-sm w-full ${
-												fieldErrors.documento
-													? 'border-rose-300 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/30'
-													: 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
-											}`}
-											placeholder="Documento (DNI - 8 dígitos)"
-											value={cDoc}
-											onChange={e => {
-												setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); }
-												clearFieldError('documento');
-											}}
-										/>
-										<BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setCName(person.name); setCBirthDate(person.birthday || ''); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); }} />
-										{fieldErrors.documento && (
-											<div className="text-xs text-rose-600 dark:text-rose-400">{fieldErrors.documento}</div>
-										)}
-									</div>
-
-									<div><label>Fecha de nacimiento</label><input type="date" value={cBirthDate} onChange={e => { setCBirthDate(e.target.value); setCDate(suggestedCelebration(e.target.value)); }} className="h-10 rounded border px-3 text-sm w-full dark:bg-slate-800" />{fieldErrors.birthDate && <div className="text-xs text-rose-600">{fieldErrors.birthDate}</div>}</div>
-									<div className="space-y-1">
-										<label>Fecha de celebración</label><input
+										<label htmlFor="staff-birthday-date" className="block text-sm font-medium">Fecha de celebración</label><input id="staff-birthday-date"
 											type="date"
-											className={`h-10 rounded border px-3 text-sm w-full ${
+											className={`min-h-11 min-w-0 rounded border px-3 text-base sm:text-sm w-full ${
 												fieldErrors.date
 													? 'border-rose-300 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/30'
 													: 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
@@ -855,8 +878,8 @@ export default function StaffBirthdaysPage() {
 									</div>
 
 									<div className="space-y-1">
-										<select
-											className="h-10 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 text-sm w-full"
+										<label htmlFor="staff-birthday-slot" className="block text-sm font-medium">Horario de llegada</label><select id="staff-birthday-slot"
+											className="min-h-11 min-w-0 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 text-base sm:text-sm w-full"
 											value={cSlot}
 											onChange={e => setCSlot(e.target.value)}
 										>
@@ -866,8 +889,8 @@ export default function StaffBirthdaysPage() {
 									</div>
 
 									<div className="space-y-1">
-										<select
-											className={`h-10 rounded border px-3 text-sm w-full ${
+										<label htmlFor="staff-birthday-pack" className="block text-sm font-medium">Pack</label><select id="staff-birthday-pack"
+											className={`min-h-11 min-w-0 rounded border px-3 text-base sm:text-sm w-full ${
 												fieldErrors.pack
 													? 'border-rose-300 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/30'
 													: 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
@@ -931,7 +954,7 @@ export default function StaffBirthdaysPage() {
 								})()}
 
 								<div className="flex justify-end">
-									<button disabled={creating || packsLoading || !!packsError} onClick={submitCreate} className="btn h-10 px-6">
+									<button disabled={creating || packsLoading || !!packsError} onClick={submitCreate} className="btn min-h-12 w-full px-6 sm:w-auto">
 										{creating ? 'Guardando…' : 'Guardar Reserva'}
 									</button>
 								</div>

@@ -2,15 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getUserSessionCookieFromRequest, verifyUserSessionCookie } from '@/lib/auth';
 import { getDailyJourneyDashboard, getWeeklyJourneyDashboard } from '@/lib/weekly-journey-stats';
+import { evolutionMaxRangeDays, evolutionRange } from '@/lib/evolution-range';
+import { currentBusinessDay } from '@/lib/attendanceDay';
 
 export const dynamic = 'force-dynamic';
-
-function getBusinessDay() {
-  const now = new Date();
-  const limaHour = Number(now.toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false }));
-  const ref = limaHour < 10 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
-  return ref.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-}
 
 export async function GET(req: NextRequest) {
   try {
@@ -20,7 +15,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const day = req.nextUrl.searchParams.get('day') || getBusinessDay();
+    const start = req.nextUrl.searchParams.get('start');
+    const end = req.nextUrl.searchParams.get('end');
+    if (start !== null || end !== null) {
+      const maxDays = evolutionMaxRangeDays();
+      const range = evolutionRange(start || '', end || '', maxDays);
+      if (!range) return NextResponse.json({ error: `Selecciona fechas válidas en orden, con un máximo de ${maxDays} días.` }, { status: 400 });
+      return NextResponse.json(await getDailyJourneyDashboard(range.end, range.days));
+    }
+    const day = req.nextUrl.searchParams.get('day') || currentBusinessDay();
     const granularity = req.nextUrl.searchParams.get('granularity');
 
     if (granularity === 'day') {

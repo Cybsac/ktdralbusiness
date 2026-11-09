@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 
 import EvolucionDashboardPage from '@/components/evolucion/EvolucionDashboardPage';
 import { verifyUserSessionCookie } from '@/lib/auth';
+import { currentBusinessDay } from '@/lib/attendanceDay';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,5 +22,5 @@ export default async function UEvolucionPage() {
     );
   }
 
-  return <EvolucionDashboardPage />;
+  return <EvolucionDashboardPage initialDay={currentBusinessDay()} />;
 }

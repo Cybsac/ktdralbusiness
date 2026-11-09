@@ -1,5 +1,6 @@
 import { birthdayFailure } from "@/lib/birthdays/http";
 import { reservationCreateSchema } from "@/lib/birthdays/reservation-input";
+import { verifyBirthdayIdentity } from "@/lib/birthdays/identity-proof";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { apiError, apiOk } from "@/lib/apiError";
@@ -86,7 +87,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-const CreateSchema = reservationCreateSchema;
+const CreateSchema = reservationCreateSchema.extend({ identityProof: z.string().min(1).max(512) });
 
 export async function POST(req: NextRequest) {
   const raw = getUserSessionCookieFromRequest(req as unknown as Request);
@@ -115,7 +116,10 @@ export async function POST(req: NextRequest) {
       packId,
       guestsPlanned,
       wantsPhotoSession,
+      identityProof,
     } = parsed.data;
+    if (!birthDate || !verifyBirthdayIdentity({ documento, name: celebrantName, birthDate }, identityProof))
+      return apiError("INVALID_IDENTITY", "No pudimos validar los datos. Vuelve a consultar el DNI.", undefined, 400);
     const dt = limaDateTimeToJSDate(parseDateStringToLima(date));
     if (!isFinite(dt.getTime())) return apiError("INVALID_DATE", "invalid date", undefined, 400);
     const created = await createReservation({

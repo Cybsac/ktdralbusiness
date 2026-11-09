@@ -50,7 +50,7 @@ const MATCHERS: TitleMatcher[] = [
   { test: p => p.startsWith('/u/history'), build: () => 'Historial' },
   { test: p => p.startsWith('/u/checklist'), build: () => 'Checklist' },
   { test: p => p.startsWith('/u/attendance'), build: () => 'Asistencia' },
-  { test: p => p === '/u/journey-updates', build: () => 'Incidencias' },
+  { test: p => p === '/u/journey-updates', build: () => 'Incidencias & Comentarios' },
   { test: p => p.startsWith('/u/assistance'), build: () => 'Ayuda' },
   { test: p => p.startsWith('/u/evolucion'), build: () => 'Evolución' },
   { test: p => p.startsWith('/u/birthdays/'), build: p => 'Cumpleaños ' + p.split('/').pop() },

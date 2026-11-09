@@ -1,4 +1,4 @@
-import { businessDayWindowUtc, limaCalendarDayWindowUtc } from '@/lib/attendanceDay';
+import { businessDayWindowUtc, limaCalendarDayWindowUtc, computeBusinessDayFromUtc, getConfiguredCutoffHour } from '@/lib/attendanceDay';
 import { prisma } from '@/lib/prisma';
 
 type WeekRange = {
@@ -102,7 +102,6 @@ type WeeklyDashboardData = {
 };
 
 const DEFAULT_WEEK_COUNT = 8;
-const LIMA_OFFSET_MS = 5 * 60 * 60 * 1000;
 const SPANISH_DAY_MONTH_FORMATTER = new Intl.DateTimeFormat('es-PE', {
   timeZone: 'UTC',
   day: 'numeric',
@@ -113,6 +112,7 @@ const SPANISH_SHORT_DAY_FORMATTER = new Intl.DateTimeFormat('es-PE', {
   timeZone: 'UTC',
   weekday: 'short',
   day: 'numeric',
+  month: 'short',
 });
 
 function isWeekActive(input: {
@@ -440,7 +440,7 @@ export async function getWeeklyQrStats(anchorDay: string, weekCount = DEFAULT_WE
   const byWeek = buildWeekIndex(rows);
 
   for (const delivery of reusableDeliveries) {
-    const businessDay = toDayString(new Date(delivery.createdAt.getTime() - LIMA_OFFSET_MS));
+    const businessDay = computeBusinessDayFromUtc(delivery.createdAt, getConfiguredCutoffHour());
     const week = byWeek.get(getMonday(businessDay));
     if (!week) continue;
     week.reusableScans += 1;
@@ -449,7 +449,7 @@ export async function getWeeklyQrStats(anchorDay: string, weekCount = DEFAULT_WE
 
   for (const token of tokenDeliveries) {
     if (!token.deliveredAt) continue;
-    const businessDay = toDayString(new Date(token.deliveredAt.getTime() - LIMA_OFFSET_MS));
+    const businessDay = computeBusinessDayFromUtc(token.deliveredAt, getConfiguredCutoffHour());
     const week = byWeek.get(getMonday(businessDay));
     if (!week) continue;
     week.braceletsRedeemed += 1;
@@ -508,7 +508,7 @@ async function getWeeklyReusableProducts(anchorDay: string, groupType: 'bar' | '
     const classification = classifyReusableProduct(delivery.token.group?.name, label);
     if (classification !== groupType) continue;
 
-    const businessDay = toDayString(new Date(delivery.createdAt.getTime() - LIMA_OFFSET_MS));
+    const businessDay = computeBusinessDayFromUtc(delivery.createdAt, getConfiguredCutoffHour());
     const week = byWeek.get(getMonday(businessDay));
     if (!week) continue;
     const canonical = findCanonicalLabel(label, Array.from(totals.keys()));
@@ -589,7 +589,7 @@ export async function getWeeklyPulserasCanjeadas(anchorDay: string, weekCount = 
 
   for (const token of deliveries) {
     if (!token.deliveredAt) continue;
-    const businessDay = toDayString(new Date(token.deliveredAt.getTime() - LIMA_OFFSET_MS));
+    const businessDay = computeBusinessDayFromUtc(token.deliveredAt, getConfiguredCutoffHour());
     const week = byWeek.get(getMonday(businessDay));
     if (!week) continue;
 
@@ -945,7 +945,7 @@ async function getDailyQrStats(days: DayEntry[]): Promise<WeeklyQrStat[]> {
   const byDay = new Map(rows.map((r) => [r.weekStart, r]));
 
   for (const delivery of reusableDeliveries) {
-    const day = toDayString(new Date(delivery.createdAt.getTime() - LIMA_OFFSET_MS));
+    const day = computeBusinessDayFromUtc(delivery.createdAt, getConfiguredCutoffHour());
     const row = byDay.get(day);
     if (!row) continue;
     row.reusableScans += 1;
@@ -953,7 +953,7 @@ async function getDailyQrStats(days: DayEntry[]): Promise<WeeklyQrStat[]> {
   }
   for (const token of tokenDeliveries) {
     if (!token.deliveredAt) continue;
-    const day = toDayString(new Date(token.deliveredAt.getTime() - LIMA_OFFSET_MS));
+    const day = computeBusinessDayFromUtc(token.deliveredAt, getConfiguredCutoffHour());
     const row = byDay.get(day);
     if (row) row.braceletsRedeemed += 1;
   }
@@ -994,7 +994,7 @@ async function getDailyReusableProducts(days: DayEntry[], groupType: 'bar' | 'ro
     const label = normalizeProductLabel(delivery.token.prize.label);
     const classification = classifyReusableProduct(delivery.token.group?.name, label);
     if (classification !== groupType) continue;
-    const day = toDayString(new Date(delivery.createdAt.getTime() - LIMA_OFFSET_MS));
+    const day = computeBusinessDayFromUtc(delivery.createdAt, getConfiguredCutoffHour());
     const row = byDay.get(day);
     if (!row) continue;
     const canonical = findCanonicalLabel(label, Array.from(totals.keys()));
@@ -1032,7 +1032,7 @@ async function getDailyPulserasCanjeadas(days: DayEntry[]): Promise<ProductSerie
 
   for (const token of deliveries) {
     if (!token.deliveredAt) continue;
-    const day = toDayString(new Date(token.deliveredAt.getTime() - LIMA_OFFSET_MS));
+    const day = computeBusinessDayFromUtc(token.deliveredAt, getConfiguredCutoffHour());
     const row = byDay.get(day);
     if (!row) continue;
     const label = normalizeProductLabel(token.prize.label);
@@ -1056,7 +1056,7 @@ async function getDailyBirthdayStats(days: DayEntry[]): Promise<WeeklyBirthdaySt
 
   const reservations = await prisma.birthdayReservation.findMany({
     where: {
-      date: { gte: new Date(`${firstDay}T00:00:00`), lte: new Date(`${lastDay}T23:59:59.999`) },
+      date: { gte: new Date(`${firstDay}T00:00:00.000Z`), lte: new Date(`${lastDay}T23:59:59.999Z`) },
       status: { not: 'canceled' },
     },
     select: { date: true, hostArrivedAt: true },

@@ -45,7 +45,7 @@ export default function JourneyUpdates() {
 
   return <main className="min-h-screen bg-[var(--color-bg)] px-3 py-4 sm:px-6 sm:py-8"><div className="mx-auto max-w-3xl space-y-4">
     <Link href="/u?tab=gestion" className="inline-block rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">← Volver a Gestión</Link>
-    <div><h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Incidencias</h1><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Comentarios registrados en jornadas cerradas.</p></div>
+    <div><h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Incidencias &amp; Comentarios</h1><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Comentarios registrados en jornadas cerradas.</p></div>
     <form onSubmit={event => { event.preventDefault(); setFilters({ start, end }); }} className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
       <label className="flex flex-col gap-1 text-xs font-medium text-slate-600 dark:text-slate-300">Desde<input type="date" value={start} max={end || undefined} onChange={event => setStart(event.target.value)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-900" /></label>
       <label className="flex flex-col gap-1 text-xs font-medium text-slate-600 dark:text-slate-300">Hasta<input type="date" value={end} min={start || undefined} onChange={event => setEnd(event.target.value)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-900" /></label>

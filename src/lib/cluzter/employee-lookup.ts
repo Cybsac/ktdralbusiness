@@ -15,7 +15,7 @@ const input = z
     challengeToken: z.string().max(2048).optional(),
   })
   .strict();
-export async function employeeDniLookup(req: Request, subject: string, isPublic = false) {
+export async function employeeDniLookup(req: Request, subject: string, isPublic = false, birthdayProof = false) {
   let body: unknown;
   try {
     body = await req.json();
@@ -51,7 +51,7 @@ export async function employeeDniLookup(req: Request, subject: string, isPublic 
         displayName: [person.names.split(/\s+/)[0], person.paternalSurname].join(" "),
         birthday: person.birthDate,
         documentSexCode: person.documentSexCode,
-        ...(isPublic && person.birthDate
+        ...((isPublic || birthdayProof) && person.birthDate
           ? {
               birthdayIdentityProof: signBirthdayIdentity({
                 documento: parsed.data.dni,

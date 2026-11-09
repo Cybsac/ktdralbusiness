@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   CartesianGrid,
+  Bar,
+  BarChart,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -10,6 +12,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { evolutionChartLabel, groupEvolutionRows, type EvolutionChartRow } from '@/lib/evolution-chart';
 
 type WeeklyOperationalStat = {
   weekStart: string;
@@ -160,6 +163,50 @@ function KpiCard({ label, value, sub }: { label: string; value: number; sub?: st
   );
 }
 
+function DateBars({ rows, series, daily }: { rows: EvolutionChartRow[]; series: SeriesConfig[]; daily: boolean }) {
+  const grouped = useMemo(() => groupEvolutionRows(rows, daily), [rows, daily]);
+  const chartData = grouped.map(row => ({ label: evolutionChartLabel(row), ...row.values }));
+  const grouping = !daily ? 'por semana' : rows.length > 120 ? 'por mes' : rows.length > 31 ? 'por semana' : 'por día';
+  return <>
+    <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Distribución {grouping}. Desliza para ver todo el período y toca una barra para ver el detalle.</p>
+    <div className="overflow-x-auto" tabIndex={0} aria-label="Gráfico desplazable">
+      <div style={{ width: '100%', minWidth: Math.max(320, grouped.length * (series.length > 1 ? 74 : 54)), height: 260 }}>
+        <ResponsiveContainer width="100%" height="100%"><BarChart data={chartData} margin={{ top: 8, right: 12, bottom: 36, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.25} />
+          <XAxis dataKey="label" fontSize={10} tickLine={false} axisLine={false} interval={0} angle={-35} textAnchor="end" height={60} />
+          <YAxis allowDecimals={false} fontSize={11} width={32} tickLine={false} axisLine={false} />
+          <Tooltip content={<ExactTooltip />} />
+          {series.map(item => <Bar key={item.key} dataKey={item.key} name={item.name} fill={item.color} radius={[4, 4, 0, 0]} />)}
+        </BarChart></ResponsiveContainer>
+      </div>
+    </div>
+    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">{series.map(item => <span key={item.key} className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: item.color }} />{item.name}</span>)}</div>
+  </>;
+}
+
+function ProductBarsCard({ title, data, daily, color }: { title: string; data: ProductSeriesResponse; daily: boolean; color: string }) {
+  const rows = useMemo(() => data.weeks.map(week => ({ start: week.weekStart, end: week.weekEnd, values: { total: week.total } })), [data]);
+  const ranking = useMemo(() => data.productKeys.map(name => ({ name, total: data.weeks.reduce((sum, week) => sum + (week.products[name] || 0), 0) })).sort((a, b) => b.total - a.total), [data]);
+  const total = rows.reduce((sum, row) => sum + row.values.total, 0);
+  const max = Math.max(1, ...ranking.map(item => item.total));
+  return <DashboardCard title={title} subtitle="Canjes del intervalo seleccionado">
+    <div className="mb-4 text-sm text-slate-600 dark:text-slate-300">Total del período: <strong className="text-lg text-slate-900 dark:text-white">{total}</strong></div>
+    <DateBars rows={rows} daily={daily} series={[{ key: 'total', name: 'Total', color }]} />
+    <h4 className="mt-5 text-sm font-semibold text-slate-800 dark:text-slate-100">Desglose por producto</h4>
+    {ranking.length ? <ol className="mt-3 space-y-3">{ranking.map(item => <li key={item.name}><div className="flex items-start justify-between gap-3 text-sm"><span className="min-w-0 break-words text-slate-700 dark:text-slate-200">{item.name}</span><strong className="shrink-0 tabular-nums">{item.total}</strong></div><div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700"><div className="h-full rounded-full" style={{ width: `${item.total / max * 100}%`, backgroundColor: color }} /></div></li>)}</ol> : <p className="mt-2 text-sm text-slate-500">No hay productos con actividad en este período.</p>}
+    {data.historicalTotal !== undefined && <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">Total histórico del grupo: {data.historicalTotal} (incluye registros fuera del período).</p>}
+  </DashboardCard>;
+}
+
+function BirthdayBarsCard({ data, daily }: { data: WeeklyBirthdayStat[]; daily: boolean }) {
+  const rows = useMemo(() => data.map(day => ({ start: day.weekStart, end: day.weekEnd, values: { reservations: day.reservations, arrived: day.arrived, noShow: day.noShow } })), [data]);
+  const series = [{ key: 'reservations', name: 'Reservas', color: '#db2777' }, { key: 'arrived', name: 'Llegaron', color: '#16a34a' }, { key: 'noShow', name: 'No llegaron', color: '#dc2626' }];
+  return <DashboardCard title="Cumpleaños" subtitle="Reservas del intervalo seleccionado">
+    <div className="mb-4 grid grid-cols-3 gap-2">{series.map(item => <div key={item.key} className="rounded-lg bg-slate-50 p-2 dark:bg-slate-900/40"><strong className="block text-lg tabular-nums">{rows.reduce((sum, row) => sum + row.values[item.key as keyof typeof row.values], 0)}</strong><span className="text-xs text-slate-600 dark:text-slate-300">{item.name}</span></div>)}</div>
+    <DateBars rows={rows} series={series} daily={daily} />
+  </DashboardCard>;
+}
+
 function MultiLineChartCard({
   title,
   subtitle,
@@ -302,7 +349,7 @@ function MultiLineChartCard({
           </div>
           {activeWeekCount !== undefined && activeWeekCount > 0 && (
             <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
-              Conteos acumulados en {activeWeekCount} {activeWeekCount === 1 ? 'semana' : 'semanas'} con actividad
+              Conteos acumulados en {activeWeekCount} {activeWeekCount === 1 ? 'período' : 'períodos'} con actividad
             </p>
           )}
         </>
@@ -478,11 +525,15 @@ export default function WeeklyJourneyDashboard({
   weekCount = 8,
   dayCount,
   granularity = 'week',
+  range,
+  showComments = true,
 }: {
   selectedDay: string;
   weekCount?: number;
   dayCount?: number;
   granularity?: 'week' | 'day';
+  range?: { start: string; end: string };
+  showComments?: boolean;
 }) {
   const [data, setData] = useState<WeeklyDashboardData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -496,8 +547,9 @@ export default function WeeklyJourneyDashboard({
       setLoading(true);
       setError(null);
       try {
-        const url =
-          granularity === 'day'
+        const url = range
+          ? `/api/admin/daily-evaluation/weekly-dashboard?${new URLSearchParams({ start: range.start, end: range.end })}`
+          : granularity === 'day'
             ? `/api/admin/daily-evaluation/weekly-dashboard?day=${selectedDay}&days=${dayCount ?? 7}&granularity=day`
             : `/api/admin/daily-evaluation/weekly-dashboard?day=${selectedDay}&weeks=${weekCount}`;
         const response = await fetch(url);
@@ -517,7 +569,7 @@ export default function WeeklyJourneyDashboard({
     return () => {
       cancelled = true;
     };
-  }, [selectedDay, weekCount, dayCount, granularity]);
+  }, [selectedDay, weekCount, dayCount, granularity, range?.start, range?.end]);
 
   const operationalChart = useMemo(() => {
     if (!data) return [];
@@ -551,20 +603,7 @@ export default function WeeklyJourneyDashboard({
     }));
   }, [data]);
 
-  const birthdayChart = useMemo(() => {
-    if (!data) return [];
-    return data.birthdayStats.map((week) => ({
-      label: week.label,
-      reservations: week.reservations,
-      arrived: week.arrived,
-      noShow: week.noShow,
-    }));
-  }, [data]);
-
-  const barProductsChart = useMemo(() => productSeriesToChartData(data?.barProducts || { weeks: [], productKeys: [] }), [data]);
-  const rollBannerChart = useMemo(() => productSeriesToChartData(data?.rollBannerProducts || { weeks: [], productKeys: [] }), [data]);
   const domingoChart = useMemo(() => productSeriesToChartData(data?.domingoProducts || { weeks: [], productKeys: [] }), [data]);
-  const pulserasChart = useMemo(() => productSeriesToChartData(data?.pulserasCanjeadas || { weeks: [], productKeys: [] }), [data]);
 
   const periodKpis = useMemo(() => {
     if (!data) return null;
@@ -582,7 +621,7 @@ export default function WeeklyJourneyDashboard({
   if (loading) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div className="animate-pulse text-sm text-slate-500 dark:text-slate-400">Cargando dashboard evolutivo semanal...</div>
+        <div className="animate-pulse text-sm text-slate-500 dark:text-slate-400">Cargando evolución...</div>
       </div>
     );
   }
@@ -603,7 +642,7 @@ export default function WeeklyJourneyDashboard({
         <div>
           <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">Resumen Evolutivo</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Totales acumulados en el periodo seleccionado. Tendencia semanal en los gráficos.
+            Totales acumulados en el periodo seleccionado. Tendencia por período en los gráficos.
           </p>
         </div>
       </div>
@@ -618,7 +657,7 @@ export default function WeeklyJourneyDashboard({
 
       <MultiLineChartCard
         title="Jornadas del personal"
-        subtitle="Evolucion semanal de jornadas completas e incompletas"
+        subtitle="Evolución de jornadas completas e incompletas"
         data={operationalChart}
         series={[
           { key: 'incompleteShifts', name: 'Jornadas incompletas', color: '#dc2626' },
@@ -627,11 +666,7 @@ export default function WeeklyJourneyDashboard({
         ]}
       />
 
-      <CommentChartCard
-        title="Novedades de jornada"
-        subtitle="Jornadas cerradas con comentario"
-        data={commentChart}
-      />
+      {showComments && <CommentChartCard title="Novedades de jornada" subtitle="Jornadas cerradas con comentario" data={commentChart} />}
 
       <RatingChartCard
         title="Calificación de Jornada"
@@ -639,75 +674,20 @@ export default function WeeklyJourneyDashboard({
         data={ratingChart}
       />
 
-      <MultiLineChartCard
-        title="Pulseras canjeadas"
-        subtitle="Premios canjeados renombrados visualmente como pulseras canjeadas"
-        data={pulserasChart.data}
-        series={[
-          { key: 'total', name: 'Total pulseras canjeadas', color: '#b45309' },
-          ...pulserasChart.productKeys.map((product, index) => ({
-            key: product,
-            name: product,
-            color: PRODUCT_COLORS[index % PRODUCT_COLORS.length],
-          })),
-        ]}
-        keyTotals={pulserasChart.keyTotals}
-        activeWeekCount={pulserasChart.activeWeekCount}
-        totalSeriesKey="total"
-      />
+      <ProductBarsCard title="Pulseras canjeadas" data={data.pulserasCanjeadas} daily={granularity === 'day'} color="#b45309" />
 
-      <MultiLineChartCard
-        title="Cumpleaños"
-        subtitle="Reservas, llegaron y no llegaron"
-        data={birthdayChart}
-        series={[
-          { key: 'reservations', name: 'Reservas', color: '#db2777' },
-          { key: 'arrived', name: 'Llegaron', color: '#16a34a' },
-          { key: 'noShow', name: 'No llegaron', color: '#dc2626' },
-        ]}
-      />
+      <BirthdayBarsCard data={data.birthdayStats} daily={granularity === 'day'} />
 
-      <MultiLineChartCard
-        title="Promos Qr's barra"
-        subtitle="Serie semanal por producto y total de Promos Barra"
-        data={barProductsChart.data}
-        series={[
-          { key: 'total', name: 'Total semanal Promos Barra', color: '#0891b2' },
-          ...barProductsChart.productKeys.map((product, index) => ({
-            key: product,
-            name: product,
-            color: PRODUCT_COLORS[index % PRODUCT_COLORS.length],
-          })),
-        ]}
-        keyTotals={barProductsChart.keyTotals}
-        activeWeekCount={barProductsChart.activeWeekCount}
-        totalSeriesKey="total"
-        historicalTotal={barProductsChart.historicalTotal}
-      />
+      <ProductBarsCard title="Promos QR de barra" data={data.barProducts} daily={granularity === 'day'} color="#0891b2" />
 
-      <MultiLineChartCard
-        title="Qr's Roll Banner's"
-        subtitle="Serie semanal independiente para activaciones de roll banner"
-        data={rollBannerChart.data}
-        series={[
-          { key: 'total', name: 'Total semanal Roll Banner', color: '#0284c7' },
-          ...rollBannerChart.productKeys.map((product, index) => ({
-            key: product,
-            name: product,
-            color: PRODUCT_COLORS[index % PRODUCT_COLORS.length],
-          })),
-        ]}
-        keyTotals={rollBannerChart.keyTotals}
-        activeWeekCount={rollBannerChart.activeWeekCount}
-        totalSeriesKey="total"
-      />
+      <ProductBarsCard title="QR de Roll Banner" data={data.rollBannerProducts} daily={granularity === 'day'} color="#0284c7" />
 
       <MultiLineChartCard
         title="Tokens Domingo"
-        subtitle="Serie semanal de canjes del grupo Tokens Domingo"
+        subtitle="Serie de canjes del grupo Tokens Domingo"
         data={domingoChart.data}
         series={[
-          { key: 'total', name: 'Total semanal Domingo', color: '#7c3aed' },
+          { key: 'total', name: 'Total Domingo', color: '#7c3aed' },
           ...domingoChart.productKeys.map((product, index) => ({
             key: product,
             name: product,

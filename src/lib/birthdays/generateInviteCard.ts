@@ -6,6 +6,7 @@ import { generateQrPngBuffer } from "@/lib/qr-server";
 
 import { birthdayInviteTemplate, type InviteTemplateKind } from "./inviteTemplates";
 import { BIRTHDAY_STORED_CARD } from "./card-format";
+import { birthdayCardName } from "./card-name";
 
 function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
@@ -89,7 +90,7 @@ export async function generateInviteCard(
     if (barLeft < 0) barLeft = 0;
     if (barLeft + barWidth > tpl.width) barLeft = tpl.width - barWidth;
     const baseBarTop = Math.round(tpl.height * nb.topRatio);
-    const first = celebrantName.trim().split(/\s+/)[0];
+    const first = birthdayCardName(celebrantName);
     const firstUpper = first.toUpperCase();
     const fechaTxt = reservationDateISO ? formatFecha(reservationDateISO) : "";
     const maxWidth = barWidth - 40;
