@@ -53,6 +53,7 @@ export async function GET(req: NextRequest) {
       usedCount: token.usedCount,
       expiresAt: token.expiresAt,
       validFrom: token.validFrom,
+      weekdays: token.weekdays,
       startTime: token.startTime,
       endTime: token.endTime,
       createdAt: token.createdAt,

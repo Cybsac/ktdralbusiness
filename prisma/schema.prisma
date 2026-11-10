@@ -71,6 +71,7 @@ model ReusableToken {
   groupId           String?
   expiresAt         DateTime
   validFrom         DateTime?
+  weekdays          Int[]         @default([])
   createdAt         DateTime      @default(now())
   redeemedAt        DateTime?
   signature         String

@@ -14,7 +14,7 @@ export async function GET(request: NextRequest, { params }: { params: { groupId:
     const group = await prisma.tokenGroup.findUnique({
       where: { id: params.groupId },
       select: { locked: true, tokens: { orderBy: { createdAt: 'desc' }, select: {
-        id: true, maxUses: true, usedCount: true, expiresAt: true, validFrom: true, disabled: true,
+        id: true, maxUses: true, usedCount: true, expiresAt: true, validFrom: true, weekdays: true, disabled: true,
         startTime: true, endTime: true, prize: { select: { label: true, active: true } },
       } } },
     });

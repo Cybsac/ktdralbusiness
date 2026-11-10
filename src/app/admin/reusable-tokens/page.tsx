@@ -1,6 +1,7 @@
 "use client";
 import { REUSABLE_POLICY as P, REUSABLE_TIMEZONE } from "@/lib/reusable-tokens/policy";
 import { reusableGenerationSchema } from "@/lib/reusable-tokens/request";
+import { REUSABLE_WEEKDAYS, reusableScheduleLabel } from "@/lib/reusable-tokens/weekdays";
 import { PrizeAuthorizationLink } from "@/components/prize-authorization/PrizeAuthorizationLink";
 
 import { useState, useEffect, useRef } from "react";
@@ -36,6 +37,7 @@ interface GroupToken {
   usedCount: number;
   expiresAt: string;
   validFrom?: string | null;
+  weekdays?: number[];
   startTime?: string | null;
   endTime?: string | null;
   createdAt: string;
@@ -54,6 +56,7 @@ interface IndividualToken {
   usedCount?: number;
   expiresAt: string;
   validFrom?: string | null;
+  weekdays?: number[];
   startTime?: string | null;
   endTime?: string | null;
   createdAt?: string;
@@ -144,25 +147,27 @@ export default function ReusableTokensAdmin() {
     maxUses: number;
     description: string;
     groupId: string;
-    validityMode: "byDays" | "expires_at" | "time_window" | "specific_date";
+    validityMode: "byDays" | "expires_at" | "time_window" | "specific_date" | "weekly_window";
     expirationDays: number;
     expiresAt: string;
     startTime: string;
     endTime: string;
     specificDate: string;
     allDay: boolean;
+    weekdays: number[];
   }>({
     prizeId: "",
     maxUses: 1,
     description: "",
     groupId: "",
-    validityMode: "byDays" as "byDays" | "expires_at" | "time_window" | "specific_date",
+    validityMode: "byDays" as "byDays" | "expires_at" | "time_window" | "specific_date" | "weekly_window",
     expirationDays: P.defaultDays,
     expiresAt: "",
     startTime: P.defaultStart,
     endTime: P.defaultEnd,
     specificDate: "",
     allDay: true,
+    weekdays: [],
   });
 
   // History modal state
@@ -472,9 +477,13 @@ export default function ReusableTokensAdmin() {
       alert("Selecciona la fecha de validez");
       return;
     }
+    if (individualForm.validityMode === "weekly_window" && (!individualForm.weekdays.length || !individualForm.expiresAt)) {
+      alert("Selecciona los días y la fecha de vencimiento.");
+      return;
+    }
 
     if (
-      (individualForm.validityMode === "time_window" || (individualForm.validityMode === "specific_date" && !individualForm.allDay)) &&
+      (individualForm.validityMode === "time_window" || ((individualForm.validityMode === "specific_date" || individualForm.validityMode === "weekly_window") && !individualForm.allDay)) &&
       (!individualForm.startTime || !individualForm.endTime)
     ) {
       alert("Selecciona horas de inicio y fin para la ventana horaria");
@@ -497,6 +506,8 @@ export default function ReusableTokensAdmin() {
         };
       } else if (individualForm.validityMode === "specific_date") {
         validity = { type: "specific_date", date: individualForm.specificDate, ...(!individualForm.allDay && { startTime: individualForm.startTime, endTime: individualForm.endTime }) };
+      } else if (individualForm.validityMode === "weekly_window") {
+        validity = { type: "weekly_window", weekdays: [...individualForm.weekdays].sort((a, b) => a - b), expiresAt: individualForm.expiresAt, startTime: individualForm.allDay ? "00:00" : individualForm.startTime, endTime: individualForm.allDay ? "24:00" : individualForm.endTime };
       }
 
       const body: any = {
@@ -1087,6 +1098,7 @@ export default function ReusableTokensAdmin() {
                                           </div>
                                           <div className="text-xs text-slate-500 dark:text-slate-400">
                                             {token.validFrom && <>Disponible desde: {new Date(token.validFrom).toLocaleString("es-PE", { timeZone: REUSABLE_TIMEZONE })}<br /></>}
+                                            {token.weekdays?.length && token.startTime && token.endTime ? <>{reusableScheduleLabel(token.startTime, token.endTime, token.weekdays)}<br /></> : null}
                                             Expira:{" "}
                                             {new Date(token.expiresAt).toLocaleString("es-PE", { timeZone: REUSABLE_TIMEZONE })}
                                           </div>
@@ -1285,6 +1297,10 @@ export default function ReusableTokensAdmin() {
                       <input type="radio" name="individualValidity" value="specific_date" checked={individualForm.validityMode === "specific_date"} onChange={() => setIndividualForm({ ...individualForm, validityMode: "specific_date" })} />{" "}
                       Fecha y horario determinados
                     </label>
+                    <label>
+                      <input type="radio" name="individualValidity" value="weekly_window" checked={individualForm.validityMode === "weekly_window"} onChange={() => setIndividualForm({ ...individualForm, validityMode: "weekly_window" })} />{" "}
+                      Días de la semana y horario
+                    </label>
                   </div>
                 </div>
 
@@ -1333,7 +1349,16 @@ export default function ReusableTokensAdmin() {
                     <p className="text-xs text-slate-500 dark:text-slate-400">{individualForm.allDay ? "Disponible desde las 00:00 de la fecha elegida hasta las 00:00 del día siguiente." : "El inicio corresponde a la fecha elegida."} Zona horaria: {REUSABLE_TIMEZONE}.</p>
                   </div>
                 )}
-                {(individualForm.validityMode === "time_window" || (individualForm.validityMode === "specific_date" && !individualForm.allDay)) && (
+                {individualForm.validityMode === "weekly_window" && (
+                  <fieldset className="space-y-3 md:col-span-2">
+                    <legend className="text-sm font-medium text-slate-700 dark:text-slate-300">Días en que inicia la vigencia</legend>
+                    <div className="flex flex-wrap gap-2">{REUSABLE_WEEKDAYS.map(day => <label key={day.value} className={`inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm capitalize ${individualForm.weekdays.includes(day.value) ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200" : "border-slate-300 dark:border-slate-600"}`}><input type="checkbox" checked={individualForm.weekdays.includes(day.value)} onChange={() => setIndividualForm(prev => ({ ...prev, weekdays: prev.weekdays.includes(day.value) ? prev.weekdays.filter(value => value !== day.value) : [...prev.weekdays, day.value] }))} />{day.label}</label>)}</div>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={individualForm.allDay} onChange={e => setIndividualForm({ ...individualForm, allDay: e.target.checked })} /> Válido todo el día</label>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Fecha y hora de vencimiento<input type="datetime-local" className="input mt-1 w-full" value={individualForm.expiresAt} onChange={e => setIndividualForm({ ...individualForm, expiresAt: e.target.value })} /></label>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">La vigencia termina en el vencimiento elegido, incluso si una ventana continúa después. Zona horaria: {REUSABLE_TIMEZONE}.</p>
+                  </fieldset>
+                )}
+                {(individualForm.validityMode === "time_window" || ((individualForm.validityMode === "specific_date" || individualForm.validityMode === "weekly_window") && !individualForm.allDay)) && (
                   <div className="md:col-span-2">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
@@ -1416,6 +1441,7 @@ export default function ReusableTokensAdmin() {
                       Usos: {individualToken.usedCount || 0}/{individualToken.maxUses}
                     </div>
                     {individualToken.validFrom && <div className="text-sm text-slate-600 dark:text-slate-400"><strong>Disponible desde:</strong> {new Date(individualToken.validFrom).toLocaleString("es-PE", { timeZone: REUSABLE_TIMEZONE })}</div>}
+                    {individualToken.weekdays?.length && individualToken.startTime && individualToken.endTime ? <div className="text-sm text-slate-600 dark:text-slate-400">Días: {reusableScheduleLabel(individualToken.startTime, individualToken.endTime, individualToken.weekdays)}</div> : null}
                     <div className="text-sm text-slate-600 dark:text-slate-400 mb-4">
                       <strong>Expira:</strong>{" "}
                       {new Date(individualToken.expiresAt).toLocaleString("es-ES", {
@@ -1570,6 +1596,7 @@ export default function ReusableTokensAdmin() {
                                 Usos: {token.usedCount || 0}/{token.maxUses}
                               </div>
                               {token.validFrom && <div className="text-sm text-slate-600 dark:text-slate-400">Disponible desde: {new Date(token.validFrom).toLocaleString("es-PE", { timeZone: REUSABLE_TIMEZONE })}</div>}
+                              {token.weekdays?.length && token.startTime && token.endTime ? <div className="text-sm text-slate-600 dark:text-slate-400">Días: {reusableScheduleLabel(token.startTime, token.endTime, token.weekdays)}</div> : null}
                               <div className="text-sm text-slate-600 dark:text-slate-400">
                                 Expira:{" "}
                                 {new Date(token.expiresAt).toLocaleString("es-ES", {

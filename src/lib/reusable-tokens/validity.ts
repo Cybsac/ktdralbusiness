@@ -9,9 +9,10 @@ export function clockMinutes(value: string, allowMidnight = false) {
 export function inReusableWindow(
   start: Date | string | null | undefined,
   end: Date | string | null | undefined,
-  now = new Date()
+  now = new Date(),
+  weekdays: number[] = []
 ) {
-  if (!start && !end) return true;
+  if (!start && !end) return weekdays.length === 0;
   if (!start || !end) return false;
   const parse = (value: Date | string) =>
     (typeof value === "string" ? DateTime.fromISO(value) : DateTime.fromJSDate(value)).setZone(
@@ -24,6 +25,10 @@ export function inReusableWindow(
   const minutes = current.hour * 60 + current.minute;
   const begin = from.hour * 60 + from.minute,
     finish = until.hour * 60 + until.minute;
+  if (weekdays.some((day) => !Number.isInteger(day) || day < 1 || day > 7)) return false;
+  const activeDay =
+    begin > finish && minutes < finish ? current.minus({ days: 1 }).weekday : current.weekday;
+  if (weekdays.length && !weekdays.includes(activeDay)) return false;
   // 00:00 -> 24:00 is represented by successive local midnights.
   if (begin === finish) return until.toMillis() > from.toMillis();
   return finish > begin
@@ -35,6 +40,7 @@ export function reusableAvailability(
     disabled: boolean;
     expiresAt: Date | string;
     validFrom?: Date | string | null;
+    weekdays?: number[];
     usedCount: number;
     maxUses: number;
     startTime?: Date | string | null;
@@ -57,6 +63,7 @@ export function reusableAvailability(
       new Date(token.validFrom).getTime() > now.getTime())
   )
     return "NOT_STARTED";
-  if (!inReusableWindow(token.startTime, token.endTime, now)) return "OUTSIDE_TIME_WINDOW";
+  if (!inReusableWindow(token.startTime, token.endTime, now, token.weekdays))
+    return "OUTSIDE_TIME_WINDOW";
   return "AVAILABLE";
 }

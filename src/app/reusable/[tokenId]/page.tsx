@@ -5,6 +5,7 @@ import { generateQrPngDataUrl } from "@/lib/qr";
 import { prizeAuthorizedFetch } from "@/lib/prize-authorization/client";
 import React, { useEffect, useState, useRef } from "react";
 import { reusableAvailability } from "@/lib/reusable-tokens/validity";
+import { reusableScheduleLabel } from "@/lib/reusable-tokens/weekdays";
 import { DateTime } from "luxon";
 import Link from "next/link";
 
@@ -18,6 +19,7 @@ type TokenData = {
   };
   expiresAt: string;
   validFrom?: string | null;
+  weekdays?: number[];
   maxUses: number | null;
   usedCount: number;
   disabled: boolean;
@@ -391,13 +393,12 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
 
   if (notStarted || outsideWindow) {
     const start = tokenData.validFrom ? DateTime.fromISO(tokenData.validFrom).setZone(REUSABLE_TIMEZONE).toLocaleString(DateTime.DATETIME_MED, { locale: "es-PE" }) : null;
-    const hour = (value: string) => DateTime.fromISO(value).setZone(REUSABLE_TIMEZONE).toFormat("HH:mm");
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0E0606] p-4 text-white">
         <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 p-6 text-center">
           <div className="text-4xl">⏰</div>
           <h1 className="mt-4 text-xl font-bold">{notStarted ? "Aún no disponible" : "Fuera de horario"}</h1>
-          <p className="mt-3 text-sm text-white/70">{notStarted && start ? `Disponible desde el ${start}.` : tokenData.startTime && tokenData.endTime ? `Disponible todos los días de ${hour(tokenData.startTime)} a ${hour(tokenData.endTime)}.` : "Este token no está disponible en este horario."}</p>
+          <p className="mt-3 text-sm text-white/70">{notStarted && start ? `Disponible desde el ${start}.` : tokenData.startTime && tokenData.endTime ? `Disponible: ${reusableScheduleLabel(tokenData.startTime, tokenData.endTime, tokenData.weekdays)}.` : "Este token no está disponible en este horario."}</p>
           <Link href={isAdmin ? "/admin" : isStaff ? "/u" : "/"} className="mt-6 inline-block text-sm text-white/60 underline">Volver</Link>
         </div>
       </div>
@@ -603,9 +604,7 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
               {/* @ts-ignore */}
               <span>
                 Válido:{" "}
-                {DateTime.fromISO(tokenData.startTime).setZone(REUSABLE_TIMEZONE).toFormat("HH:mm")}{" "}
-                - {DateTime.fromISO(tokenData.endTime).setZone(REUSABLE_TIMEZONE).toFormat("HH:mm")}{" "}
-                (Lima)
+                {reusableScheduleLabel(tokenData.startTime, tokenData.endTime, tokenData.weekdays)} ({REUSABLE_TIMEZONE})
               </span>
             </div>
           )}

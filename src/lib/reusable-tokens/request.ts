@@ -33,6 +33,17 @@ export const reusableGenerationSchema = z
       z.object({ type: z.literal("expires_at"), expiresAt: z.string().min(1) }),
       z.object({ type: z.literal("time_window"), startTime: time, endTime }),
       z.object({
+        type: z.literal("weekly_window"),
+        weekdays: z
+          .array(z.number().int().min(1).max(7))
+          .min(1)
+          .max(7)
+          .refine((days) => new Set(days).size === days.length, "Selecciona días sin repetir"),
+        expiresAt: z.string().min(1),
+        startTime: time,
+        endTime,
+      }),
+      z.object({
         type: z.literal("specific_date"),
         date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         startTime: time.optional(),
@@ -49,6 +60,7 @@ export function resolveReusableValidity(
   const local = DateTime.fromJSDate(now, { zone: REUSABLE_TIMEZONE });
   let expires = local;
   let validFrom: Date | null = null;
+  let weekdays: number[] = [];
   let startTime: Date | null = null,
     endTime: Date | null = null;
   if (validity.type === "duration_days") expires = local.plus({ days: validity.durationDays });
@@ -70,9 +82,22 @@ export function resolveReusableValidity(
     const day = local.startOf("day");
     startTime = day.plus({ minutes: begin }).toJSDate();
     endTime = day.plus({ minutes: finish + (finish < begin ? 24 * 60 : 0) }).toJSDate();
-    expires = local.plus({ days: P.timeWindowLifetimeDays });
+    if (validity.type === "weekly_window") {
+      weekdays = [...validity.weekdays].sort((a, b) => a - b);
+      expires = DateTime.fromISO(validity.expiresAt, { zone: REUSABLE_TIMEZONE });
+      if (!expires.isValid || expires <= local) throw new Error("INVALID_EXPIRATION");
+      const hasOccurrence = Array.from({ length: 8 }, (_, index) =>
+        local.startOf("day").plus({ days: index - 1 })
+      ).some((day) => {
+        if (!weekdays.includes(day.weekday)) return false;
+        const from = day.plus({ minutes: begin });
+        const until = day.plus({ minutes: finish + (finish < begin ? 24 * 60 : 0) });
+        return until > local && from < expires;
+      });
+      if (!hasOccurrence) throw new Error("NO_WEEKLY_OCCURRENCE");
+    } else expires = local.plus({ days: P.timeWindowLifetimeDays });
   }
   if (!expires.isValid || expires.toMillis() <= now.getTime())
     throw new Error("INVALID_EXPIRATION");
-  return { expiresAt: expires.toJSDate(), validFrom, startTime, endTime };
+  return { expiresAt: expires.toJSDate(), validFrom, startTime, endTime, weekdays };
 }

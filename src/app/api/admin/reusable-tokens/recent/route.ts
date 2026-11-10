@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
           groupId: string | null;
           expiresAt: Date;
           validFrom: Date | null;
+          weekdays: number[];
           createdAt: Date;
           redeemedAt: Date | null;
           deliveredAt: Date | null;
@@ -136,6 +137,7 @@ export async function GET(req: NextRequest) {
       usedCount: token.usedCount,
       expiresAt: token.expiresAt,
       validFrom: token.validFrom,
+      weekdays: token.weekdays,
       startTime: token.startTime,
       endTime: token.endTime,
       createdAt: token.createdAt,

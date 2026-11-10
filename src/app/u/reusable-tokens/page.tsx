@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { REUSABLE_TIMEZONE } from '@/lib/reusable-tokens/policy';
+import { reusableScheduleLabel } from '@/lib/reusable-tokens/weekdays';
 
 interface GroupToken {
   id: string;
@@ -9,6 +10,7 @@ interface GroupToken {
   usedCount: number;
   expiresAt: string;
   validFrom?: string | null;
+  weekdays?: number[];
   startTime?: string | null;
   endTime?: string | null;
   prize: { id: string; label: string; key: string; color?: string | null };
@@ -267,6 +269,7 @@ export default function ReusableTokensStaffPage() {
                               </span>
                               <div className="text-[10px] text-slate-400 mt-0.5">
                                 {token.validFrom ? <>Desde: {formatSchedule(token.validFrom)}<br />Hasta: {formatSchedule(token.expiresAt)}</> : <>Exp: {formatDate(token.expiresAt)}</>}
+                                {token.weekdays?.length && token.startTime && token.endTime ? <><br />{reusableScheduleLabel(token.startTime, token.endTime, token.weekdays)}</> : null}
                               </div>
                             </div>
                           </div>
