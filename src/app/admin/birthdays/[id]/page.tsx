@@ -24,7 +24,11 @@ type Reservation = {
   id: string;
   celebrantName: string;
   phone: string;
-  documento: string;
+  documento: string | null;
+  isSurprise?: boolean;
+  organizerName?: string | null;
+  organizerDni?: string | null;
+  cardName?: string | null;
   email: string | null;
   birthDate: string | null;
   date: string; // YYYY-MM-DD
@@ -108,6 +112,10 @@ export default function AdminBirthdayDetailPage({ params }: Props) {
       celebrantName: r.celebrantName,
       phone: r.phone,
       documento: r.documento,
+      isSurprise: r.isSurprise,
+      organizerDni: r.organizerDni,
+      organizerName: r.organizerName,
+      cardName: r.cardName,
       email: r.email ?? null,
       birthDate: r.birthDate?.slice?.(0, 10) ?? null,
       date: r.date?.slice?.(0,10) || r.date,
@@ -196,8 +204,9 @@ export default function AdminBirthdayDetailPage({ params }: Props) {
           <div className="text-sm text-slate-300">Fecha: {resv.date} {resv.timeSlot}</div>
           <div className="text-sm text-slate-300">Pack: {resv.pack?.name}</div>
           <div className="text-sm text-slate-300">Set fotográfico: {resv.wantsPhotoSession ? 'Sí' : 'No'}</div>
-          <div className="text-sm text-slate-300">Documento: {resv.documento}</div>
-          <div className="text-sm text-slate-300">WhatsApp: {resv.phone}</div>
+          <div className="text-sm text-slate-300">Documento: {resv.documento || 'No registrado'}</div>
+          {resv.isSurprise && <div className="text-sm text-amber-500">Sorpresa · cumpleañero pendiente de verificar. Organiza: {resv.organizerName} · DNI {resv.organizerDni}. Tarjeta: {resv.cardName}</div>}
+          <div className="text-sm text-slate-300">{resv.isSurprise ? 'WhatsApp del organizador' : 'WhatsApp'}: {resv.phone}</div>
           <div className="text-sm text-slate-300">Fecha de nacimiento: {resv.birthDate || '-'}</div>
           <div className="text-sm text-slate-300">Origen: {birthdayReservationSourceLabel(resv.reservationSource)}{resv.createdByUser ? ` · ${resv.createdByUser.person?.name || resv.createdByUser.username}` : ''}</div>
           <div className="text-sm text-slate-300">Estado: {resv.status}</div>

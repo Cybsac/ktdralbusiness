@@ -25,3 +25,15 @@ export const reservationCreateSchema = z.object({
   ...reservationFields,
   referrerId: z.string().optional(),
 });
+
+export const birthdayCardNameField = z.string().trim().min(1).max(P.maxName).regex(/^\S+$/, "Ingresa un solo nombre para la tarjeta");
+export const surpriseReservationCreateSchema = reservationCreateSchema.omit({ documento: true }).extend({
+  isSurprise: z.literal(true),
+  celebrantName: birthdayCardNameField,
+  birthDate: z.undefined().optional(),
+  documento: z.null().optional(),
+  organizerDni: reservationFields.documento,
+  organizerName: reservationFields.celebrantName,
+  organizerBirthDate: reservationFields.birthDate.unwrap(),
+  cardName: birthdayCardNameField,
+});

@@ -50,7 +50,7 @@ export function BirthdayIdentityLookup({ dni, isPublic = false, input, onResult 
         result.birthday && !result.birthdayIdentityProof
           ? "No pudimos validar tus datos. Inténtalo más tarde o contacta al equipo."
           : result.birthday
-            ? "Listo, completamos tus datos. Revísalos antes de continuar."
+            ? isPublic ? "Listo, completamos tus datos. Revísalos antes de continuar." : "Datos consultados correctamente."
             : "No pudimos obtener la fecha de nacimiento. Contacta al equipo para realizar la reserva."
       );
     } catch (error) {

@@ -13,6 +13,7 @@ export function ReservationEditor({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [isSurprise, setIsSurprise] = useState(false);
   async function open() {
     setBusy(true);
     setError("");
@@ -31,10 +32,12 @@ export function ReservationEditor({
           ? options.packs
           : [...options.packs, data.pack]
       );
+      setIsSurprise(Boolean(data.isSurprise));
       setForm({
         celebrantName: data.celebrantName,
         phone: data.phone,
-        documento: data.documento,
+        documento: data.documento || "",
+        cardName: data.cardName || null,
         email: data.email || "",
         birthDate: data.birthDate?.slice(0, 10) || "",
         date: data.date.slice(0, 10),
@@ -69,7 +72,7 @@ export function ReservationEditor({
       const response = await fetch(`/api/admin/birthdays/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, birthDate: form.birthDate || undefined }),
+        body: JSON.stringify({ ...form, celebrantName: isSurprise ? form.cardName : form.celebrantName, documento: form.documento || null, birthDate: isSurprise ? undefined : form.birthDate || undefined, cardName: form.cardName || null }),
       });
       const data = await response.json();
       if (!response.ok)
@@ -90,9 +93,9 @@ export function ReservationEditor({
       {label}
       <input
         className="block w-full rounded border border-slate-400 bg-transparent p-2"
-        required={key !== "email" && key !== "birthDate"}
+        required={key !== "email" && key !== "birthDate" && !(key === "documento" && isSurprise)}
         type={type}
-        value={form[key]}
+        value={form[key] ?? ""}
         onChange={(e) =>
           setForm({ ...form, [key]: type === "number" ? Number(e.target.value) : e.target.value })
         }
@@ -143,10 +146,11 @@ export function ReservationEditor({
       {form && (
         <form onSubmit={save} className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
-            {field("celebrantName", "Nombre y apellido")}
-            {field("documento", "DNI (8 dígitos)")}
-            {field("phone", "WhatsApp (9 dígitos)")}
-            {field("birthDate", "Fecha de nacimiento", "date")}
+            {!isSurprise && field("celebrantName", "Nombre y apellido")}
+            {field("documento", isSurprise ? "DNI del cumpleañero (opcional, sin verificar)" : "DNI (8 dígitos)")}
+            {isSurprise && field("cardName", "Nombre para la tarjeta")}
+            {field("phone", isSurprise ? "WhatsApp del organizador (9 dígitos)" : "WhatsApp (9 dígitos)")}
+            {!isSurprise && field("birthDate", "Fecha de nacimiento", "date")}
             {field("date", "Fecha", "date")}
             {field("timeSlot", "Hora", "time")}
             {field("guestsPlanned", "Invitados previstos", "number")}

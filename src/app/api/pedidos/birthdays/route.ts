@@ -1,6 +1,5 @@
 import { birthdayFailure } from "@/lib/birthdays/http";
-import { reservationCreateSchema } from "@/lib/birthdays/reservation-input";
-import { verifyBirthdayIdentity } from "@/lib/birthdays/identity-proof";
+import { internalBirthdayCreateSchema, validInternalBirthdayIdentity, surpriseCreationEnabled } from "@/lib/birthdays/internal-create";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { apiError, apiOk } from "@/lib/apiError";
@@ -87,7 +86,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-const CreateSchema = reservationCreateSchema.extend({ identityProof: z.string().min(1).max(512) });
+const CreateSchema = internalBirthdayCreateSchema;
 
 export async function POST(req: NextRequest) {
   const raw = getUserSessionCookieFromRequest(req as unknown as Request);
@@ -116,16 +115,18 @@ export async function POST(req: NextRequest) {
       packId,
       guestsPlanned,
       wantsPhotoSession,
-      identityProof,
     } = parsed.data;
-    if (!birthDate || !verifyBirthdayIdentity({ documento, name: celebrantName, birthDate }, identityProof))
+    const surprise = "isSurprise" in parsed.data && parsed.data.isSurprise ? parsed.data : null;
+    if (surprise && !surpriseCreationEnabled()) return apiError("SURPRISE_LOCAL_DISABLED", "Las reservas sorpresa no están habilitadas en este entorno.", undefined, 409);
+    if (!validInternalBirthdayIdentity(parsed.data))
       return apiError("INVALID_IDENTITY", "No pudimos validar los datos. Vuelve a consultar el DNI.", undefined, 400);
     const dt = limaDateTimeToJSDate(parseDateStringToLima(date));
     if (!isFinite(dt.getTime())) return apiError("INVALID_DATE", "invalid date", undefined, 400);
     const created = await createReservation({
       celebrantName,
       phone,
-      documento,
+      documento: documento || null,
+      ...(surprise && { isSurprise: true, organizerDni: surprise.organizerDni, organizerName: surprise.organizerName, organizerBirthDate: surprise.organizerBirthDate, cardName: surprise.cardName }),
       email: email || undefined,
       birthDate,
       date: dt,

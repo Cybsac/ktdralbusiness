@@ -10,25 +10,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!session || !['STAFF', 'COORDINATOR', 'ADMIN'].includes(session.role)) return apiError('UNAUTHORIZED', undefined, undefined, 401);
   const r = await getReservation(params.id);
   if (!r) return apiError('NOT_FOUND', 'Reservation not found', undefined, 404);
-  const dto = {
-    id: r.id,
-    celebrantName: r.celebrantName,
-    phone: r.phone,
-    documento: r.documento,
-    email: r.email ?? null,
-    birthDate: r.birthDate?.toISOString().slice(0, 10) ?? null,
-    date: r.date.toISOString().slice(0,10),
-    timeSlot: r.timeSlot,
-    pack: r.pack ? { id: r.pack.id, name: r.pack.name, qrCount: r.pack.qrCount, bottle: r.pack.bottle, perks: r.pack.perks } : null,
-    guestsPlanned: r.guestsPlanned,
-    wantsPhotoSession: r.wantsPhotoSession,
-    status: r.status,
-    tokensGeneratedAt: r.tokensGeneratedAt ? r.tokensGeneratedAt.toISOString() : null,
-    createdAt: r.createdAt.toISOString(),
-    courtesyItems: r.courtesyItems || [],
-    photoDeliveries: r.photoDeliveries || [],
-  };
-  return apiOk(dto);
+  return apiOk(r);
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {

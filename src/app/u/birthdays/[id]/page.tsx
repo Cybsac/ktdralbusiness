@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { DateTime } from 'luxon';
 import { birthdayReservationSourceLabel } from '@/lib/birthdays/attribution';
 
-type Reservation = { id:string; celebrantName:string; phone:string; documento:string; email:string|null; birthDate:string|null; date:string; timeSlot:string; pack?: any; guestsPlanned:number; wantsPhotoSession:boolean; status:string; tokensGeneratedAt:string|null; reservationSource?: string | null; createdByUser?: { username: string; person?: { name: string | null } | null } | null; courtesyItems:any[]; photoDeliveries:any[] };
+type Reservation = { id:string; celebrantName:string; phone:string; documento:string|null; isSurprise?:boolean; organizerDni?:string|null; organizerName?:string|null; cardName?:string|null; email:string|null; birthDate:string|null; date:string; timeSlot:string; pack?: any; guestsPlanned:number; wantsPhotoSession:boolean; status:string; tokensGeneratedAt:string|null; reservationSource?: string | null; createdByUser?: { username: string; person?: { name: string | null } | null } | null; courtesyItems:any[]; photoDeliveries:any[] };
 type Token = { id:string; code:string; kind:string; status:string; expiresAt:string; usedCount?:number; maxUses?:number };
 
 export default function StaffBirthdayDetail({ params }: { params: { id: string } }) {
@@ -89,8 +89,9 @@ export default function StaffBirthdayDetail({ params }: { params: { id: string }
               <div className="text-slate-600 dark:text-slate-300">
                 <span className="font-medium">Documento:</span>
                 <div className="mt-1 text-slate-800 dark:text-slate-200 font-medium font-mono">
-                  {resv.documento}
+                  {resv.documento || 'No registrado'}
                 </div>
+                {resv.isSurprise && <div className="mt-1 text-amber-600">Sorpresa · cumpleañero pendiente de verificar. Organiza: {resv.organizerName} · DNI {resv.organizerDni}. Tarjeta: {resv.cardName}</div>}
               </div>
               <div className="text-slate-600 dark:text-slate-300">
                 <span className="font-medium">Fecha de nacimiento:</span>

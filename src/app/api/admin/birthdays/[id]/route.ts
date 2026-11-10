@@ -35,6 +35,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const messages: Record<string, string> = {
       NOT_FOUND: "Reserva no encontrada",
       INVALID_PACK: "Paquete no disponible",
+      INVALID_NAME: "Revisa el nombre ingresado",
       DATE_PAST: "La nueva fecha no puede ser pasada",
       CLOSED_DAY: "No atendemos en la fecha seleccionada. Elige otro día.",
       ALREADY_USED: "No se puede cambiar fecha o paquete cuando ya se registraron ingresos",

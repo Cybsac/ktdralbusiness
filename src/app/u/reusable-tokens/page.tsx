@@ -124,10 +124,10 @@ export default function ReusableTokensStaffPage() {
 
   const fetchGroups = async () => {
     try {
-      const res = await fetch('/api/admin/token-groups');
+      const res = await fetch('/api/admin/token-groups?unlocked=1');
       if (res.ok) {
         const data = await res.json();
-        setGroups(Array.isArray(data) ? data : []);
+        setGroups(Array.isArray(data) ? data.filter(group => !group.locked) : []);
       }
     } catch {}
     setLoading(false);
@@ -202,12 +202,9 @@ export default function ReusableTokensStaffPage() {
               >
                 {/* Group header */}
                 <button
-                  onClick={() => !group.locked && toggleGroup(group.id)}
-                  className={`w-full p-4 flex items-center gap-3 text-left transition-colors ${group.locked ? 'cursor-not-allowed opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}
+                  onClick={() => toggleGroup(group.id)}
+                  className="w-full p-4 flex items-center gap-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50"
                 >
-                  {group.locked ? (
-                    <span className="text-base flex-shrink-0">🔒</span>
-                  ) : (
                     <svg
                       className={`w-4 h-4 text-slate-400 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
                       fill="none"
@@ -216,7 +213,6 @@ export default function ReusableTokensStaffPage() {
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
-                  )}
                   <div
                     className="w-3.5 h-3.5 rounded-full flex-shrink-0"
                     style={{ backgroundColor: group.color || '#3b82f6' }}
@@ -229,12 +225,6 @@ export default function ReusableTokensStaffPage() {
                       <span className={totalUsed > 0 ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}>
                         {totalUsed} de {totalMax} escaneos
                       </span>
-                      {group.locked && (
-                        <>
-                          <span>·</span>
-                          <span className="text-amber-600 dark:text-amber-400 font-medium">Bloqueado</span>
-                        </>
-                      )}
                     </div>
                   </div>
                 </button>

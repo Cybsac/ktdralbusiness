@@ -20,7 +20,7 @@ export async function changeReservationStatus(
     const current = await tx.birthdayReservation.findUnique({ where: { id } });
     if (!current) throw new Error("NOT_FOUND");
     if (!transitions[status].includes(current.status)) throw new Error("INVALID_TRANSITION");
-    if (status === "approved" && current.status === "canceled") {
+    if (status === "approved" && current.status === "canceled" && current.documento) {
       const day = birthdayDay(current.date);
       await lockBirthdayDocument(tx, current.documento, day.year);
       if (

@@ -20,6 +20,11 @@ export async function getReservation(id: string): Promise<any | null> {
     celebrantName: reservation.celebrantName,
     phone: reservation.phone,
     documento: reservation.documento,
+    isSurprise: reservation.isSurprise,
+    organizerDni: reservation.organizerDni,
+    organizerName: reservation.organizerName,
+    cardName: reservation.cardName,
+    birthDate: reservation.birthDate?.toISOString().slice(0, 10) || null,
     email: reservation.email,
     date: birthdayDateKey(reservation.date), // YYYY-MM-DD
     timeSlot: reservation.timeSlot,

@@ -9,7 +9,12 @@ import type { BirthdayReservationSource } from "./attribution";
 export type CreateReservationInput = {
   celebrantName: string;
   phone: string;
-  documento: string;
+  documento: string | null;
+  isSurprise?: boolean;
+  organizerDni?: string;
+  organizerName?: string;
+  organizerBirthDate?: string;
+  cardName?: string;
   email?: string | null;
   birthDate?: string;
   date: Date;

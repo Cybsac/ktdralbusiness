@@ -34,7 +34,7 @@ export async function ensureBirthdayCards(
     token.code,
     `${baseUrl}/b/${encodeURIComponent(token.code)}`,
     BIRTHDAY_STORED_CARD.format,
-    reservation.celebrantName,
+    reservation.cardName || reservation.celebrantName,
     reservation.date.toISOString()
   );
   const storageKey = `${reservationId}/guest-${randomUUID()}.${BIRTHDAY_STORED_CARD.extension}`;
@@ -67,6 +67,7 @@ export async function ensureBirthdayCards(
       assertBirthdayCardAvailable(current);
       if (
         current.celebrantName !== reservation.celebrantName ||
+        current.cardName !== reservation.cardName ||
         current.date.getTime() !== reservation.date.getTime()
       )
         throw new Error("CARD_DATA_CHANGED");

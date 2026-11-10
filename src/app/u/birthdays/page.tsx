@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import { BirthdayIdentityLookup } from "@/components/BirthdayIdentityLookup";
+import { BookingTypeSelector, VerifiedOrganizer } from "@/components/birthdays/BookingTypeSelector";
+import { confirmSurpriseDuplicate } from "@/lib/birthdays/surprise-client";
 import { birthdayCardName } from "@/lib/birthdays/card-name";
 import { suggestedCelebration } from "@/lib/birthdays/celebration";
 import { birthdayDay, birthdayToday } from '@/lib/birthdays/calendar';
@@ -14,7 +16,7 @@ type Pack = {
 };
 
 type Reservation = {
-	id: string; celebrantName: string; phone: string; documento: string; date: string; timeSlot: string;
+	id: string; celebrantName: string; phone: string; documento: string | null; isSurprise?: boolean; organizerDni?: string | null; organizerName?: string | null; date: string; timeSlot: string;
 	pack: { id: string; name: string; qrCount: number; bottle: string | null } | null;
 	guestsPlanned: number; wantsPhotoSession: boolean; status: string; tokensGeneratedAt: string | null; createdAt: string;
 	reservationSource?: string | null;
@@ -146,6 +148,7 @@ const ReservationCard = memo(function ReservationCard({ r, busyApprove, busyGene
 					<div className="flex items-start justify-between gap-3">
 						<div className="flex items-center gap-2 min-w-0 flex-1">
 							<a href={`/u/birthdays/${encodeURIComponent(r.id)}`} className="font-semibold text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 break-words sm:truncate">{r.celebrantName}</a>
+							{r.isSurprise && <p className="text-xs text-amber-600">Sorpresa · cumpleañero pendiente de verificar</p>}
 							<span className={`text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${badgeCls}`}>{statusLabel}</span>
 						</div>
 					</div>
@@ -189,7 +192,7 @@ const ReservationCard = memo(function ReservationCard({ r, busyApprove, busyGene
 						</div>
 						<div className="flex items-center gap-2">
 							<span className="text-slate-400">🆔</span>
-							<span className="font-mono text-xs">DNI: {r.documento}</span>
+							<span className="font-mono text-xs">{r.isSurprise ? `Organiza: ${r.organizerName || ''} · DNI: ${r.organizerDni || ''}` : `DNI: ${r.documento || ''}`}</span>
 						</div>
 					</div>
 
@@ -421,6 +424,10 @@ export default function StaffBirthdaysPage() {
 	const [busyDelete, setBusyDelete] = useState<Record<string, boolean>>({});
 	// form
 	const [cName, setCName] = useState('');
+	const [surprise, setSurprise] = useState(false);
+	const [organizerName, setOrganizerName] = useState('');
+	const [organizerBirthDate, setOrganizerBirthDate] = useState('');
+	const [cardName, setCardName] = useState('');
 	const [cPhone, setCPhone] = useState('');
 	const [cDoc, setCDoc] = useState('');
   const [lookupDocument, setLookupDocument] = useState("");
@@ -442,10 +449,12 @@ export default function StaffBirthdaysPage() {
 		setGeneralError('');
 
 		// Required fields
-		if (!cName.trim() || lookupDocument !== cDoc || !identityProof) errors.documento = 'Consulta el DNI para completar los datos del cumpleañero';
+		if (lookupDocument !== cDoc || !identityProof || (surprise && (!organizerName || !organizerBirthDate))) errors.documento = 'Consulta el DNI para completar los datos';
+		if (!surprise && !cName.trim()) errors.name = 'Ingresa el nombre y apellido del cumpleañero';
+		if (surprise && (!cardName.trim() || /\s/.test(cardName.trim()))) errors.cardName = 'Ingresa un solo nombre para la tarjeta';
 		if (!cPhone.trim()) errors.phone = 'El número de WhatsApp es obligatorio';
 		if (!cDoc.trim()) errors.documento = 'El DNI es obligatorio';
-		if (!cBirthDate || !reservationFields.birthDate.safeParse(cBirthDate).success) errors.birthDate = 'La fecha de nacimiento es obligatoria';
+		if ((!surprise && !cBirthDate) || (cBirthDate && !reservationFields.birthDate.safeParse(cBirthDate).success)) errors.birthDate = 'Ingresa una fecha de nacimiento válida';
 		if (!cDate.trim()) errors.date = 'La fecha es obligatoria';
 		if (!cPack.trim()) errors.pack = 'Debes seleccionar un pack';
 
@@ -456,7 +465,7 @@ export default function StaffBirthdaysPage() {
 		if (cPhone && !reservationFields.phone.safeParse(cPhone.replace(/\D/g, '')).success) {
 			errors.phone = 'El WhatsApp debe tener exactamente 9 dígitos';
 		}
-		if (cName && !reservationFields.celebrantName.safeParse(cName).success) {
+		if (!surprise && cName && !reservationFields.celebrantName.safeParse(cName).success) {
 			errors.name = 'Ingresa un nombre y apellido válidos';
 		}
 
@@ -563,12 +572,14 @@ export default function StaffBirthdaysPage() {
 		try {
 			const selectedPack = packs.find(pack => pack.id === cPack);
 			if (!selectedPack || selectedPack.qrCount < 1) { setFieldErrors({ pack: 'El pack seleccionado no está disponible o no tiene invitaciones.' }); return; }
+			if (surprise && !(await confirmSurpriseDuplicate(cDoc, cardName.trim(), cDate))) return;
 			const payload = {
-				celebrantName: cName.trim(),
+				celebrantName: surprise ? cardName.trim() : cName.trim(),
 				phone: cPhone.replace(/\D/g, ''), // Clean phone number
-				documento: cDoc.replace(/\D/g, ''), // Clean DNI
+				documento: surprise ? null : cDoc.replace(/\D/g, ''),
+				...(surprise && { isSurprise: true, organizerDni: cDoc, organizerName, organizerBirthDate, cardName: cardName.trim() }),
                 identityProof,
-				birthDate: cBirthDate,
+				birthDate: surprise ? undefined : cBirthDate || undefined,
 				date: cDate,
 				timeSlot: cSlot,
 				packId: cPack,
@@ -612,6 +623,7 @@ export default function StaffBirthdaysPage() {
 
 			// Success - clear form
 			setCName('');
+			setSurprise(false); setOrganizerName(''); setOrganizerBirthDate(''); setCardName('');
 			setCPhone('');
 			setCDoc('');
 			setLookupDocument('');
@@ -624,7 +636,7 @@ export default function StaffBirthdaysPage() {
 			setStatus(''); setSearch(''); setPage(1); setAppliedFilters({ status: '', search: '' });
 			setActiveTab('list');
 		} catch (e: any) {
-			setGeneralError('Error de conexión. Inténtalo de nuevo.');
+			setGeneralError(e?.message || 'Error de conexión. Inténtalo de nuevo.');
 		} finally {
 			setCreating(false);
 		}
@@ -788,11 +800,13 @@ export default function StaffBirthdaysPage() {
 									</div>
 								)}
 
+								<BookingTypeSelector surprise={surprise} onChange={value => { setSurprise(value); setCDoc(''); setCName(''); setCBirthDate(''); setCDate(''); setLookupDocument(''); setIdentityProof(''); setOrganizerName(''); setOrganizerBirthDate(''); setCardName(''); setFieldErrors({}); setGeneralError(''); }} />
+								{surprise && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Consulta el DNI de quien organiza. El nombre de la tarjeta se ingresa manualmente y queda pendiente de verificar.</p>}
 								<div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
 
 									<div className="space-y-1">
-										<label htmlFor="staff-birthday-dni" className="block text-sm font-medium text-slate-700 dark:text-slate-300">DNI del cumpleañero</label>
-										<BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setIdentityProof(person.birthdayIdentityProof || ""); setCName(person.name); setCBirthDate(person.birthday || ''); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); }} input={
+										<label htmlFor="staff-birthday-dni" className="block text-sm font-medium text-slate-700 dark:text-slate-300">{surprise ? 'DNI del organizador' : 'DNI del cumpleañero'}</label>
+										<BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setIdentityProof(person.birthdayIdentityProof || ""); if (surprise) { setOrganizerName(person.name); setOrganizerBirthDate(person.birthday || ''); } else { setCName(person.name); setCBirthDate(person.birthday || ''); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); } }} input={
 										<input id="staff-birthday-dni" inputMode="numeric" autoComplete="off" maxLength={8}
 											className={`min-h-11 min-w-0 rounded-l-lg border px-3 text-base sm:text-sm w-full ${
 												fieldErrors.documento
@@ -802,7 +816,7 @@ export default function StaffBirthdaysPage() {
 											placeholder="Documento (DNI - 8 dígitos)"
 											value={cDoc}
 											onChange={e => {
-												setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); setIdentityProof(""); }
+												setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); setIdentityProof(""); setOrganizerName(''); setOrganizerBirthDate(''); }
 												clearFieldError('documento');
 											}}
 										/>} />
@@ -811,7 +825,8 @@ export default function StaffBirthdaysPage() {
 										)}
 									</div>
 
-{lookupDocument && identityProof && cBirthDate && (
+{surprise && lookupDocument && identityProof && organizerName && <VerifiedOrganizer name={organizerName} />}
+{!surprise && lookupDocument && identityProof && cBirthDate && (
 									<div className="space-y-1">
 										<label htmlFor="staff-birthday-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Nombre y apellido</label>
 										<input id="staff-birthday-name"
@@ -830,15 +845,15 @@ export default function StaffBirthdaysPage() {
 									</div>
 
 )}
-{lookupDocument && identityProof && cBirthDate && (
+{lookupDocument && identityProof && (surprise ? organizerBirthDate : cBirthDate) && (
   <div className="space-y-1">
     <label htmlFor="staff-birthday-card-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Nombre en la tarjeta</label>
-    <input id="staff-birthday-card-name" className="min-h-11 min-w-0 w-full rounded border border-slate-300 bg-slate-50 px-3 text-base dark:border-slate-600 dark:bg-slate-800 sm:text-sm" value={birthdayCardName(cName)} readOnly />
-    <p className="text-xs text-slate-500 dark:text-slate-400">La tarjeta muestra el primer nombre del cumpleañero.</p>
+    <input id="staff-birthday-card-name" autoComplete="off" maxLength={BIRTHDAY_POLICY.maxName} aria-required={surprise} aria-invalid={!!fieldErrors.cardName} className={`min-h-11 min-w-0 w-full rounded border border-slate-300 px-3 text-base dark:border-slate-600 dark:bg-slate-800 sm:text-sm ${surprise ? 'bg-white' : 'bg-slate-50'}`} value={surprise ? cardName : birthdayCardName(cName)} readOnly={!surprise} onChange={e => { setCardName(e.target.value); clearFieldError('cardName'); }} />
+    <p className="text-xs text-slate-500 dark:text-slate-400">{surprise ? 'Ingresa un nombre para la invitación.' : 'La tarjeta muestra el primer nombre del cumpleañero.'}</p>{fieldErrors.cardName && <p className="text-xs text-rose-600">{fieldErrors.cardName}</p>}
   </div>
 )}
 									<div className="space-y-1">
-										<label htmlFor="staff-birthday-phone" className="block text-sm font-medium text-slate-700 dark:text-slate-300">WhatsApp (obligatorio)</label>
+										<label htmlFor="staff-birthday-phone" className="block text-sm font-medium text-slate-700 dark:text-slate-300">{surprise ? 'WhatsApp del organizador (obligatorio)' : 'WhatsApp (obligatorio)'}</label>
 										<input id="staff-birthday-phone" type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={9} aria-required="true"
 											className={`min-h-11 min-w-0 rounded border px-3 text-base sm:text-sm w-full ${
 												fieldErrors.phone
@@ -857,7 +872,7 @@ export default function StaffBirthdaysPage() {
 										)}
 									</div>
 
-									{lookupDocument && identityProof && cBirthDate && <div className="min-w-0"><label htmlFor="staff-birthday-birthdate" className="block text-sm font-medium">Fecha de nacimiento</label><input id="staff-birthday-birthdate" type="date" value={cBirthDate} readOnly className="min-h-11 min-w-0 rounded border px-3 text-base sm:text-sm w-full dark:bg-slate-800" />{fieldErrors.birthDate && <div className="text-xs text-rose-600">{fieldErrors.birthDate}</div>}</div>}
+									{!surprise && lookupDocument && identityProof && cBirthDate && <div className="min-w-0"><label htmlFor="staff-birthday-birthdate" className="block text-sm font-medium">Fecha de nacimiento del cumpleañero</label><input id="staff-birthday-birthdate" type="date" value={cBirthDate} readOnly className="min-h-11 min-w-0 rounded border px-3 text-base sm:text-sm w-full dark:bg-slate-800" />{fieldErrors.birthDate && <div className="text-xs text-rose-600">{fieldErrors.birthDate}</div>}</div>}
 									<div className="space-y-1">
 										<label htmlFor="staff-birthday-date" className="block text-sm font-medium">Fecha de celebración</label><input id="staff-birthday-date"
 											type="date"
@@ -953,6 +968,7 @@ export default function StaffBirthdaysPage() {
 									);
 								})()}
 
+								{(generalError || Object.keys(fieldErrors).length > 0) && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/30 dark:text-rose-200">{generalError || 'Revisa los campos señalados antes de guardar.'}</p>}
 								<div className="flex justify-end">
 									<button disabled={creating || packsLoading || !!packsError} onClick={submitCreate} className="btn min-h-12 w-full px-6 sm:w-auto">
 										{creating ? 'Guardando…' : 'Guardar Reserva'}

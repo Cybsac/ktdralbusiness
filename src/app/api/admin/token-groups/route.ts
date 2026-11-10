@@ -8,6 +8,7 @@ import { getSessionCookieFromRequest, verifySessionCookie, requireRole } from "@
 
 export async function GET(req: NextRequest) {
   try {
+    const unlockedOnly = new URL(req.url).searchParams.get("unlocked") === "1";
     const sessionCookie = getSessionCookieFromRequest(req);
     const session = await verifySessionCookie(sessionCookie);
     const auth = requireRole(session, [...REUSABLE_POLICY.managementRoles]);
@@ -17,6 +18,7 @@ export async function GET(req: NextRequest) {
 
     if (new URL(req.url).searchParams.get("summary") === "1") {
       const groups = await prisma.tokenGroup.findMany({
+        ...(unlockedOnly ? { where: { locked: false } } : {}),
         orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
         select: {
           id: true,
@@ -46,6 +48,7 @@ export async function GET(req: NextRequest) {
       );
     }
     const groups = await prisma.tokenGroup.findMany({
+      ...(unlockedOnly ? { where: { locked: false } } : {}),
       include: {
         tokens: {
           select: reusableGroupTokenSelect,

@@ -49,6 +49,8 @@ En la vista por filas se puede ordenar toda la consulta por fecha de celebració
 - `NEXT_PUBLIC_BIRTHDAY_SLOTS`: horarios públicos separados por comas.
 - `NEXT_PUBLIC_BIRTHDAY_STAFF_SLOTS`: horarios del portal de colaboradores, separados por comas.
 - `BIRTHDAY_MAX_RESERVATIONS_PER_SLOT`: capacidad por horario.
+- `BIRTHDAY_SURPRISE_DUPLICATE_WINDOW_DAYS`: días antes y después de la celebración para advertir sobre posibles reservas sorpresa repetidas del mismo organizador; por defecto 7. La advertencia no impide continuar.
+- `BIRTHDAY_SURPRISE_LOCAL_ENABLED=1`: habilita la creación de sorpresas fuera de producción solo cuando la base sea aislada o todas las aplicaciones que la usan soporten el DNI opcional. No activarla en desarrollo si comparte base con una versión anterior en producción.
 - La plantilla universal se configura en `/admin/birthdays/template` para administradores activos. Se guarda como `birthday-templates/newversioncard.webp`, sobrescribiendo ese único objeto; se admiten JPG, PNG y WebP 9:16 de al menos 1080 × 1920 y hasta 10 MB, normalizados a WebP 1080 × 1920. La regeneración manual conserva los códigos y se permite solo mientras la reserva esté vigente. Las imágenes guardadas anteriormente no cambian hasta regenerarse. La antigua variable `BIRTHDAY_TEMPLATE_URL` ya no determina la plantilla.
 - `NEXT_PUBLIC_SUPABASE_URL`: origen de almacenamiento para la plantilla predeterminada.
 

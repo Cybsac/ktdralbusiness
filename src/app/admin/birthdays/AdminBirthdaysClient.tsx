@@ -3,6 +3,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { BirthdayIdentityLookup } from "@/components/BirthdayIdentityLookup";
+import { BookingTypeSelector, VerifiedOrganizer } from "@/components/birthdays/BookingTypeSelector";
+import { confirmSurpriseDuplicate } from "@/lib/birthdays/surprise-client";
 import { suggestedCelebration } from "@/lib/birthdays/celebration";
 import { BIRTHDAY_POLICY } from "@/lib/birthdays/policy";
 import { birthdayReservationSourceLabel } from "@/lib/birthdays/attribution";
@@ -61,7 +63,10 @@ type Reservation = {
   id: string;
   celebrantName: string;
   phone: string;
-  documento: string;
+  documento: string | null;
+  isSurprise?: boolean;
+  organizerDni?: string | null;
+  organizerName?: string | null;
   date: string; // fecha celebración
   timeSlot: string;
   pack: { id: string; name: string; qrCount: number; bottle: string | null };
@@ -127,7 +132,7 @@ const AdminReservationCard = memo(function AdminReservationCard({
           {statusLabel}
         </span>
         <span className="text-base font-bold text-blue-900 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-2 py-1 rounded">
-          DNI: {r.documento}
+          {r.isSurprise ? `Sorpresa · cumpleañero pendiente de verificar · Organiza: ${r.organizerName || ''} · DNI: ${r.organizerDni || ''}` : `DNI: ${r.documento || ''}`}
         </span>
       </div>
       <div className="grid gap-y-1 text-[13px] sm:grid-cols-2">
@@ -278,6 +283,10 @@ export function AdminBirthdaysPage() {
   const [busyGenerate, setBusyGenerate] = useState<Record<string, boolean>>({});
   // create form state
   const [cName, setCName] = useState("");
+  const [surprise, setSurprise] = useState(false);
+  const [organizerName, setOrganizerName] = useState("");
+  const [organizerBirthDate, setOrganizerBirthDate] = useState("");
+  const [cardName, setCardName] = useState("");
   const [cPhone, setCPhone] = useState("");
   const [cDoc, setCDoc] = useState("");
   const [lookupDocument, setLookupDocument] = useState("");
@@ -498,7 +507,7 @@ export function AdminBirthdaysPage() {
             Gestión de Cumpleaños
           </h1>
         </div>
-        {err && (
+        {err && activeTab !== "create" && (
           <div className="border border-red-700 bg-red-950/30 text-red-200 rounded p-3 text-sm">
             {err}
           </div>
@@ -538,20 +547,23 @@ export function AdminBirthdaysPage() {
               <h2 className="text-lg font-semibold mb-4 text-slate-900 dark:text-white">
                 Crear Nueva Reserva
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="mb-4"><BookingTypeSelector surprise={surprise} onChange={value => { setSurprise(value); setCDoc(''); setCName(''); setCBirthDate(''); setCDate(''); setLookupDocument(''); setIdentityProof(''); setOrganizerName(''); setOrganizerBirthDate(''); setCardName(''); setErr(null); }} /></div>
+              {surprise && <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Consulta el DNI de quien organiza. El nombre de la tarjeta se ingresa manualmente y queda pendiente de verificar.</p>}
+              <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 [&>div]:min-w-0">
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
-                    Documento (DNI) *
+                  <label htmlFor="admin-birthday-dni" className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
+                    {surprise ? 'DNI del organizador *' : 'DNI del cumpleañero *'}
                   </label>
-                  <input
-                    className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
-                    placeholder="Número de documento"
+                  <BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setIdentityProof(person.birthdayIdentityProof || ""); if (surprise) { setOrganizerName(person.name); setOrganizerBirthDate(person.birthday || ''); } else { setCName(person.name); setCBirthDate(person.birthday || ""); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); } }} input={<input
+                    id="admin-birthday-dni" inputMode="numeric" autoComplete="off" maxLength={8}
+                    className="min-h-11 min-w-0 w-full rounded-l-lg border border-slate-300 bg-white px-3 text-base text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white sm:text-sm"
+                    placeholder="DNI de 8 dígitos"
                     value={cDoc}
-                    onChange={(e) => { setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); setIdentityProof(""); } }}
-                  />
-                  <BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setIdentityProof(person.birthdayIdentityProof || ""); setCName(person.name); setCBirthDate(person.birthday || ""); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); }} />
+                    onChange={(e) => { setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); setIdentityProof(""); setOrganizerName(''); setOrganizerBirthDate(''); } }}
+                  />} />
                 </div>
-{lookupDocument && identityProof && cBirthDate && (
+{surprise && lookupDocument && identityProof && organizerName && <VerifiedOrganizer name={organizerName} />}
+{!surprise && lookupDocument && identityProof && cBirthDate && (
                 <div className="sm:col-span-2 lg:col-span-1">
                   <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
                     Nombre del Cumpleañero *
@@ -564,20 +576,22 @@ export function AdminBirthdaysPage() {
                   />
                 </div>
                 )}
+                {surprise && lookupDocument && identityProof && organizerBirthDate && <div className="min-w-0"><label htmlFor="admin-birthday-card-name" className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">Nombre para la tarjeta *</label><input id="admin-birthday-card-name" autoComplete="off" maxLength={BIRTHDAY_POLICY.maxName} aria-required="true" className="min-h-11 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white sm:text-sm" value={cardName} onChange={e => setCardName(e.target.value)} placeholder="Un nombre" /><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Ingresa un nombre para la invitación.</p></div>}
                 <div>
                   <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
-                    WhatsApp *
+                    {surprise ? 'WhatsApp del organizador *' : 'WhatsApp *'}
                   </label>
                   <input
+                    type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={9}
                     className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
                     placeholder="Número de WhatsApp"
                     value={cPhone}
-                    onChange={(e) => setCPhone(e.target.value)}
+                    onChange={(e) => setCPhone(e.target.value.replace(/\D/g, '').slice(0, 9))}
                   />
                 </div>
-                {lookupDocument && identityProof && cBirthDate && <div>
+                {!surprise && lookupDocument && identityProof && cBirthDate && <div>
                   <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
-                    Fecha de nacimiento *
+                    Fecha de nacimiento del cumpleañero *
                   </label>
                   <input
                     type="date"
@@ -656,6 +670,7 @@ export function AdminBirthdaysPage() {
                   </div>
                 </div>
               </div>
+              {err && <p role="alert" className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/30 dark:text-rose-200">{err}</p>}
               <div className="flex flex-col sm:flex-row justify-end gap-2 mt-6">
                 <button
                   className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed px-6 py-2 text-sm font-medium rounded-md bg-blue-600 hover:bg-blue-700 text-white border border-transparent focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200 w-full sm:w-auto"
@@ -665,11 +680,13 @@ export function AdminBirthdaysPage() {
                     setErr(null);
                     try {
                       // Validaciones básicas
-                      if (!cName.trim() || lookupDocument !== cDoc || !identityProof) throw new Error("Consulta el DNI para completar los datos del cumpleañero");
+                      if ((!surprise && !cName.trim()) || lookupDocument !== cDoc || !identityProof || (surprise && (!organizerName || !organizerBirthDate))) throw new Error("Consulta el DNI y completa los datos");
+                      if (surprise && (!cardName.trim() || /\s/.test(cardName.trim()))) throw new Error("Ingresa un solo nombre para la tarjeta");
                       if (!cPhone.trim()) throw new Error("WhatsApp requerido");
                       if (!cDoc.trim()) throw new Error("Documento requerido");
                       if (!cPackId) throw new Error("Pack requerido");
-                      if (!cBirthDate) throw new Error("Fecha de nacimiento requerida");
+                      if (!surprise && !cBirthDate) throw new Error("Fecha de nacimiento requerida");
+                      if (surprise && !cDate) throw new Error("Selecciona la fecha de celebración");
                       let finalDate = cDate;
                       if (!finalDate) {
                         const d = new Date();
@@ -678,12 +695,14 @@ export function AdminBirthdaysPage() {
                       }
                       const selectedPack = packs.find((p) => p.id === cPackId);
                       if (!selectedPack) throw new Error("Pack no encontrado");
+                      if (surprise && !(await confirmSurpriseDuplicate(cDoc, cardName.trim(), finalDate))) return;
                       const payload = {
-                        celebrantName: cName.trim(),
+                        celebrantName: surprise ? cardName.trim() : cName.trim(),
                         phone: cPhone.trim(),
-                        documento: cDoc.trim(),
+                        documento: surprise ? null : cDoc.trim(),
+                        ...(surprise && { isSurprise: true, organizerDni: cDoc.trim(), organizerName, organizerBirthDate, cardName: cardName.trim() }),
                         identityProof,
-                        birthDate: cBirthDate,
+                        birthDate: surprise ? undefined : cBirthDate || undefined,
                         date: finalDate,
                         timeSlot: cSlot,
                         packId: cPackId,
@@ -710,6 +729,7 @@ export function AdminBirthdaysPage() {
                         throw new Error(j?.code || j?.message || res.status);
                       }
                       setCName("");
+                      setSurprise(false); setOrganizerName(""); setOrganizerBirthDate(""); setCardName("");
                       setCPhone("");
                       setCDoc("");
                       setLookupDocument("");

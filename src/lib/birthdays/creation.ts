@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/audit";
 import { birthdayDay, birthdayToday, birthdayDateKey } from "./calendar";
 import { BIRTHDAY_POLICY as P } from "./policy";
-import { reservationCreateSchema } from "./reservation-input";
+import { reservationCreateSchema, surpriseReservationCreateSchema } from "./reservation-input";
 import { lockBirthdayDocument, lockBirthdaySlot } from "./locking";
 import type { CreateReservationInput, ReservationWithRelations } from "./types";
 export async function createReservation(
@@ -11,13 +11,15 @@ export async function createReservation(
 ): Promise<ReservationWithRelations> {
   const day = birthdayDay(input.date);
   if (!day.isValid) throw new Error("INVALID_DATE");
-  const fields = reservationCreateSchema.parse({ ...input, date: birthdayDateKey(input.date) });
+  if (input.isSurprise && !input.isAdmin) throw new Error("SURPRISE_NOT_ALLOWED");
+  const fields = input.isSurprise ? surpriseReservationCreateSchema.parse({ ...input, date: birthdayDateKey(input.date) }) : reservationCreateSchema.parse({ ...input, date: birthdayDateKey(input.date) });
   if (day < birthdayToday()) throw new Error("RESERVATION_DATE_PAST");
   if (P.closedWeekdays.includes(day.weekday)) throw new Error("CLOSED_DAY");
   if (!input.isAdmin && day > birthdayToday().plus({ days: P.publicBookingDays }))
     throw new Error("DATE_TOO_FAR");
   if (!input.isAdmin && !P.publicSlots.includes(fields.timeSlot)) throw new Error("INVALID_SLOT");
   const created = await prisma.$transaction(async (tx) => {
+    if (fields.documento) {
     await lockBirthdayDocument(tx, fields.documento, day.year);
     const duplicate = await tx.birthdayReservation.findFirst({
       where: {
@@ -27,6 +29,7 @@ export async function createReservation(
       },
     });
     if (duplicate) throw new Error("DUPLICATE_DNI_YEAR");
+    }
     if (!input.isAdmin) {
       await lockBirthdaySlot(tx, birthdayDateKey(input.date), fields.timeSlot);
       const count = await tx.birthdayReservation.count({ where: { date: birthdayStoredRange(input.date), timeSlot: fields.timeSlot, status: { in: [...P.capacityStatuses] } } });
@@ -51,9 +54,13 @@ export async function createReservation(
         : null;
     return tx.birthdayReservation.create({
       data: {
-        celebrantName: fields.celebrantName,
+        celebrantName: input.isSurprise ? input.cardName! : fields.celebrantName,
         phone: fields.phone,
-        documento: fields.documento,
+        documento: fields.documento || null,
+        isSurprise: Boolean(input.isSurprise),
+        organizerDni: input.isSurprise ? input.organizerDni : null,
+        organizerName: input.isSurprise ? input.organizerName : null,
+        cardName: input.isSurprise ? input.cardName : null,
         email: fields.email || null,
         birthDate: fields.birthDate ? new Date(`${fields.birthDate}T00:00:00.000Z`) : null,
         date: day.toJSDate(),

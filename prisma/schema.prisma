@@ -571,7 +571,11 @@ model BirthdayReservation {
   id                String             @id @default(cuid())
   celebrantName     String
   phone             String
-  documento         String
+  documento         String?
+  isSurprise        Boolean            @default(false)
+  organizerDni      String?
+  organizerName     String?
+  cardName          String?
   email             String?
   birthDate         DateTime?          @db.Date
   date              DateTime
@@ -606,6 +610,7 @@ model BirthdayReservation {
   @@index([referrerId])
   @@index([reservationSource])
   @@index([createdByUserId])
+  @@index([organizerDni, date])
 }
 
 model BirthdayReferrer {

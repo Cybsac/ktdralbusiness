@@ -26,7 +26,7 @@ export async function listReservations(
       ...(filters.dateTo ? { lte: birthdayStoredRange(filters.dateTo).lte } : {}),
     };
   if (filters.search?.trim())
-    where.OR = ["celebrantName", "phone", "documento"].map((field) => ({
+    where.OR = ["celebrantName", "phone", "documento", "organizerName", "organizerDni"].map((field) => ({
       [field]: { contains: filters.search!.trim(), mode: "insensitive" },
     }));
   const total = await prisma.birthdayReservation.count({ where });
