@@ -7,8 +7,10 @@ import { createAdmissionProof, documentHash } from "@/lib/admission/proof";
 import { currentBusinessDay } from "@/lib/attendanceDay";
 import { CluzterError } from "@/lib/cluzter/config";
 import { lookupDni } from "@/lib/cluzter/dni";
+import { documentSex } from "@/lib/cluzter/sex";
 import { prisma } from "@/lib/prisma";
 import { isValidDocumentNumber, normalizeDocumentNumber } from "@/lib/users/document";
+import { resolveBirthplace } from "@/lib/ubigeo/birthplace";
 
 export const dynamic = "force-dynamic";
 const input = z
@@ -40,6 +42,8 @@ export async function POST(req: Request) {
     );
   let name: string, birthDate: string | null;
   let fatherName: string | null = null, motherName: string | null = null;
+  let birthPlace: ReturnType<typeof resolveBirthplace> = null;
+  let sex: ReturnType<typeof documentSex> = null;
   try {
     if (!(await allowAdmissionCheck(actor.userId)))
       return Response.json(
@@ -54,6 +58,8 @@ export async function POST(req: Request) {
       birthDate = person.birthDate;
       fatherName = person.fatherName ?? null;
       motherName = person.motherName ?? null;
+      birthPlace = resolveBirthplace(person.birthUbigeo ?? null, process.env.CLUZTER_BIRTH_UBIGEO_SYSTEM?.trim().toLowerCase());
+      sex = documentSex(person.documentSexCode ?? null, process.env.CLUZTER_MALE_SEX_CODE?.trim() || "1");
     } else {
       name = data.manualName!;
       birthDate = data.manualBirthDate!;
@@ -78,7 +84,7 @@ export async function POST(req: Request) {
   await prisma.admissionCheck.create({
     data: { businessDay: day, result, source, actorId: actor.userId },
   });
-  const details = { result, name, age, birthDate, source, ...(source === "CLUZTER" ? { fatherName, motherName } : {}) };
+  const details = { result, name, age, birthDate, source, ...(source === "CLUZTER" ? { fatherName, motherName, birthPlace, sex } : {}) };
   if (result !== "ADULT") return Response.json(details, { headers });
   const hash = documentHash(data.documentType, number);
   const visit = await prisma.admissionVisit.findUnique({

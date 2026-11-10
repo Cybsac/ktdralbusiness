@@ -13,6 +13,7 @@ const dniResponse = z.object({
   SEXO: z.string().nullable().optional(),
   PADRE: z.unknown().optional(),
   MADRE: z.unknown().optional(),
+  UBIGEO_NAC: z.unknown().optional(),
 });
 export type Identity = {
   dni: string;
@@ -23,6 +24,7 @@ export type Identity = {
   documentSexCode: string | null;
   fatherName: string | null;
   motherName: string | null;
+  birthUbigeo: string | null;
 };
 
 /** Lookup only; callers must authorize the use case and decide which fields to return. */
@@ -44,6 +46,7 @@ export async function lookupDni(dni: string): Promise<Identity> {
     birthDate,
     fatherName: typeof parsed.data.PADRE === "string" ? parsed.data.PADRE.trim() || null : null,
     motherName: typeof parsed.data.MADRE === "string" ? parsed.data.MADRE.trim() || null : null,
+    birthUbigeo: typeof parsed.data.UBIGEO_NAC === "string" && /^\d{6}$/.test(parsed.data.UBIGEO_NAC.trim()) ? parsed.data.UBIGEO_NAC.trim() : null,
     documentSexCode: ["1", "2"].includes(parsed.data.SEXO?.trim() || "")
       ? parsed.data.SEXO!.trim()
       : null,

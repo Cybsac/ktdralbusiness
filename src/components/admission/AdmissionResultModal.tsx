@@ -5,9 +5,11 @@ export type AdmissionResult = {
   result: "ADULT" | "MINOR" | "UNKNOWN";
   name?: string;
   age?: number | null;
+  sex?: "MALE" | "FEMALE" | null;
   birthDate?: string | null;
   fatherName?: string | null;
   motherName?: string | null;
+  birthPlace?: { department: string; province: string; district: string } | null;
   source?: string;
   proof?: string;
   visit?: { inside: boolean; entryCount: number } | null;
@@ -63,8 +65,9 @@ export function AdmissionResultModal({
             {title}
           </h2>
           {result.name && <p className="mt-2 break-words text-xl font-semibold">{result.name}</p>}
-          {result.age != null && <p className="mt-1 text-lg font-medium">{result.age} años</p>}
+          {(result.age != null || result.source === "CLUZTER") && <p className="mt-1 text-lg font-medium">{result.age != null && `${result.age} años`}{result.age != null && result.source === "CLUZTER" && " · "}{result.source === "CLUZTER" && (result.sex === "MALE" ? "Varón" : result.sex === "FEMALE" ? "Mujer" : "Sexo no disponible")}</p>}
           {result.name && <p className="mt-1 text-sm">Fecha de nacimiento: {result.birthDate ? result.birthDate.split("-").reverse().join("/") : "No disponible"}</p>}
+          {result.name && result.source === "CLUZTER" && <p className="mt-1 break-words text-sm">Lugar de nacimiento: {result.birthPlace ? [result.birthPlace.district, result.birthPlace.province, result.birthPlace.department].join(" · ") : "No disponible"}</p>}
           {result.message && <p className="mt-2">{result.message}</p>}
         </div>
         {result.name && result.source === "CLUZTER" && (

@@ -40,6 +40,8 @@ describe("control de ingreso", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.stubEnv("ADMISSION_SECRET", "test-secret-not-for-production");
+    vi.stubEnv("CLUZTER_BIRTH_UBIGEO_SYSTEM", "");
+    vi.stubEnv("CLUZTER_MALE_SEX_CODE", "1");
     m.actor.mockResolvedValue({ userId: "operator", role: "STAFF" });
     m.limit.mockResolvedValue(true);
     m.checkCreate.mockResolvedValue({});
@@ -61,6 +63,8 @@ describe("control de ingreso", () => {
       birthDate: "2015-01-01",
       fatherName: "Juan",
       motherName: "Rosa",
+      birthUbigeo: "010101",
+      documentSexCode: "2",
     });
     const data = await (
       await check(req({ documentType: "DNI", documentNumber: "12345678" }))
@@ -69,6 +73,8 @@ describe("control de ingreso", () => {
     expect(data.birthDate).toBe("2015-01-01");
     expect(data.fatherName).toBe("Juan");
     expect(data.motherName).toBe("Rosa");
+    expect(data.sex).toBe("FEMALE");
+    expect(data.birthPlace).toEqual({ department: "AMAZONAS", province: "CHACHAPOYAS", district: "CHACHAPOYAS" });
     expect(data.proof).toBeUndefined();
     expect(m.visitCreate).not.toHaveBeenCalled();
   });

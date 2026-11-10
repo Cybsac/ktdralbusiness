@@ -1,0 +1,7 @@
+# Catálogo de ubigeos de nacimiento
+
+`catalog.json` contiene los códigos INEI, RENIEC y los nombres de departamento, provincia y distrito, derivados de la [tabla de concordancia de CONCYTEC](https://github.com/CONCYTEC/ubigeo-peru), versión 1.0, con datos descargados de fuentes oficiales en diciembre de 2016. Autor: Consejo Nacional de Ciencia, Tecnología e Innovación Tecnológica (CONCYTEC), licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). El catálogo no incluye necesariamente distritos creados o modificados después de esa fecha.
+
+La documentación de Cluzter no identifica el sistema usado en `UBIGEO_NAC`. Por defecto se muestran solamente códigos que existen en ambos catálogos y apuntan al mismo lugar; los demás se muestran como no disponibles. Tras confirmar el sistema con el proveedor, `CLUZTER_BIRTH_UBIGEO_SYSTEM` puede configurarse como `inei` o `reniec`. No configurar por inferencia del ejemplo de la documentación. Para actualizar el catálogo, comprobar el origen, las equivalencias y la licencia, conservando los ceros iniciales y las pruebas de ambigüedad.
+
+Para admisión, `CLUZTER_MALE_SEX_CODE` define el código del proveedor correspondiente a varón (`1` o `2`); el otro representa mujer. Por defecto se utiliza `1`, conforme a una consulta contrastada con el documento indicado por el usuario; confirmar esta equivalencia con el proveedor para todos los registros. Un valor de configuración no válido deja el sexo como no disponible.

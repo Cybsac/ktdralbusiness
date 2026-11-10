@@ -14,6 +14,7 @@ const sample = {
   SEXO: "2",
   PADRE: "  José  ",
   MADRE: "María",
+  UBIGEO_NAC: "010101",
   DIRECCION: "no debe propagarse",
 };
 describe("integración Cluzter", () => {
@@ -39,6 +40,7 @@ describe("integración Cluzter", () => {
       birthDate: "2008-11-19",
       fatherName: "José",
       motherName: "María",
+      birthUbigeo: "010101",
       documentSexCode: "2",
     });
     expect(fetcher).toHaveBeenCalledOnce();
