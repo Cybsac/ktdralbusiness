@@ -29,6 +29,7 @@ export async function GET(req: NextRequest, { params }: { params: { tokenId: str
       prize: token.prize,
       description: token.deliveryNote,
       expiresAt: token.expiresAt.toISOString(),
+      validFrom: token.validFrom?.toISOString() || null,
       maxUses: token.maxUses,
       usedCount: token.usedCount,
       disabled: token.disabled,

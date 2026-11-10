@@ -14,6 +14,19 @@ export async function POST(req: NextRequest) {
   const parsed = reusableGenerationSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success)
     return apiError("INVALID_INPUT", "Revisa los datos del token", parsed.error.flatten(), 400);
+  // A development server may share the production database. Until the running production
+  // code understands validFrom, tokens created here could be redeemed early there.
+  if (
+    parsed.data.validity.type === "specific_date" &&
+    process.env.NODE_ENV !== "production" &&
+    process.env.REUSABLE_SCHEDULED_LOCAL_ENABLED !== "1"
+  )
+    return apiError(
+      "SCHEDULED_LOCAL_DISABLED",
+      "La generación programada no está habilitada en este entorno.",
+      undefined,
+      409
+    );
   try {
     const token = await generateReusableToken(parsed.data, session.userId);
     return NextResponse.json(
@@ -32,6 +45,7 @@ export async function POST(req: NextRequest) {
           maxUses: token.maxUses,
           usedCount: token.usedCount,
           expiresAt: token.expiresAt,
+          validFrom: token.validFrom,
           startTime: token.startTime,
           endTime: token.endTime,
           createdAt: token.createdAt,
@@ -45,7 +59,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     if (
       error instanceof Error &&
-      ["INVALID_EXPIRATION", "EMPTY_TIME_WINDOW", "INVALID_TIME"].includes(error.message)
+      ["INVALID_EXPIRATION", "INVALID_DATE", "EMPTY_TIME_WINDOW", "INVALID_TIME"].includes(
+        error.message
+      )
     )
       return apiError(error.message, "Vigencia inválida o vencida", undefined, 400);
     return reusableFailure(error);

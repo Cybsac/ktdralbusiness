@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { REUSABLE_TIMEZONE } from '@/lib/reusable-tokens/policy';
 
 interface GroupToken {
   id: string;
   maxUses: number;
   usedCount: number;
   expiresAt: string;
+  validFrom?: string | null;
   startTime?: string | null;
   endTime?: string | null;
   prize: { id: string; label: string; key: string; color?: string | null };
@@ -24,7 +26,11 @@ interface TokenGroup {
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric', timeZone: REUSABLE_TIMEZONE });
+}
+
+function formatSchedule(iso: string) {
+  return new Date(iso).toLocaleString('es-PE', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: REUSABLE_TIMEZONE });
 }
 
 function QRPreview({ tokenId, label }: { tokenId: string; label: string }) {
@@ -260,7 +266,7 @@ export default function ReusableTokensStaffPage() {
                                 {token.usedCount}/{token.maxUses} usos
                               </span>
                               <div className="text-[10px] text-slate-400 mt-0.5">
-                                Exp: {formatDate(token.expiresAt)}
+                                {token.validFrom ? <>Desde: {formatSchedule(token.validFrom)}<br />Hasta: {formatSchedule(token.expiresAt)}</> : <>Exp: {formatDate(token.expiresAt)}</>}
                               </div>
                             </div>
                           </div>

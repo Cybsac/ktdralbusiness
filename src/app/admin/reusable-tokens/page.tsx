@@ -35,6 +35,7 @@ interface GroupToken {
   maxUses: number;
   usedCount: number;
   expiresAt: string;
+  validFrom?: string | null;
   startTime?: string | null;
   endTime?: string | null;
   createdAt: string;
@@ -52,6 +53,7 @@ interface IndividualToken {
   maxUses: number;
   usedCount?: number;
   expiresAt: string;
+  validFrom?: string | null;
   startTime?: string | null;
   endTime?: string | null;
   createdAt?: string;
@@ -142,21 +144,25 @@ export default function ReusableTokensAdmin() {
     maxUses: number;
     description: string;
     groupId: string;
-    validityMode: "byDays" | "expires_at" | "time_window";
+    validityMode: "byDays" | "expires_at" | "time_window" | "specific_date";
     expirationDays: number;
     expiresAt: string;
     startTime: string;
     endTime: string;
+    specificDate: string;
+    allDay: boolean;
   }>({
     prizeId: "",
     maxUses: 1,
     description: "",
     groupId: "",
-    validityMode: "byDays" as "byDays" | "expires_at" | "time_window",
+    validityMode: "byDays" as "byDays" | "expires_at" | "time_window" | "specific_date",
     expirationDays: P.defaultDays,
     expiresAt: "",
     startTime: P.defaultStart,
     endTime: P.defaultEnd,
+    specificDate: "",
+    allDay: true,
   });
 
   // History modal state
@@ -462,9 +468,13 @@ export default function ReusableTokensAdmin() {
       alert("Selecciona fecha de expiración");
       return;
     }
+    if (individualForm.validityMode === "specific_date" && !individualForm.specificDate) {
+      alert("Selecciona la fecha de validez");
+      return;
+    }
 
     if (
-      individualForm.validityMode === "time_window" &&
+      (individualForm.validityMode === "time_window" || (individualForm.validityMode === "specific_date" && !individualForm.allDay)) &&
       (!individualForm.startTime || !individualForm.endTime)
     ) {
       alert("Selecciona horas de inicio y fin para la ventana horaria");
@@ -485,6 +495,8 @@ export default function ReusableTokensAdmin() {
           startTime: individualForm.startTime,
           endTime: individualForm.endTime,
         };
+      } else if (individualForm.validityMode === "specific_date") {
+        validity = { type: "specific_date", date: individualForm.specificDate, ...(!individualForm.allDay && { startTime: individualForm.startTime, endTime: individualForm.endTime }) };
       }
 
       const body: any = {
@@ -1074,8 +1086,9 @@ export default function ReusableTokensAdmin() {
                                             {token.usedCount || 0}/{token.maxUses} usos
                                           </div>
                                           <div className="text-xs text-slate-500 dark:text-slate-400">
+                                            {token.validFrom && <>Disponible desde: {new Date(token.validFrom).toLocaleString("es-PE", { timeZone: REUSABLE_TIMEZONE })}<br /></>}
                                             Expira:{" "}
-                                            {new Date(token.expiresAt).toLocaleDateString("es-ES")}
+                                            {new Date(token.expiresAt).toLocaleString("es-PE", { timeZone: REUSABLE_TIMEZONE })}
                                           </div>
                                           {(() => {
                                             const lastDate = token.deliveredAt || token.redeemedAt;
@@ -1254,7 +1267,7 @@ export default function ReusableTokensAdmin() {
                           setIndividualForm({ ...individualForm, validityMode: "expires_at" })
                         }
                       />{" "}
-                      Fecha específica
+                      Fecha de vencimiento
                     </label>
                     <label>
                       <input
@@ -1266,7 +1279,11 @@ export default function ReusableTokensAdmin() {
                           setIndividualForm({ ...individualForm, validityMode: "time_window" })
                         }
                       />{" "}
-                      Ventana horaria
+                      Ventana horaria diaria
+                    </label>
+                    <label>
+                      <input type="radio" name="individualValidity" value="specific_date" checked={individualForm.validityMode === "specific_date"} onChange={() => setIndividualForm({ ...individualForm, validityMode: "specific_date" })} />{" "}
+                      Fecha y horario determinados
                     </label>
                   </div>
                 </div>
@@ -1307,7 +1324,16 @@ export default function ReusableTokensAdmin() {
                   </div>
                 )}
 
-                {individualForm.validityMode === "time_window" && (
+                {individualForm.validityMode === "specific_date" && (
+                  <div className="space-y-3 md:col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Fecha de validez
+                      <input type="date" className="input mt-1 w-full" value={individualForm.specificDate} onChange={e => setIndividualForm({ ...individualForm, specificDate: e.target.value })} />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={individualForm.allDay} onChange={e => setIndividualForm({ ...individualForm, allDay: e.target.checked })} /> Válido todo el día</label>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{individualForm.allDay ? "Disponible desde las 00:00 de la fecha elegida hasta las 00:00 del día siguiente." : "El inicio corresponde a la fecha elegida."} Zona horaria: {REUSABLE_TIMEZONE}.</p>
+                  </div>
+                )}
+                {(individualForm.validityMode === "time_window" || (individualForm.validityMode === "specific_date" && !individualForm.allDay)) && (
                   <div className="md:col-span-2">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
@@ -1338,7 +1364,7 @@ export default function ReusableTokensAdmin() {
                       </div>
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      El token será válido todos los días entre estas horas (zona horaria Lima)
+                      {individualForm.validityMode === "time_window" ? "Se repetirá todos los días en la zona horaria configurada." : "Si la hora de fin es anterior a la de inicio, finalizará al día siguiente."}
                     </p>
                   </div>
                 )}
@@ -1389,6 +1415,7 @@ export default function ReusableTokensAdmin() {
                     <div className="text-lg font-bold text-blue-600 dark:text-blue-400 mb-2">
                       Usos: {individualToken.usedCount || 0}/{individualToken.maxUses}
                     </div>
+                    {individualToken.validFrom && <div className="text-sm text-slate-600 dark:text-slate-400"><strong>Disponible desde:</strong> {new Date(individualToken.validFrom).toLocaleString("es-PE", { timeZone: REUSABLE_TIMEZONE })}</div>}
                     <div className="text-sm text-slate-600 dark:text-slate-400 mb-4">
                       <strong>Expira:</strong>{" "}
                       {new Date(individualToken.expiresAt).toLocaleString("es-ES", {
@@ -1542,6 +1569,7 @@ export default function ReusableTokensAdmin() {
                               <div className="text-lg font-bold text-blue-600 dark:text-blue-400 mb-1">
                                 Usos: {token.usedCount || 0}/{token.maxUses}
                               </div>
+                              {token.validFrom && <div className="text-sm text-slate-600 dark:text-slate-400">Disponible desde: {new Date(token.validFrom).toLocaleString("es-PE", { timeZone: REUSABLE_TIMEZONE })}</div>}
                               <div className="text-sm text-slate-600 dark:text-slate-400">
                                 Expira:{" "}
                                 {new Date(token.expiresAt).toLocaleString("es-ES", {

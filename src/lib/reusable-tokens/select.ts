@@ -5,6 +5,7 @@ export const reusableGroupTokenSelect = {
   maxUses: true,
   usedCount: true,
   expiresAt: true,
+  validFrom: true,
   startTime: true,
   endTime: true,
   createdAt: true,

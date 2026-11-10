@@ -34,6 +34,7 @@ export function reusableAvailability(
   token: {
     disabled: boolean;
     expiresAt: Date | string;
+    validFrom?: Date | string | null;
     usedCount: number;
     maxUses: number;
     startTime?: Date | string | null;
@@ -50,6 +51,12 @@ export function reusableAvailability(
   )
     return "TOKEN_EXPIRED";
   if (token.usedCount >= token.maxUses) return "TOKEN_EXHAUSTED";
+  if (
+    token.validFrom &&
+    (!Number.isFinite(new Date(token.validFrom).getTime()) ||
+      new Date(token.validFrom).getTime() > now.getTime())
+  )
+    return "NOT_STARTED";
   if (!inReusableWindow(token.startTime, token.endTime, now)) return "OUTSIDE_TIME_WINDOW";
   return "AVAILABLE";
 }

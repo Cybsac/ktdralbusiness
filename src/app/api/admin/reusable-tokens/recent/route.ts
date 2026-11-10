@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
           prizeId: string;
           groupId: string | null;
           expiresAt: Date;
+          validFrom: Date | null;
           createdAt: Date;
           redeemedAt: Date | null;
           deliveredAt: Date | null;
@@ -134,6 +135,7 @@ export async function GET(req: NextRequest) {
       maxUses: token.maxUses,
       usedCount: token.usedCount,
       expiresAt: token.expiresAt,
+      validFrom: token.validFrom,
       startTime: token.startTime,
       endTime: token.endTime,
       createdAt: token.createdAt,

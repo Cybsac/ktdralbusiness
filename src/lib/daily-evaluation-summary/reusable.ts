@@ -10,7 +10,7 @@ export async function reusable({ startUtc, endUtc }: SummaryWindow) {
   const now = new Date();
   const [groups, tokens, events] = await Promise.all([
     prisma.tokenGroup.findMany({ select: { id: true, name: true, color: true, locked: true, sortOrder: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }] }),
-    prisma.reusableToken.findMany({ select: { id: true, groupId: true, disabled: true, expiresAt: true, usedCount: true, maxUses: true, startTime: true, endTime: true, prize: { select: { id: true, label: true, active: true } }, _count: { select: { redemptions: true } } } }),
+    prisma.reusableToken.findMany({ select: { id: true, groupId: true, disabled: true, expiresAt: true, validFrom: true, usedCount: true, maxUses: true, startTime: true, endTime: true, prize: { select: { id: true, label: true, active: true } }, _count: { select: { redemptions: true } } } }),
     prisma.reusableTokenRedemption.findMany({ where: { type: { in: ['deliver', 'redeem'] }, createdAt: { gte: startUtc, lt: endUtc } }, select: { note: true, token: { select: { groupId: true, group: { select: { id: true, name: true, color: true } }, prize: { select: { id: true, label: true } } } } } }),
   ]);
   const groupMap = new Map<string | null, GroupSummary>();

@@ -70,6 +70,7 @@ model ReusableToken {
   prizeId           String
   groupId           String?
   expiresAt         DateTime
+  validFrom         DateTime?
   createdAt         DateTime      @default(now())
   redeemedAt        DateTime?
   signature         String
@@ -89,6 +90,7 @@ model ReusableToken {
   @@index([prizeId])
   @@index([groupId])
   @@index([expiresAt])
+  @@index([validFrom])
   @@index([redeemedAt])
   @@index([deliveredAt])
   @@index([startTime])

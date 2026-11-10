@@ -17,6 +17,7 @@ type TokenData = {
     active?: boolean;
   };
   expiresAt: string;
+  validFrom?: string | null;
   maxUses: number | null;
   usedCount: number;
   disabled: boolean;
@@ -242,6 +243,8 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
     };
   }, []);
   let isExpired = false;
+  let notStarted = false;
+  let outsideWindow = false;
   let isDisabled = false;
   let maxUses = 1;
   let canRedeem = false;
@@ -252,10 +255,12 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
       { ...tokenData, maxUses: tokenData.maxUses || 1 },
       availabilityNow
     );
-    isExpired = availability === "TOKEN_EXPIRED" || availability === "OUTSIDE_TIME_WINDOW";
+    isExpired = availability === "TOKEN_EXPIRED";
+    notStarted = availability === "NOT_STARTED";
+    outsideWindow = availability === "OUTSIDE_TIME_WINDOW";
     isDisabled = availability === "TOKEN_DISABLED" || availability === "PRIZE_INACTIVE";
     maxUses = tokenData.maxUses || 1;
-    canRedeem = !isExpired && !isDisabled && tokenData.usedCount < maxUses;
+    canRedeem = availability === "AVAILABLE";
     formattedExpiry = DateTime.fromJSDate(new Date(tokenData.expiresAt))
       .setZone(REUSABLE_TIMEZONE)
       .toLocaleString(DateTime.DATETIME_SHORT, { locale: "es-ES" });
@@ -379,6 +384,21 @@ export default function ReusableTokenPage({ params, searchParams }: ReusableToke
             </svg>
             Volver
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (notStarted || outsideWindow) {
+    const start = tokenData.validFrom ? DateTime.fromISO(tokenData.validFrom).setZone(REUSABLE_TIMEZONE).toLocaleString(DateTime.DATETIME_MED, { locale: "es-PE" }) : null;
+    const hour = (value: string) => DateTime.fromISO(value).setZone(REUSABLE_TIMEZONE).toFormat("HH:mm");
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0E0606] p-4 text-white">
+        <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 p-6 text-center">
+          <div className="text-4xl">⏰</div>
+          <h1 className="mt-4 text-xl font-bold">{notStarted ? "Aún no disponible" : "Fuera de horario"}</h1>
+          <p className="mt-3 text-sm text-white/70">{notStarted && start ? `Disponible desde el ${start}.` : tokenData.startTime && tokenData.endTime ? `Disponible todos los días de ${hour(tokenData.startTime)} a ${hour(tokenData.endTime)}.` : "Este token no está disponible en este horario."}</p>
+          <Link href={isAdmin ? "/admin" : isStaff ? "/u" : "/"} className="mt-6 inline-block text-sm text-white/60 underline">Volver</Link>
         </div>
       </div>
     );
