@@ -5,6 +5,9 @@ export type AdmissionResult = {
   result: "ADULT" | "MINOR" | "UNKNOWN";
   name?: string;
   age?: number | null;
+  birthDate?: string | null;
+  fatherName?: string | null;
+  motherName?: string | null;
   source?: string;
   proof?: string;
   visit?: { inside: boolean; entryCount: number } | null;
@@ -61,15 +64,22 @@ export function AdmissionResultModal({
           </h2>
           {result.name && <p className="mt-2 break-words text-xl font-semibold">{result.name}</p>}
           {result.age != null && <p className="mt-1 text-lg font-medium">{result.age} años</p>}
+          {result.name && <p className="mt-1 text-sm">Fecha de nacimiento: {result.birthDate ? result.birthDate.split("-").reverse().join("/") : "No disponible"}</p>}
           {result.message && <p className="mt-2">{result.message}</p>}
-          <p className="mt-2 text-sm">
-            {result.source === "MANUAL"
-              ? "Datos ingresados manualmente"
-              : result.source === "CLUZTER"
-                ? "Datos consultados en Cybsac Perú"
-                : "Requiere revisión"}
-          </p>
         </div>
+        {result.name && result.source === "CLUZTER" && (
+          <dl className="grid grid-cols-2 gap-3 text-sm">
+            <div className="min-w-0"><dt className="text-slate-500 dark:text-slate-400">Padre</dt><dd className="break-words font-medium">{result.fatherName || "No disponible"}</dd></div>
+            <div className="min-w-0"><dt className="text-slate-500 dark:text-slate-400">Madre</dt><dd className="break-words font-medium">{result.motherName || "No disponible"}</dd></div>
+          </dl>
+        )}
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {result.source === "MANUAL"
+            ? "Datos ingresados manualmente"
+            : result.source === "CLUZTER"
+              ? "Datos consultados en Cybsac Perú"
+              : "Requiere revisión"}
+        </p>
         {result.result === "MINOR" && (
           <p className="font-semibold text-rose-700 dark:text-rose-300">No registrar ingreso.</p>
         )}

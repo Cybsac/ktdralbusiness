@@ -39,6 +39,7 @@ export async function POST(req: Request) {
       { status: 400, headers }
     );
   let name: string, birthDate: string | null;
+  let fatherName: string | null = null, motherName: string | null = null;
   try {
     if (!(await allowAdmissionCheck(actor.userId)))
       return Response.json(
@@ -51,6 +52,8 @@ export async function POST(req: Request) {
         .filter(Boolean)
         .join(" ");
       birthDate = person.birthDate;
+      fatherName = person.fatherName ?? null;
+      motherName = person.motherName ?? null;
     } else {
       name = data.manualName!;
       birthDate = data.manualBirthDate!;
@@ -75,7 +78,8 @@ export async function POST(req: Request) {
   await prisma.admissionCheck.create({
     data: { businessDay: day, result, source, actorId: actor.userId },
   });
-  if (result !== "ADULT") return Response.json({ result, name, age, source }, { headers });
+  const details = { result, name, age, birthDate, source, ...(source === "CLUZTER" ? { fatherName, motherName } : {}) };
+  if (result !== "ADULT") return Response.json(details, { headers });
   const hash = documentHash(data.documentType, number);
   const visit = await prisma.admissionVisit.findUnique({
     where: {
@@ -94,5 +98,5 @@ export async function POST(req: Request) {
     hash,
     source,
   });
-  return Response.json({ result, name, age, source, visit, proof }, { headers });
+  return Response.json({ ...details, visit, proof }, { headers });
 }

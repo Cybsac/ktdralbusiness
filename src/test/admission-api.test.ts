@@ -59,11 +59,16 @@ describe("control de ingreso", () => {
       names: "Ana",
       paternalSurname: "Ejemplo",
       birthDate: "2015-01-01",
+      fatherName: "Juan",
+      motherName: "Rosa",
     });
     const data = await (
       await check(req({ documentType: "DNI", documentNumber: "12345678" }))
     ).json();
     expect(data.result).toBe("MINOR");
+    expect(data.birthDate).toBe("2015-01-01");
+    expect(data.fatherName).toBe("Juan");
+    expect(data.motherName).toBe("Rosa");
     expect(data.proof).toBeUndefined();
     expect(m.visitCreate).not.toHaveBeenCalled();
   });
@@ -92,7 +97,8 @@ describe("control de ingreso", () => {
     );
     const data = await res.json();
     expect(data.result).toBe("ADULT");
-    expect(data.birthDate).toBeUndefined();
+    expect(data.birthDate).toBe("1990-01-01");
+    expect(data.fatherName).toBeUndefined();
     expect(data.source).toBe("MANUAL");
     expect(data.proof).toBeTruthy();
     expect(m.lookup).not.toHaveBeenCalled();

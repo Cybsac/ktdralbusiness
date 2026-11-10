@@ -12,6 +12,8 @@ const sample = {
   AP_MAT: "Ejemplo",
   FECHA_NAC: "19/11/2008",
   SEXO: "2",
+  PADRE: "  José  ",
+  MADRE: "María",
   DIRECCION: "no debe propagarse",
 };
 describe("integración Cluzter", () => {
@@ -35,6 +37,8 @@ describe("integración Cluzter", () => {
       paternalSurname: "Prueba",
       maternalSurname: "Ejemplo",
       birthDate: "2008-11-19",
+      fatherName: "José",
+      motherName: "María",
       documentSexCode: "2",
     });
     expect(fetcher).toHaveBeenCalledOnce();
