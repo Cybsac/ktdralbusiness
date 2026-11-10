@@ -66,6 +66,10 @@ export const UserCreate = (props: any) => (
         },
       }}
     >
+      <Box sx={{ width: "100%", mb: 2, color: "text.secondary", fontSize: "0.875rem" }}>
+        Si el documento pertenece a una cuenta archivada, se recuperará su historial y se
+        establecerá la nueva contraseña.
+      </Box>
       {/* Primera fila: Username y Password */}
       <Box
         sx={{

@@ -27,20 +27,65 @@ export async function createUser(input: z.infer<typeof createUserSchema>, actor:
     await lockUserManagement(tx);
     let personId: string;
     if (data.person) {
-      const person = await tx.person.create({
-        data: {
-          code: data.person.dni,
-          name: data.person.name,
-          dni: data.person.dni,
-          documentType: data.person.documentType ?? null,
-          area: data.person.area,
-          whatsapp: data.person.whatsapp,
-          birthday: data.person.birthday ? parseBirthdayInput(data.person.birthday) : null,
-          documentSexCode: data.person.documentSexCode ?? null,
-          active: true,
-        },
+      const existing = await tx.person.findUnique({
+        where: { dni: data.person.dni },
+        include: { user: { select: { id: true, role: true } } },
       });
-      personId = person.id;
+      if (existing && !existing.active) {
+        if (existing.documentType && existing.documentType !== data.person.documentType)
+          throw new Failure("DOCUMENT_TYPE_MISMATCH");
+        if (existing.user) assertTarget(actor, existing.user);
+        const person = await tx.person.update({
+          where: { id: existing.id },
+          data: {
+            name: data.person.name,
+            documentType: data.person.documentType ?? existing.documentType,
+            area: data.person.area,
+            whatsapp: data.person.whatsapp,
+            birthday: data.person.birthday ? parseBirthdayInput(data.person.birthday) : null,
+            documentSexCode: data.person.documentSexCode ?? null,
+            active: true,
+          },
+        });
+        if (existing.user) {
+          const staffRole = mapAreaToStaffRole(data.person.area);
+          await tx.staff.updateMany({
+            where: { userId: existing.user.id },
+            data: {
+              active: true,
+              name: data.person.name,
+              ...(staffRole ? { role: staffRole } : {}),
+            },
+          });
+          const user = await tx.user.update({
+            where: { id: existing.user.id },
+            data: {
+              username: data.username,
+              passwordHash,
+              role: data.role,
+              forcePasswordChange: true,
+            },
+            select: userSelection,
+          });
+          return { user, reactivated: true };
+        }
+        personId = person.id;
+      } else {
+        const person = await tx.person.create({
+          data: {
+            code: data.person.dni,
+            name: data.person.name,
+            dni: data.person.dni,
+            documentType: data.person.documentType ?? null,
+            area: data.person.area,
+            whatsapp: data.person.whatsapp,
+            birthday: data.person.birthday ? parseBirthdayInput(data.person.birthday) : null,
+            documentSexCode: data.person.documentSexCode ?? null,
+            active: true,
+          },
+        });
+        personId = person.id;
+      }
     } else {
       const person = await tx.person.findUnique({
         where: { code: data.code! },
@@ -49,7 +94,7 @@ export async function createUser(input: z.infer<typeof createUserSchema>, actor:
       if (!person || !person.active || person.user) throw new Failure("CODE_NOT_FOUND", 404);
       personId = person.id;
     }
-    return tx.user.create({
+    const user = await tx.user.create({
       data: {
         username: data.username,
         passwordHash,
@@ -59,9 +104,12 @@ export async function createUser(input: z.infer<typeof createUserSchema>, actor:
       },
       select: userSelection,
     });
+    return { user, reactivated: false };
   });
-  await audit("ADMIN_USER_CREATE", actor.userId, { id: result.id });
-  return userDto(result);
+  await audit(result.reactivated ? "ADMIN_USER_REACTIVATE" : "ADMIN_USER_CREATE", actor.userId, {
+    id: result.user.id,
+  });
+  return userDto(result.user);
 }
 export async function updateUser(
   id: string,

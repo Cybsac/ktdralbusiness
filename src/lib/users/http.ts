@@ -42,6 +42,8 @@ export function userFailure(error: unknown) {
               INVALID_DNI_OR_CODE: "Documento o código inválido",
               USERNAME_TAKEN: "El nombre de usuario ya existe",
               DNI_TAKEN: "El documento ya está registrado",
+              DOCUMENT_TYPE_MISMATCH:
+                "El documento coincide con una cuenta archivada de otro tipo. Revisa el tipo de documento.",
             } as Record<string, string>
           )[error.code] || error.code,
       },

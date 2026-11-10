@@ -45,7 +45,7 @@ export const ManagedDeleteButton = () => {
       mutationMode="pessimistic"
       label="Retirar acceso"
       confirmTitle="Retirar acceso"
-      confirmContent="La cuenta quedará inactiva y no podrá iniciar sesión. Se conservará su historial."
+      confirmContent="La cuenta quedará inactiva y no podrá iniciar sesión. Se conservará su historial y podrá volver a registrarse con el mismo documento."
     />
   ) : null;
 };
