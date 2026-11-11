@@ -8,6 +8,7 @@ import { confirmSurpriseDuplicate } from "@/lib/birthdays/surprise-client";
 import { suggestedCelebration } from "@/lib/birthdays/celebration";
 import { BIRTHDAY_POLICY } from "@/lib/birthdays/policy";
 import { birthdayReservationSourceLabel } from "@/lib/birthdays/attribution";
+import { birthdayCardName } from "@/lib/birthdays/card-name";
 
 
 // Formateo manual a hora Lima (UTC-5 sin DST efectivo). Restamos 5 horas y usamos componentes UTC.
@@ -554,12 +555,12 @@ export function AdminBirthdaysPage() {
                   <label htmlFor="admin-birthday-dni" className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
                     {surprise ? 'DNI del organizador *' : 'DNI del cumpleañero *'}
                   </label>
-                  <BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setIdentityProof(person.birthdayIdentityProof || ""); if (surprise) { setOrganizerName(person.name); setOrganizerBirthDate(person.birthday || ''); } else { setCName(person.name); setCBirthDate(person.birthday || ""); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); } }} input={<input
+                  <BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setIdentityProof(person.birthdayIdentityProof || ""); if (surprise) { setOrganizerName(person.name); setOrganizerBirthDate(person.birthday || ''); } else { setCName(person.name); setCardName(birthdayCardName(person.name)); setCBirthDate(person.birthday || ""); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); } }} input={<input
                     id="admin-birthday-dni" inputMode="numeric" autoComplete="off" maxLength={8}
                     className="min-h-11 min-w-0 w-full rounded-l-lg border border-slate-300 bg-white px-3 text-base text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white sm:text-sm"
                     placeholder="DNI de 8 dígitos"
                     value={cDoc}
-                    onChange={(e) => { setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); setIdentityProof(""); setOrganizerName(''); setOrganizerBirthDate(''); } }}
+                    onChange={(e) => { setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCardName(""); setCBirthDate(""); setLookupDocument(""); setIdentityProof(""); setOrganizerName(''); setOrganizerBirthDate(''); } }}
                   />} />
                 </div>
 {surprise && lookupDocument && identityProof && organizerName && <VerifiedOrganizer name={organizerName} />}
@@ -576,7 +577,7 @@ export function AdminBirthdaysPage() {
                   />
                 </div>
                 )}
-                {surprise && lookupDocument && identityProof && organizerBirthDate && <div className="min-w-0"><label htmlFor="admin-birthday-card-name" className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">Nombre para la tarjeta *</label><input id="admin-birthday-card-name" autoComplete="off" maxLength={BIRTHDAY_POLICY.maxName} aria-required="true" className="min-h-11 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white sm:text-sm" value={cardName} onChange={e => setCardName(e.target.value)} placeholder="Un nombre" /><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Ingresa un nombre para la invitación.</p></div>}
+                {lookupDocument && identityProof && (surprise ? organizerBirthDate : cBirthDate) && <div className="min-w-0"><label htmlFor="admin-birthday-card-name" className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">Nombre para la tarjeta *</label><input id="admin-birthday-card-name" autoComplete="off" maxLength={BIRTHDAY_POLICY.maxName} aria-required="true" className="min-h-11 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white sm:text-sm" value={cardName} onChange={e => setCardName(e.target.value)} placeholder="Un nombre" /><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Puedes cambiar el nombre que aparecerá en la invitación.</p></div>}
                 <div>
                   <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
                     {surprise ? 'WhatsApp del organizador *' : 'WhatsApp *'}
@@ -681,7 +682,7 @@ export function AdminBirthdaysPage() {
                     try {
                       // Validaciones básicas
                       if ((!surprise && !cName.trim()) || lookupDocument !== cDoc || !identityProof || (surprise && (!organizerName || !organizerBirthDate))) throw new Error("Consulta el DNI y completa los datos");
-                      if (surprise && (!cardName.trim() || /\s/.test(cardName.trim()))) throw new Error("Ingresa un solo nombre para la tarjeta");
+                      if (!cardName.trim() || /\s/.test(cardName.trim())) throw new Error("Ingresa un solo nombre para la tarjeta");
                       if (!cPhone.trim()) throw new Error("WhatsApp requerido");
                       if (!cDoc.trim()) throw new Error("Documento requerido");
                       if (!cPackId) throw new Error("Pack requerido");
@@ -698,9 +699,10 @@ export function AdminBirthdaysPage() {
                       if (surprise && !(await confirmSurpriseDuplicate(cDoc, cardName.trim(), finalDate))) return;
                       const payload = {
                         celebrantName: surprise ? cardName.trim() : cName.trim(),
+                        cardName: cardName.trim(),
                         phone: cPhone.trim(),
                         documento: surprise ? null : cDoc.trim(),
-                        ...(surprise && { isSurprise: true, organizerDni: cDoc.trim(), organizerName, organizerBirthDate, cardName: cardName.trim() }),
+                        ...(surprise && { isSurprise: true, organizerDni: cDoc.trim(), organizerName, organizerBirthDate }),
                         identityProof,
                         birthDate: surprise ? undefined : cBirthDate || undefined,
                         date: finalDate,

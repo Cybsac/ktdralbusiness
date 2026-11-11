@@ -92,7 +92,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           t.code,
           `${baseUrl}/b/${encodeURIComponent(t.code)}`,
           "png",
-          reservation.celebrantName,
+          reservation.cardName || reservation.celebrantName,
           reservation.date.toISOString()
         ),
       }))

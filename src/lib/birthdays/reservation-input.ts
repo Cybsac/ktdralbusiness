@@ -21,12 +21,13 @@ export const reservationFields = {
   guestsPlanned: z.number().int().min(1).max(P.maxGuests),
   wantsPhotoSession: z.boolean().default(false),
 };
+export const birthdayCardNameField = z.string().trim().min(1).max(P.maxName).regex(/^\S+$/, "Ingresa un solo nombre para la tarjeta");
 export const reservationCreateSchema = z.object({
   ...reservationFields,
+  cardName: birthdayCardNameField.optional(),
   referrerId: z.string().optional(),
 });
 
-export const birthdayCardNameField = z.string().trim().min(1).max(P.maxName).regex(/^\S+$/, "Ingresa un solo nombre para la tarjeta");
 export const surpriseReservationCreateSchema = reservationCreateSchema.omit({ documento: true }).extend({
   isSurprise: z.literal(true),
   celebrantName: birthdayCardNameField,

@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { code: string
     const base = getBirthdayQrBaseUrl(req.url);
     const redeemUrl = `${base}/b/${encodeURIComponent(token.code)}`;
     // Derive celebrant first name from reservation if available
-    const celebrantFull = (token as any).reservation?.celebrantName || "";
+    const celebrantFull = token.reservation.cardName || token.reservation.celebrantName || "";
     const celebrantFirst = celebrantFull.trim().split(/\s+/)[0] || celebrantFull;
     const reservationDateISO = (token as any).reservation?.date
       ? (token as any).reservation.date.toISOString()

@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     }
     const {
       celebrantName,
+      cardName,
       phone,
       documento,
       email,
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest) {
 
     const created = await createReservation({
       celebrantName,
+      cardName,
       phone,
       documento,
       email: email || undefined,

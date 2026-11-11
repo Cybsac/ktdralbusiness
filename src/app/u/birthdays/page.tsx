@@ -451,7 +451,7 @@ export default function StaffBirthdaysPage() {
 		// Required fields
 		if (lookupDocument !== cDoc || !identityProof || (surprise && (!organizerName || !organizerBirthDate))) errors.documento = 'Consulta el DNI para completar los datos';
 		if (!surprise && !cName.trim()) errors.name = 'Ingresa el nombre y apellido del cumpleañero';
-		if (surprise && (!cardName.trim() || /\s/.test(cardName.trim()))) errors.cardName = 'Ingresa un solo nombre para la tarjeta';
+		if (!cardName.trim() || /\s/.test(cardName.trim())) errors.cardName = 'Ingresa un solo nombre para la tarjeta';
 		if (!cPhone.trim()) errors.phone = 'El número de WhatsApp es obligatorio';
 		if (!cDoc.trim()) errors.documento = 'El DNI es obligatorio';
 		if ((!surprise && !cBirthDate) || (cBirthDate && !reservationFields.birthDate.safeParse(cBirthDate).success)) errors.birthDate = 'Ingresa una fecha de nacimiento válida';
@@ -575,9 +575,10 @@ export default function StaffBirthdaysPage() {
 			if (surprise && !(await confirmSurpriseDuplicate(cDoc, cardName.trim(), cDate))) return;
 			const payload = {
 				celebrantName: surprise ? cardName.trim() : cName.trim(),
+				cardName: cardName.trim(),
 				phone: cPhone.replace(/\D/g, ''), // Clean phone number
 				documento: surprise ? null : cDoc.replace(/\D/g, ''),
-				...(surprise && { isSurprise: true, organizerDni: cDoc, organizerName, organizerBirthDate, cardName: cardName.trim() }),
+				...(surprise && { isSurprise: true, organizerDni: cDoc, organizerName, organizerBirthDate }),
                 identityProof,
 				birthDate: surprise ? undefined : cBirthDate || undefined,
 				date: cDate,
@@ -806,7 +807,7 @@ export default function StaffBirthdaysPage() {
 
 									<div className="space-y-1">
 										<label htmlFor="staff-birthday-dni" className="block text-sm font-medium text-slate-700 dark:text-slate-300">{surprise ? 'DNI del organizador' : 'DNI del cumpleañero'}</label>
-										<BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setIdentityProof(person.birthdayIdentityProof || ""); if (surprise) { setOrganizerName(person.name); setOrganizerBirthDate(person.birthday || ''); } else { setCName(person.name); setCBirthDate(person.birthday || ''); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); } }} input={
+										<BirthdayIdentityLookup dni={cDoc} onResult={person => { setLookupDocument(cDoc); setIdentityProof(person.birthdayIdentityProof || ""); if (surprise) { setOrganizerName(person.name); setOrganizerBirthDate(person.birthday || ''); } else { setCName(person.name); setCardName(birthdayCardName(person.name)); setCBirthDate(person.birthday || ''); if (person.birthday) setCDate(suggestedCelebration(person.birthday)); } }} input={
 										<input id="staff-birthday-dni" inputMode="numeric" autoComplete="off" maxLength={8}
 											className={`min-h-11 min-w-0 rounded-l-lg border px-3 text-base sm:text-sm w-full ${
 												fieldErrors.documento
@@ -816,7 +817,7 @@ export default function StaffBirthdaysPage() {
 											placeholder="Documento (DNI - 8 dígitos)"
 											value={cDoc}
 											onChange={e => {
-												setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCBirthDate(""); setLookupDocument(""); setIdentityProof(""); setOrganizerName(''); setOrganizerBirthDate(''); }
+												setCDoc(e.target.value.replace(/\D/g, "").slice(0, 8)); if (lookupDocument) { setCName(""); setCardName(""); setCBirthDate(""); setLookupDocument(""); setIdentityProof(""); setOrganizerName(''); setOrganizerBirthDate(''); }
 												clearFieldError('documento');
 											}}
 										/>} />
@@ -848,8 +849,8 @@ export default function StaffBirthdaysPage() {
 {lookupDocument && identityProof && (surprise ? organizerBirthDate : cBirthDate) && (
   <div className="space-y-1">
     <label htmlFor="staff-birthday-card-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Nombre en la tarjeta</label>
-    <input id="staff-birthday-card-name" autoComplete="off" maxLength={BIRTHDAY_POLICY.maxName} aria-required={surprise} aria-invalid={!!fieldErrors.cardName} className={`min-h-11 min-w-0 w-full rounded border border-slate-300 px-3 text-base dark:border-slate-600 dark:bg-slate-800 sm:text-sm ${surprise ? 'bg-white' : 'bg-slate-50'}`} value={surprise ? cardName : birthdayCardName(cName)} readOnly={!surprise} onChange={e => { setCardName(e.target.value); clearFieldError('cardName'); }} />
-    <p className="text-xs text-slate-500 dark:text-slate-400">{surprise ? 'Ingresa un nombre para la invitación.' : 'La tarjeta muestra el primer nombre del cumpleañero.'}</p>{fieldErrors.cardName && <p className="text-xs text-rose-600">{fieldErrors.cardName}</p>}
+    <input id="staff-birthday-card-name" autoComplete="off" maxLength={BIRTHDAY_POLICY.maxName} aria-required="true" aria-invalid={!!fieldErrors.cardName} className="min-h-11 min-w-0 w-full rounded border border-slate-300 bg-white px-3 text-base dark:border-slate-600 dark:bg-slate-800 sm:text-sm" value={cardName} onChange={e => { setCardName(e.target.value); clearFieldError('cardName'); }} />
+    <p className="text-xs text-slate-500 dark:text-slate-400">Puedes cambiar el nombre que aparecerá en la invitación.</p>{fieldErrors.cardName && <p className="text-xs text-rose-600">{fieldErrors.cardName}</p>}
   </div>
 )}
 									<div className="space-y-1">

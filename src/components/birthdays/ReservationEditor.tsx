@@ -1,5 +1,6 @@
 "use client";
 import { type FormEvent, useState } from "react";
+import { birthdayCardName } from "@/lib/birthdays/card-name";
 
 export function ReservationEditor({
   id,
@@ -37,7 +38,7 @@ export function ReservationEditor({
         celebrantName: data.celebrantName,
         phone: data.phone,
         documento: data.documento || "",
-        cardName: data.cardName || null,
+        cardName: data.cardName || birthdayCardName(data.celebrantName),
         email: data.email || "",
         birthDate: data.birthDate?.slice(0, 10) || "",
         date: data.date.slice(0, 10),
@@ -148,7 +149,7 @@ export function ReservationEditor({
           <div className="grid gap-3 sm:grid-cols-2">
             {!isSurprise && field("celebrantName", "Nombre y apellido")}
             {field("documento", isSurprise ? "DNI del cumpleañero (opcional, sin verificar)" : "DNI (8 dígitos)")}
-            {isSurprise && field("cardName", "Nombre para la tarjeta")}
+            {field("cardName", "Nombre para la tarjeta")}
             {field("phone", isSurprise ? "WhatsApp del organizador (9 dígitos)" : "WhatsApp (9 dígitos)")}
             {!isSurprise && field("birthDate", "Fecha de nacimiento", "date")}
             {field("date", "Fecha", "date")}

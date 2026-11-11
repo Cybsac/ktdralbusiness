@@ -129,6 +129,7 @@ export async function POST(req: NextRequest) {
       return apiError("INVALID_BODY", "Validation failed", parsed.error.flatten(), 400);
     const {
       celebrantName,
+      cardName,
       phone,
       documento,
       email,
@@ -148,9 +149,10 @@ export async function POST(req: NextRequest) {
 
     const created = await createReservation({
       celebrantName,
+      cardName,
       phone,
       documento: documento || null,
-      ...(surprise && { isSurprise: true, organizerDni: surprise.organizerDni, organizerName: surprise.organizerName, organizerBirthDate: surprise.organizerBirthDate, cardName: surprise.cardName }),
+      ...(surprise && { isSurprise: true, organizerDni: surprise.organizerDni, organizerName: surprise.organizerName, organizerBirthDate: surprise.organizerBirthDate }),
       email: email || undefined,
       birthDate,
       date: dt,

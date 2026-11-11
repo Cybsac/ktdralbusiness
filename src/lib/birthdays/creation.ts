@@ -60,7 +60,7 @@ export async function createReservation(
         isSurprise: Boolean(input.isSurprise),
         organizerDni: input.isSurprise ? input.organizerDni : null,
         organizerName: input.isSurprise ? input.organizerName : null,
-        cardName: input.isSurprise ? input.cardName : null,
+        cardName: fields.cardName || null,
         email: fields.email || null,
         birthDate: fields.birthDate ? new Date(`${fields.birthDate}T00:00:00.000Z`) : null,
         date: day.toJSDate(),

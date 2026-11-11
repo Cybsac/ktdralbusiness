@@ -9,9 +9,10 @@ import { ReservationProgress } from "@/components/birthdays/ReservationProgress"
 import { BottleIceModal } from "@/components/BottleIceModal";
 import { ReservationMessageModal } from "@/components/ReservationMessageModal";
 import { birthdayDay, birthdayToday } from "@/lib/birthdays/calendar";
+import { birthdayCardName } from "@/lib/birthdays/card-name";
 import { suggestedCelebration } from "@/lib/birthdays/celebration";
 import { BIRTHDAY_POLICY } from "@/lib/birthdays/policy";
-import { reservationFields } from "@/lib/birthdays/reservation-input";
+import { birthdayCardNameField, reservationFields } from "@/lib/birthdays/reservation-input";
 import { getServerErrorDetails, getValidationErrorDetails } from "@/lib/reservation-errors";
 
 function ReservarCumplePageInner() {
@@ -36,6 +37,7 @@ function ReservarCumplePageInner() {
   // Form
   const [name, setName] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [cardName, setCardName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [documento, setDocumento] = useState("");
   const [lookupDocument, setLookupDocument] = useState("");
@@ -195,6 +197,8 @@ function ReservarCumplePageInner() {
       else if (!birthDate || !reservationFields.birthDate.safeParse(birthDate).success)
         error =
           "No pudimos obtener la fecha de nacimiento. Contacta al equipo para realizar tu reserva.";
+      else if (!birthdayCardNameField.safeParse(cardName).success)
+        error = "Ingresa un solo nombre para la tarjeta.";
       else if (!reservationFields.phone.safeParse(whatsapp.trim()).success)
         error = "Ingresa un WhatsApp válido de 9 dígitos.";
     } else if (step === 1) {
@@ -222,6 +226,8 @@ function ReservarCumplePageInner() {
   function validateBasic(): string | null {
     if (!name.trim() || lookupDocument !== documento || !identityProof)
       return "Completa los datos del DNI para continuar";
+    if (!birthdayCardNameField.safeParse(cardName).success)
+      return "Ingresa un solo nombre para la tarjeta";
     if (name.trim().length < 2) return "El nombre debe tener al menos 2 caracteres";
     if (name.trim().split(/\s+/).filter(Boolean).length < 2)
       return "Ingresa nombre y apellido (mínimo 2 palabras)";
@@ -301,6 +307,7 @@ function ReservarCumplePageInner() {
         setPhase("creating");
         const payload = {
           celebrantName: name.trim(),
+          cardName: cardName.trim(),
           phone: whatsapp.trim(),
           documento: documento.trim(),
           identityProof,
@@ -470,6 +477,7 @@ function ReservarCumplePageInner() {
                       if (lookupDocument) {
                         setName("");
                         setDisplayName("");
+                        setCardName("");
                         setBirthDate("");
                         setLookupDocument("");
                         setIdentityProof("");
@@ -488,6 +496,7 @@ function ReservarCumplePageInner() {
                           setIdentityProof(person.birthdayIdentityProof || "");
                           setName(person.name);
                           setDisplayName(person.displayName || person.name);
+                          setCardName(birthdayCardName(person.name));
                           setBirthDate(person.birthday || "");
                           if (person.birthday) setDate(suggestedCelebration(person.birthday));
                         }}
@@ -509,6 +518,11 @@ function ReservarCumplePageInner() {
                         readOnly
                         placeholder="Se completa con tu DNI"
                       />
+                    </div>
+                    <div>
+                      <label htmlFor="birthday-card-name" className="block text-sm font-semibold">Nombre en la tarjeta</label>
+                      <input id="birthday-card-name" autoComplete="off" maxLength={BIRTHDAY_POLICY.maxName} className="mt-1 w-full rounded-xl border border-white/20 bg-white/5 px-4 py-3 text-base" value={cardName} onChange={(e) => setCardName(e.target.value)} />
+                      <p className="mt-1 text-xs text-white/60">Puedes cambiar el nombre que aparecerá en tu invitación.</p>
                     </div>
                     {nextAge !== null && (
                       <p className="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm">
