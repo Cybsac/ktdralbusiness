@@ -263,7 +263,7 @@ export default function CommitmentModal({ initialAcceptedVersion, requiredVersio
       const res = await fetch("/api/user/commitment/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: requiredVersion, assignmentId, answers }),
+        body: JSON.stringify({ version: requiredVersion, ...(assignmentId ? { assignmentId } : {}), answers }),
       });
       const result = await res.json();
       if (!res.ok || !result.ok)
@@ -641,6 +641,7 @@ export default function CommitmentModal({ initialAcceptedVersion, requiredVersio
               <button
                 disabled={!hasScrolledToBottom}
                 onClick={() => {
+                  setError(null);
                   setStep("ACCEPT");
                 }}
                 className={`w-full py-3 rounded-lg font-bold text-center transition-all ${
@@ -673,12 +674,12 @@ export default function CommitmentModal({ initialAcceptedVersion, requiredVersio
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({
                             version: requiredVersion,
-                            assignmentId: assignmentId,
+                            ...(assignmentId ? { assignmentId } : {}),
                             acceptOnly: true, // Solo marcar lectura, NO completar
                           }),
                         });
                         const j = await res.json().catch(() => ({}));
-                        if (!res.ok || !j?.ok) throw new Error(j?.code || "ERROR");
+                        if (!res.ok || !j?.ok) throw new Error(j?.message || "No se pudo registrar la aceptación. Inténtalo nuevamente.");
                         setStep("TRIVIA");
                       } else {
                         // Sin trivia: completar directamente la asignación
@@ -687,12 +688,12 @@ export default function CommitmentModal({ initialAcceptedVersion, requiredVersio
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({
                             version: requiredVersion,
-                            assignmentId: assignmentId,
+                            ...(assignmentId ? { assignmentId } : {}),
                             acceptOnly: false, // Completar la asignación
                           }),
                         });
                         const j = await res.json().catch(() => ({}));
-                        if (!res.ok || !j?.ok) throw new Error(j?.code || "ERROR");
+                        if (!res.ok || !j?.ok) throw new Error(j?.message || "No se pudo registrar la aceptación. Inténtalo nuevamente.");
                         setStep("RESULT");
                       }
                     } catch (e: any) {

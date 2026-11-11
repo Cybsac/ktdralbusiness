@@ -53,7 +53,7 @@ export const assignmentSchema = z.object({
   mandatory: z.boolean().default(true),
 });
 export const acceptanceSchema = z.object({
-  assignmentId: z.string().min(1).optional(),
+  assignmentId: z.preprocess((value) => value === null ? undefined : value, z.string().min(1).optional()),
   version: z.number().int().positive().optional(),
   acceptOnly: z.boolean().default(false),
   answers: z.record(z.number().int().min(0)).optional(),

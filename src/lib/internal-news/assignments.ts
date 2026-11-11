@@ -114,13 +114,9 @@ export async function acceptNews(userId: string, input: unknown, inboxOnly = fal
     if (data.version !== CURRENT_REGULATION.version)
       throw new NewsError("INVALID_VERSION", "Actualiza el reglamento antes de aceptar");
     if (data.acceptOnly) return { accepted: true, completed: false };
-    await prisma.user.updateMany({
-      where: { id: userId, commitmentVersionAccepted: { lt: CURRENT_REGULATION.version } },
-      data: {
-        commitmentVersionAccepted: CURRENT_REGULATION.version,
-        commitmentAcceptedAt: new Date(),
-      },
-    });
+    // This acknowledgement does not change access credentials and must not advance
+    // User.updatedAt, which is also used to revoke existing sessions.
+    await prisma.$executeRaw`UPDATE "User" SET "commitmentVersionAccepted" = ${CURRENT_REGULATION.version}, "commitmentAcceptedAt" = ${new Date()} WHERE "id" = ${userId} AND "commitmentVersionAccepted" < ${CURRENT_REGULATION.version}`;
     return { completed: true };
   }
   return serialNews(async (tx) => {
