@@ -1,7 +1,7 @@
 ﻿"use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { WELCOME_PLAYERS_DEFAULT_CONFIG, WELCOME_PLAYERS_FALLBACK_CONFIG } from "@/lib/welcomeplayers/config";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { WELCOME_PLAYERS_DEFAULT_CONFIG, WELCOME_PLAYERS_FALLBACK_CONFIG, WELCOME_PLAYERS_STATS_REFRESH_MS } from "@/lib/welcomeplayers/config";
 import {
   getWelcomePlayersLayoutProfile,
   normalizeWelcomePlayersDisplayMode,
@@ -9,6 +9,9 @@ import {
   type WelcomePlayersDisplayMode,
 } from "@/lib/welcomeplayers/layout";
 import type { WelcomePlayerPrize, WelcomePlayersRouletteConfig } from "@/lib/welcomeplayers/types";
+import { WELCOME_PLAYERS_DEFAULT_MESSAGE } from "@/lib/welcomeplayers/message";
+import { EMPTY_WELCOME_ATTRACT, WELCOME_ATTRACT_IDLE_MS, WELCOME_ATTRACT_REFRESH_MS, type WelcomeAttractConfig } from "@/lib/welcomeplayers/attract";
+import attractEffects from "@/components/welcomeplayers/attractEffects.module.css";
 
 type SpinResponse = {
   spinId: string;
@@ -20,6 +23,7 @@ type SpinResponse = {
 };
 
 type StatsResponse = {
+  businessDay: string;
   totalSpins: number;
   activePrizes: number;
   topPrize: null | { prizeId: string; label: string; color: string; count: number };
@@ -279,6 +283,36 @@ function SegmentLabel({
   );
 }
 
+type WheelSegment = {
+  prize: WelcomePlayerPrize;
+  path: string;
+  label: {
+    lines: string[];
+    layout: ReturnType<typeof fitSegmentLabel>;
+    position: { x: number; y: number };
+    rotation: number;
+  };
+};
+
+const WheelArtwork = memo(function WheelArtwork({ segments }: { segments: WheelSegment[] }) {
+  return (
+    <svg viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`} className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
+      <circle cx={CENTER} cy={CENTER} r={RADIUS + 16} fill="rgba(255,255,255,0.03)" />
+      <g>
+        {segments.map(({ prize, path }) => (
+          <path key={prize.id} d={path} fill={prize.color} stroke="rgba(255,255,255,0.22)" strokeWidth={4} />
+        ))}
+      </g>
+      <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS} fill="rgba(9,11,18,0.98)" stroke="rgba(255,255,255,0.08)" strokeWidth={4} />
+      <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS - 18} fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" strokeWidth={2} />
+      <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS - 55} fill="rgba(255,255,255,0.96)" stroke="rgba(255,255,255,0.22)" strokeWidth={4} />
+      <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS - 20} fill="none" stroke="rgba(250,204,21,0.75)" strokeWidth={2} />
+      <text x={CENTER} y={CENTER + 4} textAnchor="middle" fill="#0B0E16" fontSize="38" fontWeight="900" letterSpacing="0.12em">GIRAR</text>
+      {segments.map(({ prize, label }) => <SegmentLabel key={`label-${prize.id}`} prize={prize} {...label} />)}
+    </svg>
+  );
+});
+
 export default function WelcomePlayersClient() {
   const [config, setConfig] = useState<WelcomePlayersRouletteConfig>(WELCOME_PLAYERS_FALLBACK_CONFIG);
   const prizes = config.prizes;
@@ -291,6 +325,10 @@ export default function WelcomePlayersClient() {
   const [loadingSpin, setLoadingSpin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [debugEnabled, setDebugEnabled] = useState(false);
+  const [welcomeMessage, setWelcomeMessage] = useState(WELCOME_PLAYERS_DEFAULT_MESSAGE);
+  const [attract, setAttract] = useState<WelcomeAttractConfig>(EMPTY_WELCOME_ATTRACT);
+  const [showAttract, setShowAttract] = useState(false);
+  const [attractFailed, setAttractFailed] = useState(false);
   const [viewport, setViewport] = useState({
     width: 0,
     height: 0,
@@ -299,7 +337,80 @@ export default function WelcomePlayersClient() {
     breakpoint: "unknown",
     displayMode: "standard" as WelcomePlayersResolvedDisplayMode,
   });
-  const wheelRef = useRef<HTMLButtonElement | null>(null);
+  const spinPending = useRef(false);
+  const finishTimer = useRef<number | null>(null);
+  const frameRef = useRef<number | null>(null);
+  const attractInitialized = useRef(false);
+  const interacted = useRef(false);
+  const modalVisible = useRef(showModal);
+  modalVisible.current = showModal;
+
+  useEffect(() => () => {
+    if (finishTimer.current !== null) clearTimeout(finishTimer.current);
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+  }, []);
+
+  const finishSpin = useCallback(() => {
+    if (!spinPending.current) return;
+    spinPending.current = false;
+    if (finishTimer.current !== null) clearTimeout(finishTimer.current);
+    finishTimer.current = null;
+    setRotation((value) => normalizeAngle(value));
+    setSpinning(false);
+    setShowModal(true);
+    void fetch("/api/welcomeplayers/stats", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((fresh) => { if (fresh?.ok) setStats(fresh as StatsResponse & { ok: true }); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/welcomeplayers/attract", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok || !data?.ok || cancelled) return;
+        const next = data.config as WelcomeAttractConfig;
+        setAttract((previous) => previous.enabled === next.enabled && previous.url === next.url && previous.revision === next.revision && previous.mediaType === next.mediaType && previous.imageEffect === next.imageEffect ? previous : next);
+        if (!attractInitialized.current) {
+          attractInitialized.current = true;
+          if (next.enabled && next.url && !interacted.current && !spinPending.current && !modalVisible.current) setShowAttract(true);
+        }
+        if (!next.enabled || !next.url) setShowAttract(false);
+      } catch { /* La ruleta sigue disponible si falla la pantalla de espera. */ }
+    };
+    const loadMessage = async () => {
+      try {
+        const response = await fetch("/api/welcomeplayers/message", { cache: "no-store" });
+        const data = await response.json();
+        if (!cancelled && response.ok && data?.ok && typeof data.message === "string") setWelcomeMessage(data.message);
+      } catch { /* Mantener el último mensaje disponible. */ }
+    };
+    void load();
+    void loadMessage();
+    const refresh = () => { if (document.visibilityState === "visible" && !spinPending.current && !modalVisible.current) { void load(); void loadMessage(); } };
+    const timer = window.setInterval(refresh, WELCOME_ATTRACT_REFRESH_MS);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { cancelled = true; clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, []);
+
+  useEffect(() => { setAttractFailed(false); }, [attract.url]);
+  useEffect(() => {
+    const markInteraction = () => { interacted.current = true; };
+    window.addEventListener("pointerdown", markInteraction);
+    window.addEventListener("keydown", markInteraction);
+    return () => { window.removeEventListener("pointerdown", markInteraction); window.removeEventListener("keydown", markInteraction); };
+  }, []);
+  useEffect(() => {
+    if (!attract.enabled || !attract.url || attractFailed || showAttract || spinning || loadingSpin || showModal) return;
+    let timer: number;
+    const restart = () => { clearTimeout(timer); timer = window.setTimeout(() => { if (!spinPending.current) setShowAttract(true); }, WELCOME_ATTRACT_IDLE_MS); };
+    restart();
+    window.addEventListener("pointerdown", restart);
+    window.addEventListener("keydown", restart);
+    return () => { clearTimeout(timer); window.removeEventListener("pointerdown", restart); window.removeEventListener("keydown", restart); };
+  }, [attract.enabled, attract.url, attractFailed, showAttract, spinning, loadingSpin, showModal]);
 
   const wheelSegments = useMemo(
     () =>
@@ -378,17 +489,18 @@ export default function WelcomePlayersClient() {
       try {
         const res = await fetch("/api/welcomeplayers/config", { cache: "no-store" });
         const data = await res.json().catch(() => null);
-        if (!cancelled && data?.ok && Array.isArray(data.prizes)) {
-          setConfig({
+        if (!cancelled && !spinPending.current && !modalVisible.current && data?.ok && Array.isArray(data.prizes)) {
+          const nextConfig = {
             title: data.title || WELCOME_PLAYERS_DEFAULT_CONFIG.title,
             subtitle: data.subtitle || WELCOME_PLAYERS_DEFAULT_CONFIG.subtitle,
             instructions: data.instructions || WELCOME_PLAYERS_DEFAULT_CONFIG.instructions,
-            aspectRatio: data.aspectRatio || "9:16",
+            aspectRatio: data.aspectRatio || WELCOME_PLAYERS_DEFAULT_CONFIG.aspectRatio,
             prizes: data.prizes,
-          });
+          };
+          setConfig((previous) => JSON.stringify(previous) === JSON.stringify(nextConfig) ? previous : nextConfig);
         }
       } catch {
-        if (!cancelled) setConfig(WELCOME_PLAYERS_FALLBACK_CONFIG);
+        // Se conservan los premios disponibles hasta poder actualizar la configuración.
       }
     };
 
@@ -406,13 +518,23 @@ export default function WelcomePlayersClient() {
 
     void loadConfig();
     void loadStats();
+    const refresh = () => {
+      if (document.visibilityState !== "visible" || spinPending.current || modalVisible.current) return;
+      void loadConfig();
+      void loadStats();
+    };
+    const statsTimer = window.setInterval(refresh, WELCOME_PLAYERS_STATS_REFRESH_MS);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
       cancelled = true;
+      clearInterval(statsTimer);
+      document.removeEventListener("visibilitychange", refresh);
     };
   }, []);
 
   const spin = async () => {
-    if (spinning || loadingSpin) return;
+    if (spinning || loadingSpin || spinPending.current) return;
+    spinPending.current = true;
     setError(null);
     setLoadingSpin(true);
 
@@ -431,19 +553,15 @@ export default function WelcomePlayersClient() {
       const targetAngle = normalizeAngle(payload.rotation);
       const delta = normalizeAngle(targetAngle - currentAngle);
       const fullRotation = rotation + payload.turns * 360 + delta;
-      requestAnimationFrame(() => setRotation(fullRotation));
-
-      window.setTimeout(() => {
-        setSpinning(false);
-        setShowModal(true);
-        void fetch("/api/welcomeplayers/stats", { cache: "no-store" })
-          .then((res) => res.json())
-          .then((fresh) => {
-            if (fresh?.ok) setStats(fresh as StatsResponse & { ok: true });
-          })
-          .catch(() => {});
-      }, SPIN_DURATION_MS);
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = requestAnimationFrame(() => {
+          frameRef.current = null;
+          setRotation(fullRotation);
+          finishTimer.current = window.setTimeout(finishSpin, SPIN_DURATION_MS + 500);
+        });
+      });
     } catch (e: any) {
+      spinPending.current = false;
       setError(e?.message || "SPIN_FAILED");
     } finally {
       setLoadingSpin(false);
@@ -489,56 +607,21 @@ export default function WelcomePlayersClient() {
           </div>
 
           <button
-            ref={wheelRef}
           type="button"
           className={layout.wheelClassName}
           data-wp-state={spinning || loadingSpin ? "spinning" : "idle"}
           onClick={spin}
-          disabled={spinning || loadingSpin}
+          onTransitionEnd={(event) => { if (event.target === event.currentTarget && event.propertyName === "transform") finishSpin(); }}
+          disabled={spinning || loadingSpin || !canSpin}
           aria-label="Girar la ruleta"
             style={{
-              transform: `rotate(${rotation}deg)`,
+              transform: `translate3d(0, 0, 0) rotate(${rotation}deg)`,
               transition: spinning ? `transform ${SPIN_DURATION_MS}ms cubic-bezier(0.12, 0.05, 0.14, 1)` : "none",
+              willChange: spinning ? "transform" : "auto",
+              backfaceVisibility: "hidden",
             }}
           >
-            <svg viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`} className="absolute inset-0 h-full w-full overflow-visible">
-              <defs>
-                <radialGradient id="wp-inner" cx="50%" cy="45%" r="55%">
-                  <stop offset="0%" stopColor="#1f2937" />
-                  <stop offset="100%" stopColor="#090B12" />
-                </radialGradient>
-                <radialGradient id="wp-center" cx="50%" cy="45%" r="60%">
-                  <stop offset="0%" stopColor="#ffffff" />
-                  <stop offset="100%" stopColor="#d6d8df" />
-                </radialGradient>
-              </defs>
-
-              <circle cx={CENTER} cy={CENTER} r={RADIUS + 16} fill="rgba(255,255,255,0.03)" />
-              <g>
-                {wheelSegments.map(({ prize, path }) => (
-                  <path
-                    key={prize.id}
-                    d={path}
-                    fill={prize.color}
-                    stroke="rgba(255,255,255,0.22)"
-                    strokeWidth={4}
-                  />
-                ))}
-              </g>
-
-              <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS} fill="rgba(9,11,18,0.98)" stroke="rgba(255,255,255,0.08)" strokeWidth={4} />
-              <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS - 18} fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" strokeWidth={2} />
-              <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS - 55} fill="rgba(255,255,255,0.96)" stroke="rgba(255,255,255,0.22)" strokeWidth={4} />
-              <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS - 20} fill="none" stroke="rgba(250,204,21,0.75)" strokeWidth={2} />
-              <text x={CENTER} y={CENTER + 4} textAnchor="middle" fill="#0B0E16" fontSize="38" fontWeight="900" letterSpacing="0.12em">
-                GIRAR
-              </text>
-            </svg>
-            <svg className="pointer-events-none absolute inset-0 z-[2] h-full w-full overflow-visible" viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`}>
-              {wheelSegments.map(({ prize, label }) => (
-                <SegmentLabel key={`label-${prize.id}`} prize={prize} {...label} />
-              ))}
-            </svg>
+            <WheelArtwork segments={wheelSegments} />
           </button>
         </div>
 
@@ -559,7 +642,7 @@ export default function WelcomePlayersClient() {
         </button>
 
         <div className="grid grid-cols-2 gap-3">
-          <StatCard label="GIROS" value={stats?.totalSpins ?? 0} className={layout.statsCardClassName} />
+          <StatCard label="GIROS · JORNADA" value={stats?.totalSpins ?? "—"} className={layout.statsCardClassName} />
           <StatCard label="PREMIOS" value={stats?.activePrizes ?? activePrizeCount} className={layout.statsCardClassName} />
         </div>
 
@@ -567,14 +650,14 @@ export default function WelcomePlayersClient() {
 
         {stats?.lastPrize && (
           <section className="rounded-[1.25rem] border border-[#41396B] bg-[#111A33] px-4 py-4 text-sm text-[#AEB8D4] shadow-sm">
-            Último premio entregado: <span className="font-semibold text-[#FFD447]">{stats.lastPrize.label}</span>
+            Último premio obtenido: <span className="font-semibold text-[#FFD447]">{stats.lastPrize.label}</span>
           </section>
         )}
 
         <footer className={layout.footerClassName}>
           <span className="inline-flex items-center gap-4">
             <span className="h-px w-12 bg-white/15" />
-            <span>Un giro por grupo de cinco</span>
+            <span>{welcomeMessage}</span>
             <span className="h-px w-12 bg-white/15" />
           </span>
         </footer>
@@ -607,11 +690,17 @@ export default function WelcomePlayersClient() {
           </div>
         </div>
       )}
+      {showAttract && attract.enabled && attract.url && !attractFailed && (
+        <button type="button" aria-label="Toca para jugar" onClick={() => { interacted.current = true; setShowAttract(false); }} className="fixed inset-0 z-[9999] h-[100dvh] w-full overflow-hidden bg-slate-950 text-white">
+          {attract.mediaType === "video" ? <video key={attract.url} src={attract.url} autoPlay muted loop playsInline onError={() => { setAttractFailed(true); setShowAttract(false); }} className="absolute inset-0 h-full w-full object-contain" /> : <><img key={attract.url} src={attract.url} alt="" onError={() => { setAttractFailed(true); setShowAttract(false); }} className={`absolute inset-0 h-full w-full object-contain ${attract.imageEffect === "bounce" ? attractEffects.bounce : attract.imageEffect === "heartbeat" ? attractEffects.heartbeat : ""}`} />{attract.imageEffect === "lights" && <span aria-hidden="true" className={`absolute inset-0 ${attractEffects.lights}`} />}</>}
+          <span className="sr-only">Toca para jugar</span>
+        </button>
+      )}
     </div>
   );
 }
 
-function StatCard({ label, value, className }: { label: string; value: number; className?: string }) {
+function StatCard({ label, value, className }: { label: string; value: number | string; className?: string }) {
   return (
     <div className={className || "rounded-[1.5rem] border border-[#41396B] bg-[#111A33] px-4 py-5 text-center shadow-sm"}>
       <div className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-[#AEB8D4]">{label}</div>

@@ -1,6 +1,9 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { AttractSettings } from "@/components/welcomeplayers/AttractSettings";
+import { MessageSettings } from "@/components/welcomeplayers/MessageSettings";
+import { WELCOME_PLAYERS_STATS_REFRESH_MS } from "@/lib/welcomeplayers/config";
 
 type Prize = {
   id: string;
@@ -38,36 +41,55 @@ export default function WelcomePlayersAdminClient() {
   const [pending, startTransition] = useTransition();
   const [form, setForm] = useState<PrizeForm>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [stats, setStats] = useState<{ totalSpins: number; activePrizes: number } | null>(null);
+  const [stats, setStats] = useState<{ businessDay: string; totalSpins: number; activePrizes: number; recentSpins: Array<{ spinId: string; label: string; createdAt: string }> } | null>(null);
+  const [selectedDay, setSelectedDay] = useState("");
+  const loadVersion = useRef(0);
 
-  const loadAll = async () => {
+  const loadAll = async (day = selectedDay) => {
+    const version = ++loadVersion.current;
     setLoading(true);
     try {
       const [configRes, statsRes] = await Promise.all([
         fetch("/api/admin/welcomeplayers/prizes", { cache: "no-store" }),
-        fetch("/api/welcomeplayers/stats", { cache: "no-store" }),
+        fetch(`/api/welcomeplayers/stats${day ? `?day=${encodeURIComponent(day)}` : ""}`, { cache: "no-store" }).catch(() => null),
       ]);
       const configData = await configRes.json().catch(() => null);
-      const statsData = await statsRes.json().catch(() => null);
+      const statsData = statsRes ? await statsRes.json().catch(() => null) : null;
+      if (version !== loadVersion.current) return;
+      if (!configRes.ok || !configData?.ok) throw new Error(configData?.message || "No se pudieron cargar los premios.");
       if (configData?.ok) {
         setPrizes(Array.isArray(configData.prizes) ? configData.prizes : configData.data?.prizes || []);
       }
       if (statsData?.ok) {
         setStats({
+          businessDay: statsData.businessDay,
           totalSpins: statsData.totalSpins ?? 0,
           activePrizes: statsData.activePrizes ?? 0,
+          recentSpins: Array.isArray(statsData.recentSpins) ? statsData.recentSpins : [],
         });
-      }
+      } else setStats(null);
     } catch (err: any) {
-      setError(err?.message || "No se pudo cargar la configuración");
+      if (version === loadVersion.current) setError(err?.message || "No se pudo cargar la configuración");
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadAll();
   }, []);
+  useEffect(() => {
+    if (selectedDay) return;
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await fetch("/api/welcomeplayers/stats", { cache: "no-store" });
+        const data = await response.json();
+        if (!cancelled && response.ok && data?.ok) setStats({ businessDay: data.businessDay, totalSpins: data.totalSpins, activePrizes: data.activePrizes, recentSpins: data.recentSpins || [] });
+      } catch { /* Se mantiene el último dato disponible hasta la próxima consulta. */ }
+    }, WELCOME_PLAYERS_STATS_REFRESH_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [selectedDay]);
 
   const sorted = useMemo(() => [...prizes].sort((a, b) => a.order - b.order), [prizes]);
 
@@ -167,27 +189,6 @@ export default function WelcomePlayersAdminClient() {
     });
   };
 
-  const resetSpinCounter = () => {
-    if (!window.confirm("¿Reiniciar el contador de giros? Esto borrará el historial de premios entregados.")) return;
-
-    setError(null);
-    setMessage(null);
-
-    startTransition(async () => {
-      try {
-        const res = await fetch("/api/admin/welcomeplayers/spins/reset", { method: "POST" });
-        const data = await res.json().catch(() => null);
-        if (!res.ok || !data?.ok) {
-          throw new Error(data?.message || "No se pudo reiniciar el contador");
-        }
-        setMessage("Contador de giros reiniciado");
-        await loadAll();
-      } catch (err: any) {
-        setError(err?.message || "No se pudo reiniciar el contador");
-      }
-    });
-  };
-
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -202,22 +203,24 @@ export default function WelcomePlayersAdminClient() {
             <a href="/welcomeplayers" className="btn-outline text-xs">
               Ver pública
             </a>
-            <button onClick={resetSpinCounter} className="btn-outline text-xs" type="button" disabled={pending}>
-              Reiniciar giros
-            </button>
             <button onClick={resetToDefaults} className="btn-outline text-xs" type="button" disabled={pending}>
               Reiniciar ruleta
             </button>
           </div>
         </div>
 
+        <div className="mt-4 flex flex-wrap items-end gap-2"><label className="text-sm text-slate-700 dark:text-slate-200">Jornada<input type="date" value={selectedDay || stats?.businessDay || ""} onChange={(event) => { const day = event.target.value; setSelectedDay(day); setStats(null); void loadAll(day); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base dark:border-slate-600 dark:bg-slate-900" /></label>{selectedDay && <button type="button" onClick={() => { setSelectedDay(""); setStats(null); void loadAll(""); }} className="btn-outline min-h-11 text-sm">Jornada actual</button>}</div>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <Stat label="Premios" value={stats?.activePrizes ?? sorted.filter((p) => p.status === "active").length} />
-          <Stat label="Giros totales" value={stats?.totalSpins ?? 0} />
+          <Stat label="Giros de la jornada" value={stats?.totalSpins ?? "—"} />
           <Stat label="Premios configurados" value={sorted.length} />
         </div>
+        {!loading && !stats && <p className="mt-2 text-sm text-amber-600">No se pudieron cargar los giros. <button type="button" className="underline" onClick={() => void loadAll()}>Reintentar</button></p>}
+        {stats && <div className="mt-4"><h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Últimos premios obtenidos · jornada {stats.businessDay}</h2>{stats.recentSpins.length ? <ul className="mt-2 space-y-1 text-sm text-slate-600 dark:text-slate-300">{stats.recentSpins.map((spin) => <li key={spin.spinId}>{spin.label} · {new Date(spin.createdAt).toLocaleString("es-PE", { timeZone: "America/Lima", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</li>)}</ul> : <p className="mt-2 text-sm text-slate-500">No hay resultados en esta jornada.</p>}</div>}
       </div>
 
+      <MessageSettings />
+      <AttractSettings />
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <div className="flex items-center justify-between">
@@ -318,7 +321,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-900/60">
       <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>

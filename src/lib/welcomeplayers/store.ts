@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { WelcomePlayerPrize } from "./types";
 import type { WelcomePlayersSpinResult } from "./engine";
+import { businessDayWindowUtc, currentBusinessDay } from "@/lib/attendanceDay";
 
 type SpinRecord = {
   id: string;
@@ -21,19 +22,24 @@ export async function recordWelcomePlayersSpin(result: WelcomePlayersSpinResult)
       prizeWeight: result.prize.weight,
       rotation: result.rotation,
       turns: result.turns,
+      createdAt: new Date(result.createdAt),
     },
   });
 }
 
-export async function getWelcomePlayersState(prizes: WelcomePlayerPrize[]) {
+export async function getWelcomePlayersState(prizes: WelcomePlayerPrize[], day = currentBusinessDay()) {
   const active = prizes.filter((prize) => prize.status === "active").sort((a, b) => a.order - b.order);
+  const { startUtc, endUtc } = businessDayWindowUtc(day);
+  const where = { createdAt: { gte: startUtc, lt: endUtc } };
   const [totalSpins, grouped, records] = await Promise.all([
-    (prisma as any).welcomePlayersSpin.count(),
+    (prisma as any).welcomePlayersSpin.count({ where }),
     (prisma as any).welcomePlayersSpin.groupBy({
+      where,
       by: ["prizeId", "prizeLabel", "prizeColor"],
       _count: { _all: true },
     }),
     (prisma as any).welcomePlayersSpin.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       take: 20,
       select: {
@@ -46,14 +52,19 @@ export async function getWelcomePlayersState(prizes: WelcomePlayerPrize[]) {
     }),
   ]) as [number, Array<{ prizeId: string; prizeLabel: string; prizeColor: string; _count: { _all: number } }>, SpinRecord[]];
 
-  const prizeCounts = active.map((prize) => ({
-    prizeId: prize.id,
-    label: prize.label,
-    color: prize.color,
-    count: grouped.find((row) => row.prizeId === prize.id)?._count._all || 0,
-  }));
-
-  const topPrize = [...prizeCounts].sort((a, b) => b.count - a.count)[0] || null;
+  const counts = new Map<string, { prizeId: string; label: string; color: string; count: number }>();
+  for (const row of grouped) {
+    const existing = counts.get(row.prizeId);
+    if (existing) existing.count += row._count._all;
+    else {
+      const recent = records.find((record) => record.prizeId === row.prizeId);
+      const configured = prizes.find((prize) => prize.id === row.prizeId);
+      counts.set(row.prizeId, { prizeId: row.prizeId, label: recent?.prizeLabel || configured?.label || row.prizeLabel, color: recent?.prizeColor || configured?.color || row.prizeColor, count: row._count._all });
+    }
+  }
+  for (const prize of active) if (!counts.has(prize.id)) counts.set(prize.id, { prizeId: prize.id, label: prize.label, color: prize.color, count: 0 });
+  const prizeCounts = [...counts.values()];
+  const topPrize = [...prizeCounts].filter((item) => item.count > 0).sort((a, b) => b.count - a.count)[0] || null;
   const lastPrize = records[0]
     ? {
         prizeId: records[0].prizeId,
@@ -64,6 +75,7 @@ export async function getWelcomePlayersState(prizes: WelcomePlayerPrize[]) {
     : null;
 
   return {
+    businessDay: day,
     totalSpins,
     activePrizes: active.length,
     topPrize,

@@ -1,0 +1,45 @@
+.bounce, .heartbeat {
+  transform-origin: center;
+  will-change: transform;
+}
+
+.bounce { animation: welcomeBounce 2.6s ease-in-out infinite; }
+.heartbeat { animation: welcomeHeartbeat 2.8s ease-in-out infinite; }
+
+@keyframes welcomeBounce {
+  0%, 65%, 100% { transform: translateY(0) scale(0.97); }
+  25% { transform: translateY(-0.3%) scale(0.988); }
+  42% { transform: translateY(0) scale(0.97); }
+  53% { transform: translateY(-0.15%) scale(0.98); }
+}
+
+@keyframes welcomeHeartbeat {
+  0%, 55%, 100% { transform: scale(0.965); }
+  10%, 30% { transform: scale(0.995); }
+  20%, 42% { transform: scale(0.975); }
+}
+
+.lights { pointer-events: none; overflow: hidden; }
+.lights::before, .lights::after {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  will-change: transform, opacity;
+}
+.lights::before {
+  background: radial-gradient(ellipse 22% 18% at 13% 23%, rgba(255, 199, 70, 0.45), transparent), radial-gradient(ellipse 22% 18% at 87% 75%, rgba(255, 70, 151, 0.36), transparent);
+  animation: welcomeLights 4s ease-in-out infinite alternate;
+}
+.lights::after {
+  background: radial-gradient(ellipse 22% 18% at 85% 18%, rgba(91, 193, 255, 0.34), transparent), radial-gradient(ellipse 22% 18% at 15% 80%, rgba(255, 183, 60, 0.4), transparent);
+  animation: welcomeLights 5s ease-in-out infinite alternate-reverse;
+}
+@keyframes welcomeLights {
+  from { opacity: 0.25; transform: translateY(-2%); }
+  to { opacity: 0.9; transform: translateY(2%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bounce, .heartbeat, .lights::before, .lights::after { animation: none; }
+  .lights::before, .lights::after { opacity: 0; }
+}
