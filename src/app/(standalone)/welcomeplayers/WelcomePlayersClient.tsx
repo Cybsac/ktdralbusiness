@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { WELCOME_PLAYERS_DEFAULT_CONFIG, WELCOME_PLAYERS_FALLBACK_CONFIG, WELCOME_PLAYERS_STATS_REFRESH_MS } from "@/lib/welcomeplayers/config";
 import {
   getWelcomePlayersLayoutProfile,
+  getWelcomePlayersWheelSize,
   normalizeWelcomePlayersDisplayMode,
   resolveWelcomePlayersDisplayMode,
   type WelcomePlayersDisplayMode,
@@ -182,21 +183,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function getWheelSize(viewport: { width: number; height: number; displayMode: WelcomePlayersResolvedDisplayMode }) {
-  const { width, height, displayMode } = viewport;
-  if (!width || !height) return 480;
-
-  const sizing =
-    displayMode === "kiosk"
-      ? { widthFactor: 0.76, heightFactor: 0.36, min: 400, max: 660 }
-      : displayMode === "compact"
-        ? { widthFactor: 0.74, heightFactor: 0.38, min: 280, max: 400 }
-        : { widthFactor: 0.84, heightFactor: 0.44, min: 320, max: 520 };
-
-  const availableByWidth = Math.floor(width * sizing.widthFactor);
-  const availableByHeight = Math.floor(height * sizing.heightFactor);
-  return clamp(Math.min(availableByWidth, availableByHeight), sizing.min, sizing.max);
-}
 
 function fitSegmentLabel(lines: string[], slice: number) {
   const anglePadding = Math.max(12, (RADIUS - INNER_RADIUS) * 0.08);
@@ -571,7 +557,7 @@ export default function WelcomePlayersClient() {
   const activePrizeCount = activePrizes.length;
   const canSpin = activePrizeCount >= 3;
   const layout = getWelcomePlayersLayoutProfile(viewport.displayMode);
-  const wheelSize = getWheelSize(viewport);
+  const wheelSize = getWelcomePlayersWheelSize(viewport);
   const wheelStyle = { ["--wp-wheel-size"]: `${wheelSize}px` } as CSSProperties;
 
   return (
@@ -602,7 +588,8 @@ export default function WelcomePlayersClient() {
         </header>
 
         <div className={layout.wheelStageClassName}>
-          <div className="absolute left-1/2 top-0 z-[3] -translate-x-1/2 -translate-y-[8%]" aria-hidden="true">
+          <div className="relative max-w-full shrink-0" style={wheelStyle}>
+          <div className="absolute left-1/2 z-[3] -translate-x-1/2 -translate-y-full" style={{ top: `${((CENTER - RADIUS - 16) / VIEWBOX) * 100}%` }} aria-hidden="true">
             <div className={layout.arrowClassName} />
           </div>
 
@@ -623,6 +610,7 @@ export default function WelcomePlayersClient() {
           >
             <WheelArtwork segments={wheelSegments} />
           </button>
+          </div>
         </div>
 
         {!canSpin && (

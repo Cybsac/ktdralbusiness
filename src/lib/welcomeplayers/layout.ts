@@ -95,10 +95,23 @@ export function resolveWelcomePlayersDisplayMode(
   forcedMode: WelcomePlayersDisplayMode,
 ): Exclude<WelcomePlayersDisplayMode, "auto"> {
   if (forcedMode !== "auto") return forcedMode;
+  if (width >= 600 && height >= 900 && height / width >= 1.5) return "kiosk";
   if (height > 0 && height < 1100) return "compact";
   return "standard";
 }
 
 export function getWelcomePlayersLayoutProfile(mode: Exclude<WelcomePlayersDisplayMode, "auto">) {
   return WELCOME_PLAYERS_LAYOUT_PROFILES[mode];
+}
+
+/** Fits the wheel to the available screen while reserving space for controls. */
+export function getWelcomePlayersWheelSize(viewport: { width: number; height: number; displayMode: Exclude<WelcomePlayersDisplayMode, "auto"> }) {
+  const { width, height, displayMode } = viewport;
+  if (!width || !height) return 0;
+  const sizing = displayMode === "kiosk"
+    ? { widthFactor: 0.88, heightFactor: 0.47, max: Infinity }
+    : displayMode === "compact"
+      ? { widthFactor: 0.9, heightFactor: 0.48, max: Infinity }
+      : { widthFactor: 0.84, heightFactor: 0.44, max: 520 };
+  return Math.floor(Math.min(width * sizing.widthFactor, height * sizing.heightFactor, sizing.max));
 }
