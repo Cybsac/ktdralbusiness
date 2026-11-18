@@ -13,3 +13,37 @@
   position: relative;
   transform-origin: center;
 }
+
+/* Animate only the small prompt; the wheel artwork stays still between spins. */
+.centerPrompt {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #0b0e16;
+  font-size: calc(var(--wp-wheel-size) * 0.03);
+  font-weight: 900;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.scene :global(button[data-wp-state="idle"]:not(:disabled)) .centerPrompt {
+  animation: centerPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes centerPulse {
+  0%, 60%, 100% { transform: translate(-50%, -50%) scale(1); }
+  25% { transform: translate(-50%, -50%) scale(1.1); }
+  40% { transform: translate(-50%, -50%) scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene :global(button[data-wp-state="idle"]:not(:disabled)) .centerPrompt { animation: none; }
+}

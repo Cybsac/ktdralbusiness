@@ -11,7 +11,6 @@ export type WelcomePlayersLayoutProfile = {
   wheelStageClassName: string;
   wheelClassName: string;
   arrowClassName: string;
-  actionButtonClassName: string;
   statsCardClassName: string;
   footerClassName: string;
   modalClassName: string;
@@ -22,17 +21,16 @@ export type WelcomePlayersLayoutProfile = {
 
 export const WELCOME_PLAYERS_LAYOUT_PROFILES: Record<Exclude<WelcomePlayersDisplayMode, "auto">, WelcomePlayersLayoutProfile> = {
   kiosk: {
-    shellClassName: "relative h-[100vh] w-full overflow-hidden rounded-none px-6 py-5 min-h-[100vh] text-[#F5F7FF] bg-[radial-gradient(circle_at_50%_34%,_rgba(65,32,110,0.55),_transparent_38%),radial-gradient(circle_at_15%_42%,_rgba(255,60,172,0.18),_transparent_28%),radial-gradient(circle_at_85%_40%,_rgba(24,215,255,0.16),_transparent_28%),linear-gradient(180deg,#241044_0%,#0B1026_42%,#050713_100%)]",
-    stageClassName: "relative mx-auto flex h-full w-full max-w-[72rem] flex-col gap-2",
+    shellClassName: "relative h-[100dvh] w-full overflow-x-hidden overflow-y-auto rounded-none px-6 py-5 min-h-[100dvh] text-[#F5F7FF] bg-[radial-gradient(circle_at_50%_34%,_rgba(65,32,110,0.55),_transparent_38%),radial-gradient(circle_at_15%_42%,_rgba(255,60,172,0.18),_transparent_28%),radial-gradient(circle_at_85%_40%,_rgba(24,215,255,0.16),_transparent_28%),linear-gradient(180deg,#241044_0%,#0B1026_42%,#050713_100%)]",
+    stageClassName: "relative mx-auto flex min-h-full w-full max-w-[72rem] flex-col justify-center gap-4",
     headerClassName: "flex flex-col items-center text-center gap-3 pt-1",
     logoClassName: "h-14 w-auto object-contain opacity-95",
-    titleClassName: "font-black leading-[0.9] tracking-[-0.05em] text-[#F5F7FF] text-[clamp(3.6rem,5.2vw,5.8rem)]",
+    titleClassName: "font-black leading-[0.9] tracking-[-0.05em] text-[#F5F7FF] text-[clamp(3.6rem,7vw,6.5rem)]",
     subtitleClassName: "mt-2 leading-relaxed text-[#AEB8D4] text-[clamp(1rem,1.4vw,1.45rem)]",
     introClassName: "max-w-[56rem]",
-    wheelStageClassName: "relative mx-auto flex w-full flex-1 min-h-0 items-center justify-center max-w-none py-1",
+    wheelStageClassName: "relative mx-auto flex w-full shrink-0 items-center justify-center max-w-none py-[clamp(1rem,2.4vh,2.5rem)]",
     wheelClassName: "relative flex aspect-square touch-manipulation items-center justify-center overflow-visible rounded-full border border-white/10 bg-[#0A0D16] outline-none select-none ring-1 ring-white/5 w-[var(--wp-wheel-size)] max-w-full",
     arrowClassName: "h-0 w-0 border-l-transparent border-r-transparent border-t-amber-300 border-l-[22px] border-r-[22px] border-t-[36px]",
-    actionButtonClassName: "w-full rounded-[1.65rem] border border-fuchsia-300/70 bg-gradient-to-r from-[#FF3CAC] via-fuchsia-600 to-violet-700 text-center font-black uppercase tracking-[0.24em] text-white shadow-[0_0_24px_rgba(255,60,172,0.34)] transition-transform active:scale-[0.99] disabled:opacity-70 px-6 py-4 text-[1rem]",
     statsCardClassName: "rounded-[1.5rem] border border-[#41396B] bg-[#111A33]/90 px-4 py-4 text-center shadow-[0_12px_28px_rgba(0,0,0,0.18)]",
     footerClassName: "text-center text-[#AEB8D4] pb-1 pt-1 text-[0.95rem]",
     modalClassName: "relative z-[1] w-full rounded-[2rem] border border-[#41396B] bg-[#111A33] text-center shadow-[0_28px_80px_rgba(0,0,0,0.45)] max-w-2xl p-8",
@@ -51,7 +49,6 @@ export const WELCOME_PLAYERS_LAYOUT_PROFILES: Record<Exclude<WelcomePlayersDispl
     wheelStageClassName: "relative mx-auto flex w-full items-center justify-center max-w-[34rem] py-5 sm:py-6",
     wheelClassName: "relative flex aspect-square touch-manipulation items-center justify-center overflow-visible rounded-full border border-white/10 bg-[#0A0D16] outline-none select-none ring-1 ring-white/5 w-[var(--wp-wheel-size)] max-w-full",
     arrowClassName: "h-0 w-0 border-l-transparent border-r-transparent border-t-amber-300 border-l-[18px] border-r-[18px] border-t-[30px]",
-    actionButtonClassName: "w-full rounded-[1.65rem] border border-fuchsia-300/70 bg-gradient-to-r from-[#FF3CAC] via-fuchsia-600 to-violet-700 text-center font-black uppercase tracking-[0.24em] text-white shadow-[0_0_24px_rgba(255,60,172,0.34)] transition-transform active:scale-[0.99] disabled:opacity-70 px-5 py-4 text-[0.95rem]",
     statsCardClassName: "rounded-[1.5rem] border border-[#41396B] bg-[#111A33]/90 px-4 py-5 text-center shadow-[0_12px_28px_rgba(0,0,0,0.18)]",
     footerClassName: "text-center text-[#AEB8D4] pb-1 pt-2 text-[0.8rem]",
     modalClassName: "relative z-[1] w-full rounded-[2rem] border border-[#41396B] bg-[#111A33] text-center shadow-[0_28px_80px_rgba(0,0,0,0.45)] max-w-md p-6",
@@ -70,7 +67,6 @@ export const WELCOME_PLAYERS_LAYOUT_PROFILES: Record<Exclude<WelcomePlayersDispl
     wheelStageClassName: "relative mx-auto flex w-full flex-1 min-h-0 items-center justify-center max-w-[34rem] py-2",
     wheelClassName: "relative flex aspect-square touch-manipulation items-center justify-center overflow-visible rounded-full border border-white/10 bg-[#0A0D16] outline-none select-none ring-1 ring-white/5 w-[var(--wp-wheel-size)] max-w-full",
     arrowClassName: "h-0 w-0 border-l-transparent border-r-transparent border-t-amber-300 border-l-[18px] border-r-[18px] border-t-[30px]",
-    actionButtonClassName: "w-full rounded-[1.65rem] border border-fuchsia-300/70 bg-gradient-to-r from-[#FF3CAC] via-fuchsia-600 to-violet-700 text-center font-black uppercase tracking-[0.24em] text-white shadow-[0_0_24px_rgba(255,60,172,0.34)] transition-transform active:scale-[0.99] disabled:opacity-70 px-5 py-5 text-[1.05rem]",
     statsCardClassName: "rounded-[1.5rem] border border-[#41396B] bg-[#111A33]/90 px-4 py-5 text-center shadow-[0_12px_28px_rgba(0,0,0,0.18)]",
     footerClassName: "text-center text-[#AEB8D4] pb-1 pt-1 text-[0.9rem]",
     modalClassName: "relative z-[1] w-full rounded-[2rem] border border-[#41396B] bg-[#111A33] text-center shadow-[0_28px_80px_rgba(0,0,0,0.45)] max-w-md p-6",

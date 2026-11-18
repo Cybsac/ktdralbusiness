@@ -13,6 +13,7 @@ import type { WelcomePlayerPrize, WelcomePlayersRouletteConfig } from "@/lib/wel
 import { WELCOME_PLAYERS_DEFAULT_MESSAGE } from "@/lib/welcomeplayers/message";
 import { EMPTY_WELCOME_ATTRACT, WELCOME_ATTRACT_IDLE_MS, WELCOME_ATTRACT_REFRESH_MS, type WelcomeAttractConfig } from "@/lib/welcomeplayers/attract";
 import attractEffects from "@/components/welcomeplayers/attractEffects.module.css";
+import styles from "./welcomeplayers.module.css";
 
 type SpinResponse = {
   spinId: string;
@@ -293,7 +294,6 @@ const WheelArtwork = memo(function WheelArtwork({ segments }: { segments: WheelS
       <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS - 18} fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" strokeWidth={2} />
       <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS - 55} fill="rgba(255,255,255,0.96)" stroke="rgba(255,255,255,0.22)" strokeWidth={4} />
       <circle cx={CENTER} cy={CENTER} r={INNER_RADIUS - 20} fill="none" stroke="rgba(250,204,21,0.75)" strokeWidth={2} />
-      <text x={CENTER} y={CENTER + 4} textAnchor="middle" fill="#0B0E16" fontSize="38" fontWeight="900" letterSpacing="0.12em">GIRAR</text>
       {segments.map(({ prize, label }) => <SegmentLabel key={`label-${prize.id}`} prize={prize} {...label} />)}
     </svg>
   );
@@ -323,6 +323,7 @@ export default function WelcomePlayersClient() {
     breakpoint: "unknown",
     displayMode: "standard" as WelcomePlayersResolvedDisplayMode,
   });
+  const fullscreenRequested = useRef(false);
   const spinPending = useRef(false);
   const finishTimer = useRef<number | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -518,6 +519,16 @@ export default function WelcomePlayersClient() {
     };
   }, []);
 
+  const requestFullscreenOnFirstInteraction = () => {
+    if (fullscreenRequested.current) return;
+    fullscreenRequested.current = true;
+    if (!document.fullscreenElement && document.fullscreenEnabled && document.documentElement.requestFullscreen) {
+      void document.documentElement.requestFullscreen().catch(() => {
+        // Si el dispositivo no lo permite, la ruleta sigue funcionando normalmente.
+      });
+    }
+  };
+
   const spin = async () => {
     if (spinning || loadingSpin || spinPending.current) return;
     spinPending.current = true;
@@ -561,7 +572,7 @@ export default function WelcomePlayersClient() {
   const wheelStyle = { ["--wp-wheel-size"]: `${wheelSize}px` } as CSSProperties;
 
   return (
-    <div className={layout.shellClassName} style={wheelStyle}>
+    <div className={layout.shellClassName} style={wheelStyle} onPointerDown={requestFullscreenOnFirstInteraction} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") requestFullscreenOnFirstInteraction(); }}>
       {debugEnabled ? (
         <div className="absolute left-3 top-3 z-[9998] max-w-[min(92vw,28rem)] rounded-2xl border border-[#41396B] bg-[#111A33] px-4 py-3 font-mono text-[11px] leading-5 text-[#AEB8D4] shadow-lg">
           <div>window.innerWidth: {viewport.width}</div>
@@ -596,7 +607,7 @@ export default function WelcomePlayersClient() {
           <button
           type="button"
           className={layout.wheelClassName}
-          data-wp-state={spinning || loadingSpin ? "spinning" : "idle"}
+          data-wp-state={spinning || loadingSpin || showModal ? "spinning" : "idle"}
           onClick={spin}
           onTransitionEnd={(event) => { if (event.target === event.currentTarget && event.propertyName === "transform") finishSpin(); }}
           disabled={spinning || loadingSpin || !canSpin}
@@ -609,6 +620,7 @@ export default function WelcomePlayersClient() {
             }}
           >
             <WheelArtwork segments={wheelSegments} />
+            <span className={styles.centerPrompt} aria-hidden="true"><span>TOCA</span><span>PARA GIRAR</span></span>
           </button>
           </div>
         </div>
@@ -620,14 +632,6 @@ export default function WelcomePlayersClient() {
           </section>
         )}
 
-        <button
-          type="button"
-          onClick={spin}
-          disabled={spinning || loadingSpin || !canSpin}
-          className={layout.actionButtonClassName}
-        >
-          {canSpin ? "TOCA PARA GIRAR" : "AGREGA MÁS PREMIOS"}
-        </button>
 
         <div className="grid grid-cols-2 gap-3">
           <StatCard label="GIROS · JORNADA" value={stats?.totalSpins ?? "—"} className={layout.statsCardClassName} />
