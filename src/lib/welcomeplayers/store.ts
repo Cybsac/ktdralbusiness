@@ -27,6 +27,19 @@ export async function recordWelcomePlayersSpin(result: WelcomePlayersSpinResult)
   });
 }
 
+export async function getWelcomePlayersSpin(id: string) {
+  const record = await (prisma as any).welcomePlayersSpin.findUnique({ where: { id } });
+  if (!record) return null;
+  return {
+    spinId: record.id,
+    prize: { id: record.prizeId, label: record.prizeLabel, color: record.prizeColor, status: "active" as const, weight: record.prizeWeight, order: record.prizeOrder },
+    prizeIndex: -1,
+    turns: record.turns,
+    rotation: record.rotation,
+    createdAt: record.createdAt.toISOString(),
+  };
+}
+
 export async function getWelcomePlayersState(prizes: WelcomePlayerPrize[], day = currentBusinessDay()) {
   const active = prizes.filter((prize) => prize.status === "active").sort((a, b) => a.order - b.order);
   const { startUtc, endUtc } = businessDayWindowUtc(day);

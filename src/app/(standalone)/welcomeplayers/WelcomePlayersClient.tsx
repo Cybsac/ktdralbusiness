@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { WELCOME_PLAYERS_DEFAULT_CONFIG, WELCOME_PLAYERS_FALLBACK_CONFIG, WELCOME_PLAYERS_STATS_REFRESH_MS } from "@/lib/welcomeplayers/config";
+import { WELCOME_PLAYERS_DEFAULT_CONFIG, WELCOME_PLAYERS_FALLBACK_CONFIG, WELCOME_PLAYERS_STATS_REFRESH_MS, WELCOME_PLAYERS_REQUEST_TIMEOUT_MS, WELCOME_PLAYERS_CONFIG_RETRY_MS } from "@/lib/welcomeplayers/config";
 import {
   getWelcomePlayersLayoutProfile,
   getWelcomePlayersWheelSize,
@@ -37,6 +37,21 @@ type StatsResponse = {
 type WelcomePlayersResolvedDisplayMode = Exclude<WelcomePlayersDisplayMode, "auto">;
 
 const SPIN_DURATION_MS = 5600;
+const PENDING_SPIN_STORAGE_KEY = "welcomeplayers.pendingSpin";
+
+function persistPendingSpin(id: string | null) {
+  try {
+    if (id) sessionStorage.setItem(PENDING_SPIN_STORAGE_KEY, id);
+    else sessionStorage.removeItem(PENDING_SPIN_STORAGE_KEY);
+  } catch { /* La ruleta también funciona sin almacenamiento de sesión. */ }
+}
+
+function readPendingSpin() {
+  try {
+    const id = sessionStorage.getItem(PENDING_SPIN_STORAGE_KEY);
+    return id && /^[0-9a-f]{32}$/i.test(id) ? id : null;
+  } catch { return null; }
+}
 const VIEWBOX = 1000;
 const CENTER = VIEWBOX / 2;
 const RADIUS = 430;
@@ -323,7 +338,12 @@ export default function WelcomePlayersClient() {
     breakpoint: "unknown",
     displayMode: "standard" as WelcomePlayersResolvedDisplayMode,
   });
-  const fullscreenRequested = useRef(false);
+  const [configStatus, setConfigStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [retryConfig, setRetryConfig] = useState(0);
+  const configStatusRef = useRef(configStatus);
+  configStatusRef.current = configStatus;
+  const requestId = useRef<string | null>(null);
+  const targetRotation = useRef<number | null>(null);
   const spinPending = useRef(false);
   const finishTimer = useRef<number | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -341,8 +361,13 @@ export default function WelcomePlayersClient() {
     if (!spinPending.current) return;
     spinPending.current = false;
     if (finishTimer.current !== null) clearTimeout(finishTimer.current);
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
     finishTimer.current = null;
-    setRotation((value) => normalizeAngle(value));
+    setRotation((value) => normalizeAngle(targetRotation.current ?? value));
+    targetRotation.current = null;
+    requestId.current = null;
+    persistPendingSpin(null);
     setSpinning(false);
     setShowModal(true);
     void fetch("/api/welcomeplayers/stats", { cache: "no-store" })
@@ -471,12 +496,17 @@ export default function WelcomePlayersClient() {
 
   useEffect(() => {
     let cancelled = false;
+    let configInFlight = false;
 
     const loadConfig = async () => {
+      if (configInFlight) return;
+      configInFlight = true;
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), WELCOME_PLAYERS_REQUEST_TIMEOUT_MS);
       try {
-        const res = await fetch("/api/welcomeplayers/config", { cache: "no-store" });
+        const res = await fetch("/api/welcomeplayers/config", { cache: "no-store", signal: controller.signal });
         const data = await res.json().catch(() => null);
-        if (!cancelled && !spinPending.current && !modalVisible.current && data?.ok && Array.isArray(data.prizes)) {
+        if (!cancelled && !spinPending.current && !modalVisible.current && res.ok && data?.ok && Array.isArray(data.prizes)) {
           const nextConfig = {
             title: data.title || WELCOME_PLAYERS_DEFAULT_CONFIG.title,
             subtitle: data.subtitle || WELCOME_PLAYERS_DEFAULT_CONFIG.subtitle,
@@ -485,9 +515,15 @@ export default function WelcomePlayersClient() {
             prizes: data.prizes,
           };
           setConfig((previous) => JSON.stringify(previous) === JSON.stringify(nextConfig) ? previous : nextConfig);
+          setConfigStatus("ready");
+        } else if (!cancelled && !spinPending.current && !modalVisible.current) {
+          setConfigStatus((previous) => previous === "ready" ? previous : "error");
         }
       } catch {
-        // Se conservan los premios disponibles hasta poder actualizar la configuración.
+        if (!cancelled) setConfigStatus((previous) => previous === "ready" ? previous : "error");
+      } finally {
+        clearTimeout(timeout);
+        configInFlight = false;
       }
     };
 
@@ -511,23 +547,15 @@ export default function WelcomePlayersClient() {
       void loadStats();
     };
     const statsTimer = window.setInterval(refresh, WELCOME_PLAYERS_STATS_REFRESH_MS);
+    const configTimer = window.setInterval(() => { if (configStatusRef.current !== "ready" && !spinPending.current && !modalVisible.current && document.visibilityState === "visible") void loadConfig(); }, WELCOME_PLAYERS_CONFIG_RETRY_MS);
     document.addEventListener("visibilitychange", refresh);
     return () => {
       cancelled = true;
       clearInterval(statsTimer);
+      clearInterval(configTimer);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, []);
-
-  const requestFullscreenOnFirstInteraction = () => {
-    if (fullscreenRequested.current) return;
-    fullscreenRequested.current = true;
-    if (!document.fullscreenElement && document.fullscreenEnabled && document.documentElement.requestFullscreen) {
-      void document.documentElement.requestFullscreen().catch(() => {
-        // Si el dispositivo no lo permite, la ruleta sigue funcionando normalmente.
-      });
-    }
-  };
+  }, [retryConfig]);
 
   const spin = async () => {
     if (spinning || loadingSpin || spinPending.current) return;
@@ -536,10 +564,26 @@ export default function WelcomePlayersClient() {
     setLoadingSpin(true);
 
     try {
-      const response = await fetch("/api/welcomeplayers/spin", { method: "POST" });
-      const data = await response.json().catch(() => null);
+      if (!requestId.current) {
+        requestId.current = readPendingSpin();
+        if (!requestId.current) {
+          const bytes = new Uint8Array(16);
+          crypto.getRandomValues(bytes);
+          requestId.current = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+          persistPendingSpin(requestId.current);
+        }
+      }
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), WELCOME_PLAYERS_REQUEST_TIMEOUT_MS);
+      let response: Response;
+      let data: any;
+      try {
+        response = await fetch("/api/welcomeplayers/spin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: requestId.current }), signal: controller.signal });
+        data = await response.json().catch(() => null);
+      } finally { clearTimeout(timeout); }
       if (!response.ok || !data?.ok) {
-        throw new Error(data?.message || "SPIN_FAILED");
+        if (response.status === 400) { requestId.current = null; persistPendingSpin(null); }
+        throw new Error(data?.message || "No se pudo completar el giro. Toca para reintentar.");
       }
 
       const payload = data as SpinResponse & { ok: true };
@@ -550,16 +594,17 @@ export default function WelcomePlayersClient() {
       const targetAngle = normalizeAngle(payload.rotation);
       const delta = normalizeAngle(targetAngle - currentAngle);
       const fullRotation = rotation + payload.turns * 360 + delta;
+      targetRotation.current = fullRotation;
+      finishTimer.current = window.setTimeout(finishSpin, SPIN_DURATION_MS + 2000);
       frameRef.current = requestAnimationFrame(() => {
         frameRef.current = requestAnimationFrame(() => {
           frameRef.current = null;
           setRotation(fullRotation);
-          finishTimer.current = window.setTimeout(finishSpin, SPIN_DURATION_MS + 500);
         });
       });
     } catch (e: any) {
       spinPending.current = false;
-      setError(e?.message || "SPIN_FAILED");
+      setError(e?.name === "AbortError" || e instanceof TypeError ? "La conexión está demorando. Toca la ruleta para recuperar el mismo giro." : e?.message || "No se pudo completar el giro. Toca para reintentar.");
     } finally {
       setLoadingSpin(false);
     }
@@ -572,7 +617,7 @@ export default function WelcomePlayersClient() {
   const wheelStyle = { ["--wp-wheel-size"]: `${wheelSize}px` } as CSSProperties;
 
   return (
-    <div className={layout.shellClassName} style={wheelStyle} onPointerDown={requestFullscreenOnFirstInteraction} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") requestFullscreenOnFirstInteraction(); }}>
+    <div className={layout.shellClassName} style={wheelStyle}>
       {debugEnabled ? (
         <div className="absolute left-3 top-3 z-[9998] max-w-[min(92vw,28rem)] rounded-2xl border border-[#41396B] bg-[#111A33] px-4 py-3 font-mono text-[11px] leading-5 text-[#AEB8D4] shadow-lg">
           <div>window.innerWidth: {viewport.width}</div>
@@ -620,12 +665,15 @@ export default function WelcomePlayersClient() {
             }}
           >
             <WheelArtwork segments={wheelSegments} />
-            <span className={styles.centerPrompt} aria-hidden="true"><span>TOCA</span><span>PARA GIRAR</span></span>
+            <span className={styles.centerPrompt} aria-hidden="true">{loadingSpin ? <span>ESPERA…</span> : <><span>TOCA</span><span>PARA GIRAR</span></>}</span>
           </button>
           </div>
         </div>
 
-        {!canSpin && (
+        {configStatus !== "ready" && <section role="status" className="rounded-2xl border border-amber-300/40 bg-[#111A33] px-4 py-4 text-center text-sm text-[#FFD447]">{configStatus === "loading" ? "Preparando la ruleta…" : <>No se pudieron cargar los premios. Reintentaremos automáticamente. <button type="button" className="underline" onClick={() => { setConfigStatus("loading"); setRetryConfig((value) => value + 1); }}>Reintentar ahora</button></>}</section>}
+        {loadingSpin && <p role="status" className="text-center text-sm text-white">Preparando tu giro, espera un momento…</p>}
+        {error && <div role="alert" className="rounded-2xl border border-red-400/50 bg-red-950/50 px-4 py-3 text-center text-sm text-red-200">{error}</div>}
+        {configStatus === "ready" && !canSpin && (
           <section className="rounded-[1.25rem] border border-amber-300/40 bg-[#111A33] px-4 py-4 text-center text-sm leading-relaxed text-[#FFD447] shadow-sm">
             Necesitamos al menos <span className="font-semibold">3 premios activos</span> para activar la ruleta.
             Agrega más premios desde coordinación y vuelve a intentarlo.
@@ -638,7 +686,6 @@ export default function WelcomePlayersClient() {
           <StatCard label="PREMIOS" value={stats?.activePrizes ?? activePrizeCount} className={layout.statsCardClassName} />
         </div>
 
-        {error && <div className="rounded-2xl border border-red-400/50 bg-red-950/50 px-4 py-3 text-sm text-red-200 shadow-sm">{error}</div>}
 
         {stats?.lastPrize && (
           <section className="rounded-[1.25rem] border border-[#41396B] bg-[#111A33] px-4 py-4 text-sm text-[#AEB8D4] shadow-sm">

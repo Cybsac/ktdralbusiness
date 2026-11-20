@@ -1,5 +1,7 @@
 import { WelcomePlayersRouletteConfig } from "./types";
 export const WELCOME_PLAYERS_STATS_REFRESH_MS = 60_000;
+export const WELCOME_PLAYERS_REQUEST_TIMEOUT_MS = 15_000;
+export const WELCOME_PLAYERS_CONFIG_RETRY_MS = 10_000;
 
 export const WELCOME_PLAYERS_DEFAULT_CONFIG: WelcomePlayersRouletteConfig = {
   title: "Welcome Players",

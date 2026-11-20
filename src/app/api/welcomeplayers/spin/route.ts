@@ -1,12 +1,21 @@
 import { NextRequest } from "next/server";
 import { apiError, apiOk } from "@/lib/apiError";
 import { buildSpinResult } from "@/lib/welcomeplayers/engine";
-import { recordWelcomePlayersSpin } from "@/lib/welcomeplayers/store";
+import { getWelcomePlayersSpin, recordWelcomePlayersSpin } from "@/lib/welcomeplayers/store";
 import { logEvent } from "@/lib/log";
 import { getActiveWelcomePlayersPrizes } from "@/lib/welcomeplayers/repository";
 
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
+    const body = await req.json().catch(() => ({}));
+    const requestId = body?.requestId;
+    if (requestId !== undefined && (typeof requestId !== "string" || !/^[0-9a-f]{32}$/i.test(requestId))) {
+      return apiError("INVALID_INPUT", "No se pudo identificar el giro.", undefined, 400);
+    }
+    if (requestId) {
+      const existing = await getWelcomePlayersSpin(requestId);
+      if (existing) return apiOk(existing);
+    }
     const prizes = await getActiveWelcomePlayersPrizes();
     if (prizes.length < 3) {
       return apiError(
@@ -17,7 +26,16 @@ export async function POST(_req: NextRequest) {
       );
     }
     const result = buildSpinResult(prizes);
-    await recordWelcomePlayersSpin(result);
+    if (requestId) result.spinId = requestId;
+    try {
+      await recordWelcomePlayersSpin(result);
+    } catch (error) {
+      if (requestId && typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+        const existing = await getWelcomePlayersSpin(requestId);
+        if (existing) return apiOk(existing);
+      }
+      throw error;
+    }
 
     await logEvent("WELCOMEPLAYERS_SPIN", "WelcomePlayers spin", {
       spinId: result.spinId,
