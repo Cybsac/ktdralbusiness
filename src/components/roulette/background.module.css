@@ -95,6 +95,16 @@
   animation-play-state: paused;
 }
 
+:global(html[data-roulette-quality="low"]) .spotlight,
+:global(html[data-roulette-quality="medium"]) .spotlight {
+  filter: none;
+  will-change: auto;
+}
+:global(html[data-roulette-quality="low"]) .spotlight3,
+:global(html[data-roulette-quality="low"]) .spotlight4 {
+  display: none;
+}
+
 
 .spotlight1 {
   top: 10%;

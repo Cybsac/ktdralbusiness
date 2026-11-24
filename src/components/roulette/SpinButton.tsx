@@ -6,27 +6,19 @@ import { useRouletteTheme } from '@/lib/themes/useRouletteTheme';
 interface SpinButtonProps {
   onClick: () => void;
   disabled?: boolean;
+  pending?: boolean;
   scale?: number; // escala relativa al tamaño base (500)
   theme?: ThemeName;
 }
 
 // Componente de botón mejorado con mejor manejo de eventos
-const SpinButton: React.FC<SpinButtonProps> = ({ onClick, disabled = false, scale = 1, theme: propTheme }) => {
-  // Usar el hook de tema para obtener la configuración, con fallback
-  let theme = 'default';
-  let themeConfig = null;
+const SpinButton: React.FC<SpinButtonProps> = ({ onClick, disabled = false, pending = false, scale = 1 }) => {
+  const { config: themeConfig } = useRouletteTheme();
 
-  try {
-    const themeContext = useRouletteTheme();
-    theme = propTheme || themeContext.theme;
-    themeConfig = themeContext.config;
-  } catch {
-    // Fallback si no hay provider
-    theme = propTheme || 'default';
-  }
-
-  const [isHover, setIsHover] = useState(false);
-  const [isPress, setIsPress] = useState(false);
+  const [hovered, setIsHover] = useState(false);
+  const [pressed, setIsPress] = useState(false);
+  const isHover = !disabled && hovered;
+  const isPress = !disabled && pressed;
 
   // Usar colores del tema con estados hover/press
   const glossyStart = isPress ? '#E64C65' : isHover ? '#F15A6B' : '#E6495F';
@@ -80,6 +72,7 @@ const SpinButton: React.FC<SpinButtonProps> = ({ onClick, disabled = false, scal
   return (
     <div 
       className={btnStyles.container}
+      data-busy={disabled || undefined}
       style={{
         position: 'absolute',
         top: '50%',
@@ -116,7 +109,9 @@ const SpinButton: React.FC<SpinButtonProps> = ({ onClick, disabled = false, scal
       }}
       role="button"
       tabIndex={disabled ? -1 : 0}
-      aria-label="Girar la ruleta"
+      aria-disabled={disabled}
+      aria-busy={disabled}
+      aria-label={pending ? 'Confirmando resultado' : disabled ? 'Ruleta en movimiento' : 'Girar la ruleta'}
     >
       <div className={btnStyles.bounce}>
       <svg
@@ -200,7 +195,7 @@ const SpinButton: React.FC<SpinButtonProps> = ({ onClick, disabled = false, scal
             textShadow: '0 0 3px rgba(255,255,255,0.7)'
           }}
         >
-          GIRAR
+          {pending ? '…' : 'GIRAR'}
         </text>
       </g>
       
@@ -238,4 +233,4 @@ const SpinButton: React.FC<SpinButtonProps> = ({ onClick, disabled = false, scal
   );
 };
 
-export default SpinButton;
+export default React.memo(SpinButton);

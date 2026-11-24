@@ -8,6 +8,7 @@ type CanvasConfettiProps = {
   durationMs?: number; // total animation time
   emitMs?: number; // emission window
   maxParticles?: number;
+  pixelRatioCap?: number;
   colors?: string[];
 };
 
@@ -35,6 +36,7 @@ export default function CanvasConfetti({
   durationMs = 4000,
   emitMs = 900,
   maxParticles,
+  pixelRatioCap = 2,
   colors = defaultColors,
 }: CanvasConfettiProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -56,7 +58,7 @@ export default function CanvasConfetti({
     let last = start;
 
     // Setup size and DPR scaling
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, pixelRatioCap);
     const resize = () => {
       const w = window.innerWidth;
       const h = window.innerHeight;
@@ -163,7 +165,7 @@ export default function CanvasConfetti({
       // clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     };
-  }, [active, lowMotion, durationMs, emitMs, targetMax, colors]);
+  }, [active, lowMotion, durationMs, emitMs, targetMax, colors, pixelRatioCap]);
 
   if (!active) return null;
 

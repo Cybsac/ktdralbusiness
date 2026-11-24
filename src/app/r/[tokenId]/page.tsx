@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { buildTitle } from '@/lib/seo/title';
+import PublicRoulettePage from '@/app/marketing/ruleta/PublicRoulettePage';
+import MarketingLayout from '@/app/marketing/layout';
 
 export async function generateMetadata({ params }: { params: { tokenId: string } }) {
   return { title: buildTitle(['Token', params.tokenId.slice(0,10)]) };
@@ -21,21 +23,12 @@ function sanitizeTokenId(raw: string): string {
   return t.trim();
 }
 
-/**
- * Esta página redirige a la nueva versión de la ruleta 
- * que utiliza el layout de marketing
- */
-export default async function TokenPage({ params }: { params: { tokenId: string } }) {
+/** Keep existing QR paths and birthday routing; game pages render directly. */
+export default async function TokenPage({ params, searchParams }: { params: { tokenId: string }; searchParams?: { theme?: string } }) {
   const cleanId = sanitizeTokenId(params.tokenId);
   // Si es invitación de cumpleaños -> /b/<code>
-  try {
-    const invite = await prisma.inviteToken.findUnique({ where: { code: cleanId }, select: { id: true } });
-    if (invite) redirect(`/b/${cleanId}`);
-  } catch (e: any) {
-    if ((e as any)?.digest === 'NEXT_REDIRECT') throw e;
-    // Si hubo error igual seguimos al redirect genérico
-  }
-  // Redirigir SIEMPRE a la ruleta con el token (no validar aquí para evitar cachés inconsistentes)
-  redirect(`/marketing/ruleta?tokenId=${encodeURIComponent(cleanId)}`);
+  const invite = await prisma.inviteToken.findUnique({ where: { code: cleanId }, select: { id: true } }).catch(() => null);
+  if (invite) redirect(`/b/${encodeURIComponent(cleanId)}`);
+  return <MarketingLayout><PublicRoulettePage tokenId={cleanId} theme={searchParams?.theme} /></MarketingLayout>;
 }
  

@@ -1,49 +1,53 @@
 "use client";
-import { AnimatePresence, motion } from "framer-motion";
-import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
-import SmartPreloader from "@/components/common/SmartPreloader";
-import { PrizeDeliveryAction } from "@/components/prize-authorization/PrizeDeliveryAction";
-import { PrizeRedemptionQr } from "@/components/roulette/PrizeRedemptionQr";
-import LoseModal from "@/components/roulette/LoseModal";
-import NewRoulette from "@/components/roulette/NewRoulette";
 import RetryContinuation from "@/components/roulette/RetryContinuation";
 import RouletteHeading from "@/components/roulette/RouletteHeading";
-import { ROULETTE_SPIN_DURATION_MS } from "@/components/roulette/motion";
+import { rouletteQuality, type RouletteQuality } from "@/components/roulette/motion";
 import { RouletteElement } from "@/components/roulette/types";
 import { useRouletteSounds } from "@/hooks/useRouletteSounds";
 import { getExperienceUi } from "@/lib/experiences/config";
+import { ROULETTE_CONFIG } from "@/lib/experiences/roulette-config";
+import { gamePrizeAccessPath } from "@/lib/prize-games/links";
+import type { InitialGame } from "@/lib/prize-games/public-load";
 import { perfCheckBudget, perfMark, perfMeasure, perfSummarize } from "@/lib/perf";
 import {
   deliverGamePrize,
   GameRequestError,
-  loadPrizeGame,
   revealGameResult,
+  type PrizeGameData,
 } from "@/lib/prize-games/client";
-import type { GameAction, GameContinuation } from "@/lib/prize-games/contracts";
-import { ThemeName } from "@/lib/themes/types";
+import { GAME_RESULT_KEYS } from "@/lib/prize-games/contracts";
+import type { ThemeName, ThemeConfig } from "@/lib/themes/types";
 import { useRouletteTheme } from "@/lib/themes/useRouletteTheme";
 
 import layoutStyles from "./rouletteLayout.module.css";
 
 const ScratchCardExperience = dynamic(() => import("@/components/experiences/ScratchCardExperience"), { ssr: false });
 const CanvasConfetti = dynamic(() => import("@/components/visual/CanvasConfetti"), { ssr: false });
+const NewRoulette = dynamic(() => import("@/components/roulette/NewRoulette"));
+const LoseModal = dynamic(() => import("@/components/roulette/LoseModal"));
+const PrizeWinModal = dynamic(() => import("@/components/roulette/PrizeWinModal"));
+const PrizeDeliveryAction = dynamic(() => import("@/components/prize-authorization/PrizeDeliveryAction").then(m => m.PrizeDeliveryAction));
+const PrizeRedemptionQr = dynamic(() => import("@/components/roulette/PrizeRedemptionQr").then(m => m.PrizeRedemptionQr));
 
 // Confetti ahora usando canvas para menos costo en DOM
 const Confetti = ({
   active,
   lowMotion = false,
   colors,
+  quality,
 }: {
   active: boolean;
   lowMotion?: boolean;
   colors?: string[];
-}) => active && !lowMotion ? <CanvasConfetti active lowMotion={lowMotion} colors={colors} /> : null;
+  quality?: RouletteQuality;
+}) => active && !lowMotion ? <CanvasConfetti active lowMotion={lowMotion} colors={colors} maxParticles={quality ? ROULETTE_CONFIG.quality[quality].particles : undefined} pixelRatioCap={quality ? ROULETTE_CONFIG.quality[quality].pixelRatio : undefined} /> : null;
 
 // Función helper para obtener clases CSS del tema
-const getThemeClass = (themeConfig: any) => {
+const getThemeClass = (themeConfig: ThemeConfig) => {
   return themeConfig?.global?.layout?.themeClass || "";
 };
 
@@ -53,7 +57,7 @@ const spinCounterFormatter = new Intl.NumberFormat("en-US", {
   useGrouping: true,
 });
 
-const GUIDE_SLOT_COUNT = 3;
+const GUIDE_SLOT_COUNT = ROULETTE_CONFIG.sidebar.visibleSlots;
 
 interface RouletteSidebarInsight {
   id: string;
@@ -207,96 +211,46 @@ function GuideInsightIcon({ icon }: { icon: RouletteSidebarInsight["icon"] | "pl
   );
 }
 
-interface TokenShape {
-  timeZone?: string;
-  id: string;
-  expiresAt: string;
-  redeemedAt: string | null;
-  revealedAt?: string | null;
-  deliveredAt?: string | null;
-  disabled: boolean;
-  availableFrom?: string | null;
-  batchId?: string;
-  experienceType?: "roulette" | "scratch_card";
-  reservedByRetry?: boolean;
-  action?: GameAction;
-  availability?: string;
-  continuation?: GameContinuation | null;
-  prize: { id: string; key: string; label: string; color: string | null; active: boolean };
-}
-
 interface RouletteClientPageProps {
-  theme?: ThemeName;
+  tokenId: string;
+  initial: InitialGame;
+  theme: ThemeName;
 }
 
-/** Configuración centralizada de tiempos y tuning del cliente de ruleta */
-const ROULETTE_CONFIG = {
-  fetchTimeoutMs: 12000, // abort fetch si el backend tarda demasiado
-  loadBudgetMs: 2500, // presupuesto orientativo de carga total
-  sidebarFetchTimeoutMs: 5000,
-  sidebarRefreshMs: 30000,
-  guideRotationMs: 12000,
-  perfSampleRate: 0.15, // tasa de muestreo para perfSummarize
-  spinBudgetMs: { normal: 6200, lowMotion: 3600 }, // margen para perfCheckBudget
-  soundStartDelayMs: 300, // delay antes de iniciar sonidos de giro
-  softSwitchDelayMs: 500, // delay de transición suave tras retry
-  prizeModalDelayMs: 1500, // delay antes de mostrar el modal de premio
-  smallViewportWidth: 380, // ancho mínimo para heurística de low motion
-  smallViewportHeight: 680, // alto mínimo para heurística de low motion
-} as const;
+type Phase = "READY" | "SPINNING" | "REVEALED_MODAL" | "REVEALED_PANEL" | "DELIVERED";
 
-export default function RouletteClientPage({
-  theme: propTheme = "default",
-}: RouletteClientPageProps) {
-  const searchParams = useSearchParams();
-  const [isHydrated, setIsHydrated] = useState(false);
-  const tokenId = isHydrated ? searchParams?.get("tokenId") || "" : "";
-  // Usar el hook de tema para obtener la configuración
-  const { theme: contextTheme, config } = useRouletteTheme();
-  const theme = propTheme || contextTheme;
-  const themeConfig = config;
-
-  // Inicializar sonidos de la ruleta
-  const sounds = useRouletteSounds();
-
-  // Mark initial mount
-  useEffect(() => {
-    perfMark("page_mount");
-    setIsHydrated(true);
-  }, []);
-  const [loading, setLoading] = useState(true);
-  // Token activo en UI (permite cambiar sin navegación dura)
-  const [activeTokenId, setActiveTokenId] = useState<string>(tokenId);
-  // Bandera para transición suave (no mostrar overlay) - ahora ref para evitar re-ejecuciones
-  const softSwitchRef = useRef(false);
-  const [error, setError] = useState<string | null>(null);
-  const [errorCode, setErrorCode] = useState<string | null>(null);
-  const [token, setToken] = useState<TokenShape | null>(null);
+export default function RouletteClientPage({ tokenId: activeTokenId, initial, theme }: RouletteClientPageProps) {
+  const router = useRouter();
+  const [navigationPending, startNavigation] = useTransition();
+  const { config: themeConfig } = useRouletteTheme();
+  const sounds = useRouletteSounds(initial.data?.token.experienceType === 'roulette' && !initial.data.token.revealedAt && !initial.data.token.disabled);
+  const [error, setError] = useState<string | null>(initial.error?.message ?? null);
+  const [errorCode, setErrorCode] = useState<string | null>(initial.error?.code ?? null);
+  const [token, setToken] = useState<PrizeGameData["token"] | null>(initial.data?.token ?? null);
   const isScratchExperience = token?.experienceType === "scratch_card";
-  const [elements, setElements] = useState<RouletteElement[]>([]);
-  type Phase = "READY" | "SPINNING" | "REVEALED_MODAL" | "REVEALED_PANEL" | "DELIVERED";
-  const [phase, setPhase] = useState<Phase>("READY");
-  const [prizeIndex, setPrizeIndex] = useState<number | null>(null);
-  const [prizeWon, setPrizeWon] = useState<RouletteElement | null>(null);
+  const [elements] = useState<RouletteElement[]>(() => (initial.data?.elements ?? []).map((element, index) => ({
+    label: element.label,
+    color: element.color || themeConfig.roulette.segments.palette[index % themeConfig.roulette.segments.palette.length] || themeConfig.colors.accent,
+    prizeId: element.prizeId,
+    key: element.key,
+  })));
+  const initialResult = token?.revealedAt ? elements.findIndex(element => element.prizeId === token.prize.id) : -1;
+  const initialContinuation = token?.revealedAt && token.action === "RETRY" && token.continuation?.state !== "UNAVAILABLE" ? token.continuation?.tokenId ?? null : null;
+  const [functionalTokenId, setFunctionalTokenId] = useState<string | null>(initialContinuation);
+  const [retryOverlayOpen, setRetryOverlayOpen] = useState(Boolean(initialContinuation));
+  const [phase, setPhase] = useState<Phase>(() => token?.deliveredAt || token?.redeemedAt ? "DELIVERED" : token?.revealedAt && token.action !== "RETRY" && initialResult >= 0 ? token.action === "LOSE" ? "REVEALED_MODAL" : "REVEALED_PANEL" : "READY");
+  const [prizeIndex, setPrizeIndex] = useState<number | null>(initialResult >= 0 ? initialResult : null);
+  const [prizeWon, setPrizeWon] = useState<RouletteElement | null>(initialResult >= 0 ? elements[initialResult] : null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [delivering, setDelivering] = useState(false);
   const [deliverError, setDeliverError] = useState<string | null>(null);
-  const [lowMotion, setLowMotion] = useState(false);
-  // Overlay minimal para RETRY (oculta cabeceras y copia mientras cambia el token)
-  const [retryOverlayOpen, setRetryOverlayOpen] = useState(false);
-  // Suprime la UI de "premio revelado" cuando el resultado es RETRY
-  const [suppressRevealed, setSuppressRevealed] = useState(false);
-  // Suprime el loader durante la transición a la continuación de RETRY.
-  const [suppressLoader, setSuppressLoader] = useState(false);
-  const suppressLoaderRef = useRef(suppressLoader);
-  suppressLoaderRef.current = suppressLoader;
-  const paletteRef = useRef(themeConfig?.roulette?.segments?.palette);
-  paletteRef.current = themeConfig?.roulette?.segments?.palette;
-  // Bandera para transición de retry, para suprimir errores
-  const [isRetryTransition, setIsRetryTransition] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const [scratchLowMotion, setScratchLowMotion] = useState(false);
+  const [quality, setQuality] = useState<RouletteQuality>(ROULETTE_CONFIG.defaultQuality);
+  const lowMotion = isScratchExperience ? scratchLowMotion : reducedMotion;
   const prizeModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const soundStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const celebrationSoundTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealControllerRef = useRef<AbortController | null>(null);
   const scratchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [spinCounter, setSpinCounter] = useState<number | null>(null);
   const [guideInsights, setGuideInsights] = useState<RouletteSidebarInsight[]>([]);
@@ -327,7 +281,10 @@ export default function RouletteClientPage({
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
     const update = () => {
       const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-      setLowMotion(media.matches || (!!memory && memory <= 2) || window.innerWidth < ROULETTE_CONFIG.smallViewportWidth || window.innerHeight < ROULETTE_CONFIG.smallViewportHeight);
+      setReducedMotion(media.matches);
+      const device = ROULETTE_CONFIG.device;
+      setScratchLowMotion(media.matches || (!!memory && memory <= device.lowMemoryGB) || window.innerWidth < device.scratchSmallWidth || window.innerHeight < device.scratchSmallHeight);
+      setQuality(rouletteQuality(memory, navigator.hardwareConcurrency, window.matchMedia(device.compactMedia).matches));
     };
     update();
     media.addEventListener?.('change', update);
@@ -337,24 +294,28 @@ export default function RouletteClientPage({
 
   useEffect(() => {
     const update = () => {
-      const quiet = lowMotion || phase === 'SPINNING' || document.hidden;
+      const quiet = lowMotion || (!isScratchExperience && quality !== 'high') || phase === 'SPINNING' || document.hidden;
       document.documentElement.toggleAttribute('data-roulette-quiet', quiet);
+      if (!isScratchExperience) document.documentElement.dataset.rouletteQuality = quality;
+      else delete document.documentElement.dataset.rouletteQuality;
     };
     update();
     document.addEventListener('visibilitychange', update);
-    return () => { document.removeEventListener('visibilitychange', update); document.documentElement.removeAttribute('data-roulette-quiet'); };
-  }, [lowMotion, phase]);
+    return () => { document.removeEventListener('visibilitychange', update); document.documentElement.removeAttribute('data-roulette-quiet'); delete document.documentElement.dataset.rouletteQuality; };
+  }, [lowMotion, phase, quality, isScratchExperience]);
+
+  const pauseRouletteExtras = phase !== 'READY' || retryOverlayOpen || Boolean(error) || Boolean(token?.disabled);
 
   // Los indicadores son informativos: no retrasan la carga del juego ni se actualizan en segundo plano.
   useEffect(() => {
-    if (loading || !activeTokenId) return;
+    if (!initial.data || pauseRouletteExtras) return;
     let active = true;
     let inFlight: AbortController | null = null;
     const loadSummary = async () => {
       if (document.hidden || inFlight) return;
       const controller = new AbortController();
       inFlight = controller;
-      const timeout = window.setTimeout(() => controller.abort(), ROULETTE_CONFIG.sidebarFetchTimeoutMs);
+      const timeout = window.setTimeout(() => controller.abort(), ROULETTE_CONFIG.sidebar.timeoutMs);
       try {
         const response = await fetch('/api/system/tokens/sidebar', { cache: 'no-store', signal: controller.signal });
         if (!response.ok) return;
@@ -368,13 +329,15 @@ export default function RouletteClientPage({
       finally { window.clearTimeout(timeout); if (inFlight === controller) inFlight = null; }
     };
     const onVisibility = () => { if (document.hidden) { inFlight?.abort(); inFlight = null; } else void loadSummary(); };
-    void loadSummary();
-    const timer = window.setInterval(loadSummary, ROULETTE_CONFIG.sidebarRefreshMs);
+    const idle = typeof window.requestIdleCallback === 'function' ? window.requestIdleCallback(() => void loadSummary()) : undefined;
+    const deferred = idle === undefined ? window.setTimeout(loadSummary, 0) : undefined;
+    const timer = window.setInterval(loadSummary, ROULETTE_CONFIG.sidebar.refreshMs);
     document.addEventListener('visibilitychange', onVisibility);
-    return () => { active = false; inFlight?.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisibility); };
-  }, [loading, activeTokenId]);
+    return () => { active = false; inFlight?.abort(); if (idle !== undefined) window.cancelIdleCallback(idle); if (deferred !== undefined) window.clearTimeout(deferred); window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisibility); };
+  }, [initial.data, pauseRouletteExtras]);
 
   useEffect(() => {
+    if (pauseRouletteExtras) return;
     if (guideInsights.length <= GUIDE_SLOT_COUNT) {
       setGuideRotationIndex(0);
       return;
@@ -382,215 +345,91 @@ export default function RouletteClientPage({
 
     const intervalId = window.setInterval(() => {
       if (!document.hidden) setGuideRotationIndex((current) => (current + 1) % guideInsights.length);
-    }, ROULETTE_CONFIG.guideRotationMs);
+    }, ROULETTE_CONFIG.sidebar.desktopRotationMs);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [guideInsights.length]);
+  }, [guideInsights.length, pauseRouletteExtras]);
 
   useEffect(() => {
+    if (pauseRouletteExtras) return;
     const totalItems = guideInsights.length + (spinCounter != null ? 1 : 0);
     if (totalItems <= 1) return;
     const id = window.setInterval(() => {
       if (!document.hidden) setMobileSliderIndex((prev) => (prev + 1) % totalItems);
-    }, 3200);
+    }, ROULETTE_CONFIG.sidebar.mobileRotationMs);
     return () => window.clearInterval(id);
-  }, [guideInsights.length, spinCounter]);
+  }, [guideInsights.length, spinCounter, pauseRouletteExtras]);
 
-  // Reconstrucción en recarga: si el token ya está revelado / entregado.
   useEffect(() => {
-    if (!token) return;
-    if (suppressRevealed) return; // no mostrar panel si estamos en transición de RETRY
-    if (
-      token.revealedAt &&
-      token.action === "RETRY" &&
-      token.continuation &&
-      token.continuation.state !== "UNAVAILABLE" &&
-      phase === "READY"
-    ) {
-      setFunctionalTokenId(token.continuation.tokenId);
-      setRetryOverlayOpen(true);
-      setSuppressRevealed(true);
-      return;
-    }
-    if (token.deliveredAt || token.redeemedAt) {
-      setPhase("DELIVERED");
-      return;
-    }
-    if (token.revealedAt && phase === "READY") {
-      // Derivar prizeIndex del premio original.
-      if (elements.length) {
-        const idx = elements.findIndex((e) => e.prizeId === token.prize.id);
-        if (idx >= 0) {
-          setPrizeIndex(idx);
-          setPrizeWon(elements[idx]);
-          setPhase(token.action === "LOSE" ? "REVEALED_MODAL" : "REVEALED_PANEL");
-        }
+    perfMark("page_mount");
+    const frame = requestAnimationFrame(() => {
+      if (!initial.data) return;
+      perfMark("game_ready");
+      if (!performance.getEntriesByName('load_total').length) {
+        performance.mark('load_start', { startTime: 0 });
+        perfMeasure('load_total', 'load_start', 'game_ready');
+        perfCheckBudget('load_total', ROULETTE_CONFIG.loadBudgetMs, 'load');
       }
-    }
-  }, [token, elements, suppressRevealed, phase]);
-
-  useEffect(() => {
-    // Si el prop cambia (navegación externa), sincroniza estado base
-    setActiveTokenId(tokenId || "");
-  }, [tokenId]);
-
-  useEffect(() => {
-    if (!activeTokenId) {
-      setError("No se ha proporcionado un token");
-      setLoading(false);
-      return;
-    }
-
-    // Reset UI sólo para carga dura; en suave mantenemos UI y cambiamos al final
-    if (!softSwitchRef.current) {
-      // No mostrar loader si estamos en transición RETRY
-      if (!suppressLoaderRef.current) setLoading(true);
-      setError(null);
-      setErrorCode(null);
-      setToken(null);
-      setElements([]);
-      setPhase("READY");
-      setPrizeIndex(null);
-      setPrizeWon(null);
-      setShowConfetti(false);
-      setDelivering(false);
-      setDeliverError(null);
-    } else {
-      setError(null);
-      setErrorCode(null);
-    }
-
-    let abort = false;
-    const loadController = new AbortController();
-
-    (async function loadToken() {
-      perfMark("load_start");
-      try {
-        const timer = setTimeout(() => loadController.abort(), ROULETTE_CONFIG.fetchTimeoutMs);
-        let data;
-        try {
-          data = await loadPrizeGame(activeTokenId, loadController.signal);
-        } finally {
-          clearTimeout(timer);
-        }
-
-        if (abort) return;
-        // En transición suave, aplicamos cambios al final de golpe
-        const applyData = () => {
-          setToken(data.token);
-          if (data.elements && Array.isArray(data.elements)) {
-            const rouletteElements = data.elements.map((e, index: number) => ({
-              label: e.label,
-              color:
-                e.color ||
-                paletteRef.current?.[index % (paletteRef.current?.length || 1)] ||
-                "#CCCCCC",
-              prizeId: e.prizeId,
-              key: e.key,
-            }));
-            setElements(rouletteElements);
-          }
-        };
-        const isSoft = softSwitchRef.current;
-        if (isSoft) {
-          applyData();
-          // La continuación conserva un segundo juego manual.
-          setPhase("READY");
-          // Finalizar la transición cuando se cargan los datos de la continuación.
-        } else {
-          applyData();
-        }
-      } catch (err) {
-        if (!abort) {
-          setErrorCode(err instanceof GameRequestError ? err.code || null : null);
-          console.error("Error cargando datos:", err);
-          // Check if it's a network/server error
-          const isServerError =
-            err instanceof Error &&
-            (err.message.includes("502") ||
-              err.message.includes("503") ||
-              err.message.includes("504") ||
-              err.message.includes("Application failed to respond") ||
-              err.message.includes("Tiempo de espera agotado"));
-
-          if (isServerError && !softSwitchRef.current) {
-            // Do not keep the loader open with a no-op state update. A value
-            // set to itself does not rerun this effect and caused an endless
-            // loading screen when the API was unavailable.
-            setError("No se pudo conectar con el servidor. Inténtalo nuevamente.");
-          } else if (!softSwitchRef.current) {
-            setError(err instanceof Error ? err.message : "Error desconocido");
-          }
-        }
-      } finally {
-        if (!abort) {
-          setLoading(false); // Siempre ocultar loader al final, independientemente de softSwitch
-          // Si fue softSwitch, evitamos overlay; limpiamos bandera
-          if (softSwitchRef.current) {
-            softSwitchRef.current = false;
-            setIsRetryTransition(false);
-            setRetryOverlayOpen(false); // Cerrar overlay después de carga completa
-          }
-          perfMark("loader_hidden");
-          perfMeasure("load_total", "load_start", "loader_hidden");
-          // Presupuesto de carga
-          perfCheckBudget("load_total", ROULETTE_CONFIG.loadBudgetMs, "load");
-          // Log summary occasionally
-          if (typeof window !== "undefined" && Math.random() < ROULETTE_CONFIG.perfSampleRate)
-            perfSummarize();
-        }
-      }
-    })();
-
+      if (Math.random() < ROULETTE_CONFIG.perfSampleRate) perfSummarize();
+    });
     return () => {
-      abort = true;
-      loadController.abort();
+      cancelAnimationFrame(frame);
+      const controller = revealControllerRef.current;
+      revealControllerRef.current = null;
+      controller?.abort();
     };
-  }, [activeTokenId]);
+  }, [initial.data]);
 
   const handleSpin = async () => {
     if (phase !== "READY") return;
     if (!activeTokenId) return;
     if (token?.revealedAt || token?.redeemedAt || token?.deliveredAt) return;
+    if (revealControllerRef.current) return;
+    const controller = new AbortController();
+    revealControllerRef.current = controller;
+    const timer = window.setTimeout(() => controller.abort(), ROULETTE_CONFIG.requestTimeoutMs);
     setPhase("SPINNING");
     perfMark("spin_start");
 
     try {
-      const data = await revealGameResult(activeTokenId, experienceUi.spinErrorFallback);
+      const data = await revealGameResult(activeTokenId, experienceUi.spinErrorFallback, controller.signal);
+      if (revealControllerRef.current !== controller) return;
+      if (!isScratchExperience) { perfMark('reveal_response'); perfMeasure('reveal_latency', 'spin_start', 'reveal_response'); }
       // Guardamos revealedAt pero dejamos que la animación termine (onSpinEnd)
-      setToken((t) =>
-        t ? { ...t, revealedAt: data?.timestamps?.revealedAt || new Date().toISOString() } : t
-      );
       const winIndex = elements.findIndex((e) => e.prizeId === data.prizeId);
       if (winIndex < 0) throw new Error("Premio no encontrado en la ruleta");
-      if (!isScratchExperience) soundStartTimeoutRef.current = setTimeout(() => {
-        void sounds.playSpinStart();
-        void sounds.playSpinLoop({ expectedDurationMs: lowMotion ? ROULETTE_SPIN_DURATION_MS.lowMotion : ROULETTE_SPIN_DURATION_MS.normal });
-      }, ROULETTE_CONFIG.soundStartDelayMs);
+      if (!data.timestamps?.revealedAt) throw new Error("No pudimos confirmar el resultado. Vuelve a consultar este enlace.");
+      setToken(t => t ? { ...t, revealedAt: data.timestamps.revealedAt, action: data.action, continuation: data.continuation } : t);
       setPrizeIndex(winIndex);
       const chosen = elements[winIndex];
       // Si el backend indica RETRY, guardamos nextTokenId para transición suave
-      if (data?.action === "RETRY" && data?.nextTokenId) {
-        setFunctionalTokenId(data.nextTokenId); // El token funcional es el nextTokenId
-      } else {
-        setFunctionalTokenId(null);
-      }
+      const nextTokenId = data.action === 'RETRY' && data.continuation?.state !== 'UNAVAILABLE' ? data.nextTokenId : null;
+      setFunctionalTokenId(nextTokenId);
+      // Fetch the small result chunk while the wheel is still moving, never on entry.
+      if (data.action === 'PRIZE') void import('@/components/roulette/PrizeWinModal').catch(() => {});
+      else if (data.action === 'LOSE') void import('@/components/roulette/LoseModal').catch(() => {});
       if (token?.experienceType === "scratch_card") {
-        scratchTimeoutRef.current = setTimeout(() => handleSpinEnd(chosen, data?.nextTokenId || null), 900);
+        scratchTimeoutRef.current = setTimeout(() => handleSpinEnd(chosen, nextTokenId), ROULETTE_CONFIG.result.scratchRevealDelayMs);
       }
       // La animación del componente NewRoulette usará prizeIndex y disparará handleSpinEnd
     } catch (err) {
-      if (soundStartTimeoutRef.current) clearTimeout(soundStartTimeoutRef.current);
-      soundStartTimeoutRef.current = null;
-      void sounds.stopSpinLoop();
+      if (revealControllerRef.current !== controller) return;
       setErrorCode(err instanceof GameRequestError ? err.code || null : null);
       console.error("Error al girar:", err);
-      setError(err instanceof Error ? err.message : experienceUi.spinErrorFallback);
+      setError(controller?.signal.aborted ? 'No pudimos confirmar el resultado a tiempo. Vuelve a consultar este enlace para recuperar tu jugada.' : err instanceof Error ? err.message : experienceUi.spinErrorFallback);
       setPhase("READY");
+    } finally {
+      window.clearTimeout(timer);
+      if (revealControllerRef.current === controller) revealControllerRef.current = null;
     }
   };
+
+  const handleWheelStart = useCallback(() => {
+    perfMark('wheel_start');
+    if (!document.hidden) void sounds.playSpinStart();
+  }, [sounds]);
 
   const confirmDeliver = async () => {
     if (!activeTokenId) return;
@@ -599,15 +438,8 @@ export default function RouletteClientPage({
     try {
       const body = await deliverGamePrize(activeTokenId);
       // Update local token state to reflect delivery (mirror redeemedAt)
-      setToken((t) =>
-        t
-          ? ({
-              ...t,
-              deliveredAt: body?.timestamps?.deliveredAt || new Date().toISOString(),
-              redeemedAt: body?.timestamps?.deliveredAt || new Date().toISOString(),
-            } as any)
-          : t
-      );
+      if (!body.timestamps?.deliveredAt) throw new Error('No se confirmó la entrega. Vuelve a consultar el enlace.');
+      setToken(t => t ? { ...t, deliveredAt: body.timestamps.deliveredAt, redeemedAt: body.timestamps.deliveredAt } : t);
       setPhase("DELIVERED");
       setShowConfetti(false);
     } catch (e: any) {
@@ -617,48 +449,22 @@ export default function RouletteClientPage({
     }
   };
 
-  // Token funcional que se habilita después de reveal de retry
-  const [functionalTokenId, setFunctionalTokenId] = useState<string | null>(null);
-
-  // Callback cuando el token funcional está listo
   const handleFunctionalTokenReady = () => {
-    // Cleanup agresivo antes de la transición
-    setToken(null); // Forzar recarga completa de token
-    setElements([]); // Limpiar elementos anteriores
-    setPrizeWon(null);
-    setPrizeIndex(null);
-    setPhase("READY");
-
-    // El usuario continúa hacia su token funcional sin consultar en bucle
-    transitionTimeoutRef.current = setTimeout(() => {
-      try {
-        const newUrl = `/marketing/ruleta?tokenId=${encodeURIComponent(functionalTokenId!)}`;
-        window.history.replaceState(null, "", newUrl);
-      } catch (error) {
-        console.error(`❌ [Roulette] Error en redirección:`, error);
-      }
-      softSwitchRef.current = true;
-      // Auto-spin desactivado para segundo giro - interacción manual
-      setActiveTokenId(functionalTokenId!);
-      // Limpiar estados de retry completamente
-      setFunctionalTokenId(null);
-      setIsRetryTransition(false);
-      setRetryOverlayOpen(false);
-      setSuppressRevealed(false);
-    }, ROULETTE_CONFIG.softSwitchDelayMs);
+    if (!functionalTokenId || navigationPending) return;
+    startNavigation(() => router.replace(gamePrizeAccessPath(functionalTokenId, theme)));
   };
   const handleSpinEnd = (prize: RouletteElement, retryTokenOverride?: string | null) => {
     perfMark("spin_end");
-    perfMeasure("spin_duration", "spin_start", "spin_end");
+    perfMeasure("spin_duration", isScratchExperience ? "spin_start" : "wheel_start", "spin_end");
     // Presupuesto de animación (varía por lowMotion)
-    perfCheckBudget(
+    if (!isScratchExperience) perfCheckBudget(
       "spin_duration",
-      lowMotion ? ROULETTE_CONFIG.spinBudgetMs.lowMotion : ROULETTE_CONFIG.spinBudgetMs.normal,
+      (lowMotion ? ROULETTE_CONFIG.motion.reducedDurationMs : ROULETTE_CONFIG.motion.durationMs) + ROULETTE_CONFIG.motion.watchdogMs,
       "spin"
     );
 
     // Detener sonidos de giro y reproducir sonido de parada (sincronizado internamente)
-    if (!isScratchExperience) void sounds.playSpinStop();
+    if (!isScratchExperience && !document.hidden) void sounds.playSpinStop();
 
     // La continuación ya fue reservada por el servidor; el usuario decide cuándo continuar.
     const retryTokenId = retryTokenOverride || functionalTokenId;
@@ -669,12 +475,7 @@ export default function RouletteClientPage({
         prizeModalTimeoutRef.current = null;
       }
       // Mostrar la continuación confirmada sin consultar la base en bucle.
-      setIsRetryTransition(true);
       setRetryOverlayOpen(true);
-      setSuppressRevealed(true);
-      // Asegurar que no aparezca overlay de loader
-      setLoading(false);
-      setSuppressLoader(true);
       setShowConfetti(false);
       setPrizeIndex(null);
       setPrizeWon(null); // Asegurar que no haya premio mostrado
@@ -683,31 +484,24 @@ export default function RouletteClientPage({
       return;
     }
     setPrizeWon(prize);
-    setShowConfetti(true);
+    setShowConfetti(isScratchExperience || prize.key !== GAME_RESULT_KEYS.lose);
     // Incrementar contador local tras completar un giro exitoso
     setSpinCounter((c) => (c == null ? null : c + 1));
 
     // Reproducir sonido de victoria o derrota según el premio
-    if (!isScratchExperience && prize.key === "lose") {
-      sounds.playLose();
-    } else if (!isScratchExperience) {
-      sounds.playWin();
+    if (!isScratchExperience && !document.hidden) {
+      celebrationSoundTimeoutRef.current = setTimeout(() => {
+        if (document.hidden) return;
+        if (prize.key === GAME_RESULT_KEYS.lose) void sounds.playLose();
+        else void sounds.playWin();
+      }, ROULETTE_CONFIG.result.soundDelayMs);
     }
 
     // Delay antes de mostrar el modal para que el usuario vea el premio en la ruleta
     prizeModalTimeoutRef.current = setTimeout(() => {
       setPhase("REVEALED_MODAL");
-    }, ROULETTE_CONFIG.prizeModalDelayMs);
+    }, isScratchExperience ? ROULETTE_CONFIG.result.scratchModalDelayMs : ROULETTE_CONFIG.result.modalDelayMs);
   };
-
-  // Al cambiar de token (softSwitch), desactivar supresión del panel para el nuevo ciclo
-  useEffect(() => {
-    if (!activeTokenId) return;
-    // permitir paneles normales para el nuevo token; no afecta RETRY in-flight
-    setSuppressRevealed(false);
-  }, [activeTokenId]);
-
-  // (sin aviso toast)
 
   const baseContainerClass = [
     "relative",
@@ -721,13 +515,11 @@ export default function RouletteClientPage({
   // Cleanup de sonidos al desmontar
   useEffect(() => {
     return () => {
-      if (soundStartTimeoutRef.current) clearTimeout(soundStartTimeoutRef.current);
-      if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
       if (scratchTimeoutRef.current) clearTimeout(scratchTimeoutRef.current);
       if (prizeModalTimeoutRef.current) clearTimeout(prizeModalTimeoutRef.current);
-      sounds.cleanup();
+      if (celebrationSoundTimeoutRef.current) clearTimeout(celebrationSoundTimeoutRef.current);
     };
-  }, [sounds]);
+  }, []);
 
   if (
     token?.revealedAt &&
@@ -749,21 +541,8 @@ export default function RouletteClientPage({
     );
   }
   if (retryOverlayOpen) {
-    return <RetryContinuation onContinue={handleFunctionalTokenReady} />;
+    return <RetryContinuation onContinue={handleFunctionalTokenReady} busy={navigationPending} />;
   }
-  if (loading && !suppressLoader && !retryOverlayOpen) {
-    return (
-      <div
-        className={`fixed inset-0 z-[100] overflow-hidden flex items-center justify-center roulette-loading-overlay touch-none ${getThemeClass(themeConfig)}`}
-        style={{ overscrollBehavior: "contain" }}
-      >
-        <div className="relative z-[1]">
-          <SmartPreloader logoSrc="/logo.png" />
-        </div>
-      </div>
-    );
-  }
-
   if (error) {
     const isTwoPhaseDisabledError = errorCode === "TWO_PHASE_DISABLED";
     const isTokensDisabledError = errorCode === "SYSTEM_OFF";
@@ -822,8 +601,7 @@ export default function RouletteClientPage({
   }
 
   // Evitar mostrar pantallas de token no disponible/expirado durante transición RETRY
-  const transitionGuardActive = retryOverlayOpen || suppressLoader || softSwitchRef.current;
-  const allowRestrictedScreens = !transitionGuardActive && phase === "READY";
+  const allowRestrictedScreens = phase === "READY";
 
   if (allowRestrictedScreens && token?.disabled && token.availability !== "EXPIRED") {
     let availableText: string | null = null;
@@ -862,10 +640,7 @@ export default function RouletteClientPage({
     );
   }
 
-  const isExpired =
-    isHydrated &&
-    (token?.availability === "EXPIRED" ||
-      (token?.expiresAt && new Date(token.expiresAt) <= new Date()));
+  const isExpired = token?.availability === "EXPIRED";
 
   if (allowRestrictedScreens && isExpired) {
     return (
@@ -880,9 +655,8 @@ export default function RouletteClientPage({
 
   const showRevealedPanel =
     !retryOverlayOpen &&
-    !suppressRevealed &&
     (phase === "REVEALED_PANEL" || (token?.revealedAt && phase === "READY")) &&
-    prizeWon?.key !== "lose" &&
+    prizeWon?.key !== GAME_RESULT_KEYS.lose &&
     token?.action !== "RETRY";
   const phaseUi = getPhaseUi(phase);
   const visibleGuideInsights = getVisibleGuideInsights(
@@ -956,6 +730,7 @@ export default function RouletteClientPage({
         active={showConfetti}
         lowMotion={lowMotion}
         colors={themeConfig?.global?.background?.confettiColors}
+        quality={isScratchExperience ? undefined : quality}
       />
 
       {/* Ruleta solo en READY / SPINNING */}
@@ -1020,6 +795,7 @@ export default function RouletteClientPage({
                       />
                     ) : (
                       <NewRoulette
+                        key={activeTokenId}
                         elements={elements}
                         onSpin={handleSpin}
                         onSpinEnd={handleSpinEnd}
@@ -1027,12 +803,15 @@ export default function RouletteClientPage({
                         prizeIndex={prizeIndex}
                         variant="inline"
                         lowMotion={lowMotion}
+                        quality={quality}
+                        onSpinStart={handleWheelStart}
+                        onSectorTick={sounds.playSectorTick}
                         theme={theme}
                       />
                     )}
                   </div>
                   {token?.experienceType !== "scratch_card" && (
-                    <div className={layoutStyles.spinCue}>{experienceUi.instruction}</div>
+                    <div className={layoutStyles.spinCue} role="status">{phase === 'SPINNING' && prizeIndex === null ? 'Confirmando tu jugada…' : experienceUi.instruction}</div>
                   )}
                 </div>
               </div>
@@ -1106,169 +885,14 @@ export default function RouletteClientPage({
         </div>
       )}
 
-      {/* Modal con el premio ganado - usando AnimatePresence para animaciones de salida */}
-      <AnimatePresence>
-        {prizeWon &&
-          phase === "REVEALED_MODAL" &&
-          prizeWon.key !== "lose" &&
-          !isRetryTransition &&
-          !functionalTokenId && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.3 } }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            >
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0, transition: { duration: 0.5, delay: 0.2 } }}
-                className="absolute inset-0 bg-black/75 backdrop-blur-md"
-                onClick={() => {
-                  setPhase("REVEALED_PANEL");
-                  setShowConfetti(false);
-                }}
-              ></motion.div>
-
-              <motion.div
-                initial={{ y: 30, opacity: 0, scale: 0.9 }}
-                animate={{ y: 0, opacity: 1, scale: 1 }}
-                exit={{ y: 30, opacity: 0, scale: 0.9, transition: { duration: 0.4 } }}
-                className="relative z-10 rounded-xl p-6 sm:p-8 max-w-md w-full border border-white/10 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain overflow-x-hidden"
-                style={{
-                  background:
-                    themeConfig?.global?.modal?.background ||
-                    "linear-gradient(180deg, #0E0606, #07070C)",
-                  boxShadow:
-                    themeConfig?.global?.modal?.boxShadow ||
-                    "0 12px 32px -10px rgba(255,77,46,0.6)",
-                }}
-              >
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="absolute top-3 right-3"
-                >
-                  <button
-                    onClick={() => {
-                      setPhase("REVEALED_PANEL");
-                      setShowConfetti(false);
-                    }}
-                    className="bg-white/10 hover:bg-white/20 rounded-full p-2 text-white/80 hover:text-white transition-colors"
-                    aria-label="Cerrar"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M18 6L6 18M6 6l12 12" />
-                    </svg>
-                  </button>
-                </motion.div>
-
-                <div className="text-center">
-                  <motion.div
-                    initial={{ scale: 0.2, y: -20, rotateZ: -20 }}
-                    animate={{ scale: 1, y: 0, rotateZ: 0 }}
-                    transition={{
-                      type: "spring",
-                      damping: 8,
-                      stiffness: 100,
-                      delay: 0.1,
-                    }}
-                    className="text-5xl sm:text-7xl mb-4 sm:mb-6 inline-block"
-                  >
-                    🎉
-                  </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.3, duration: 0.5 }}
-                    className="mb-2"
-                  >
-                    <motion.h2
-                      initial={{ y: 10 }}
-                      animate={{ y: 0 }}
-                      transition={{ type: "spring", damping: 12 }}
-                      className="text-2xl sm:text-3xl font-bold mb-1"
-                    >
-                      ¡Bien hecho!
-                    </motion.h2>
-                    <motion.div
-                      className={`w-16 h-1 mx-auto rounded-full ${themeConfig?.global?.modal?.accentGradient || "bg-gradient-to-r from-[#FF4D2E] to-[#FF7A3C]"}`}
-                    />
-                  </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.5, type: "spring" }}
-                    className="my-6"
-                  >
-                    <motion.p
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.55 }}
-                      className="text-sm sm:text-base text-white/70 mb-1"
-                    >
-                      Has desbloqueado:
-                    </motion.p>
-                    <motion.p
-                      className={`text-2xl sm:text-4xl font-extrabold text-transparent bg-clip-text my-2 px-2 sm:px-4 break-words ${themeConfig?.global?.modal?.accentGradient || "bg-gradient-to-r from-[#FF4D2E] to-[#FF7A3C]"}`}
-                      animate={{
-                        backgroundPosition: ["0% center", "100% center", "0% center"],
-                      }}
-                      transition={{
-                        duration: 5,
-                        repeat: Infinity,
-                        ease: "linear",
-                      }}
-                      style={{
-                        backgroundSize: "200% 100%",
-                      }}
-                    >
-                      {prizeWon.label}
-                    </motion.p>
-                  </motion.div>
-
-                  {token?.action === "PRIZE" && (
-                    <div className="mb-5 text-white/90">
-                      <PrizeRedemptionQr tokenId={activeTokenId} />
-                    </div>
-                  )}
-
-                  <motion.button
-                    initial={{ opacity: 0, y: 15 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.9 }}
-                    className={`px-6 sm:px-10 py-3 sm:py-4 rounded-full font-bold transition-all shadow-lg hover:shadow-xl text-base sm:text-lg ${themeConfig?.global?.buttons?.primary || "bg-gradient-to-r from-[#FF4D2E] to-[#FF7A3C] hover:from-[#ff5e44] hover:to-[#ff8a54] text-white"}`}
-                    onClick={() => {
-                      setPhase("REVEALED_PANEL");
-                      setShowConfetti(false);
-                    }}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    ¡A rumbear!
-                  </motion.button>
-                  {/* Staff delivery button removed from modal per request */}
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-      </AnimatePresence>
+      {prizeWon && phase === "REVEALED_MODAL" && prizeWon.key !== GAME_RESULT_KEYS.lose && !functionalTokenId && (
+        <PrizeWinModal label={prizeWon.label} tokenId={token?.action === "PRIZE" ? activeTokenId : undefined} onClose={() => { setPhase("REVEALED_PANEL"); setShowConfetti(false); }} />
+      )}
 
       {/* Modal específico para lose/piña */}
       {prizeWon &&
         phase === "REVEALED_MODAL" &&
-        prizeWon.key === "lose" &&
-        !isRetryTransition &&
+        prizeWon.key === GAME_RESULT_KEYS.lose &&
         !functionalTokenId && <LoseModal open={true} />}
     </div>
   );

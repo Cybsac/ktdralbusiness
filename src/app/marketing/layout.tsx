@@ -118,60 +118,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
             `,
         }}
       />
-      {/* Script de precarga: evitar parpadeos. Quitar tipos TS (as any) que rompen en runtime */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
-              try{
-                var d=document;var h=d.documentElement;
-                h.style.background='#0E0606'; h.style.color='white';
-                // GTM/GA placeholder (no-op si no se configura ID real)
-                window.dataLayer=window.dataLayer||[]; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config','G-XXXXXXXXXX');
-                // Suprimir transiciones breves al volver de bfcache o visibilidad
-                var SUPPRESS_CLASS='transition-hold';
-                var suppress=function(){ h.classList.add(SUPPRESS_CLASS); clearTimeout(suppress._t); suppress._t=setTimeout(function(){ h.classList.remove(SUPPRESS_CLASS); },140); };
-                window.addEventListener('pageshow',function(ev){ if(ev && ev.persisted) suppress(); });
-                document.addEventListener('visibilitychange',function(){ if(!document.hidden) suppress(); });
-              }catch(e){}
-            `,
-        }}
-      />
-      {/* Elemento para inyectar el ID de Google Tag Manager */}
-      <noscript>
-        <iframe
-          src="https://www.googletagmanager.com/ns.html?id=GTM-XXXXXXX"
-          height="0"
-          width="0"
-          style={{ display: "none", visibility: "hidden" }}
-        ></iframe>
-      </noscript>
-
-      {/* Contenedor principal */}
       <main className="page-transition-enter-active">{children}</main>
-
-      {/* Script para habilitar PWA (gateado por NEXT_PUBLIC_PWA=1) para evitar duplicado con root layout */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
-              // Registra service worker sólo si está activo NEXT_PUBLIC_PWA
-              (function(){
-                var pwaFlag = (typeof window !== 'undefined' && (window['NEXT_PUBLIC_PWA']==='1')) || (typeof window !== 'undefined' && window.process && window.process.env && window.process.env.NEXT_PUBLIC_PWA==='1');
-                if ('serviceWorker' in navigator && pwaFlag) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(
-                    function(registration) {
-                      console.log('ServiceWorker registration successful');
-                    },
-                    function(err) {
-                      console.log('ServiceWorker registration failed: ', err);
-                    }
-                  );
-                });
-                }
-              })();
-            `,
-        }}
-      />
     </div>
   );
 }

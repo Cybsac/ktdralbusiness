@@ -3,9 +3,6 @@ import { prisma } from "@/lib/prisma";
 type SystemConfigCache = {
   tokensEnabled: boolean;
   birthdayReferrerCommissionAmount: number;
-  featureFlags: {
-    useMarketingRouletteUI: boolean;
-  };
   ts: number;
 };
 
@@ -15,12 +12,10 @@ export async function getSystemConfig(force = false) {
   const now = Date.now();
   if (!cache || force || now - cache.ts > 60000) {
     const cfg = await prisma.systemConfig.findUnique({ where: { id: 1 } });
-    const useMarketingRouletteUI = String(process.env.USE_MARKETING_ROULETTE_UI || "0").trim() === "1";
     cache = {
       // Safer default: if config row doesn't exist yet, treat system as OFF
       tokensEnabled: cfg?.tokensEnabled ?? false,
       birthdayReferrerCommissionAmount: Number(cfg?.birthdayReferrerCommissionAmount ?? 10),
-      featureFlags: { useMarketingRouletteUI },
       ts: now,
     };
     console.log('System config cache updated:', cache);

@@ -8,25 +8,26 @@ import { GAME_POLICY, gameAction, PrizeGameError } from "./contracts";
 import { gameTokenInclude, readContinuation, reservationOwners } from "./reservations";
 
 export async function readPrizeGame(tokenId: string) {
-  const config = await getSystemConfig(true);
+  const [config, token] = await Promise.all([
+    getSystemConfig(true),
+    prisma.token.findUnique({ where: { id: tokenId }, include: gameTokenInclude }),
+  ]);
   if (!config.tokensEnabled)
     throw new PrizeGameError(
       "SYSTEM_OFF",
       "El sistema de tokens está desactivado temporalmente.",
       403
     );
-  const token = await prisma.token.findUnique({
-    where: { id: tokenId },
-    include: gameTokenInclude,
-  });
   if (!token) throw new PrizeGameError("NOT_FOUND", "Token no encontrado", 404);
   const now = new Date();
-  const owners = await reservationOwners(prisma, token.id);
+  const [owners, continuation] = await Promise.all([
+    reservationOwners(prisma, token.id),
+    readContinuation(prisma, token, now),
+  ]);
   const reserved =
     owners.length > 1 ||
     owners.some((owner) => !owner.revealedAt || owner.batchId !== token.batchId);
   const unavailable = gameAvailability(token, now);
-  const continuation = await readContinuation(prisma, token, now);
   const resultPrize = token.revealedAt ? token.assignedPrize || token.prize : token.prize;
   const serialized = {
     id: token.id,
@@ -65,7 +66,7 @@ export async function readPrizeGame(tokenId: string) {
     count: number;
     presentationOnly?: boolean;
   }> = [];
-  if (!unavailable && !reserved && !token.redeemedAt && !token.deliveredAt) {
+  if (!unavailable && !reserved && !token.revealedAt && !token.redeemedAt && !token.deliveredAt) {
     const groups = await prisma.token.groupBy({
       by: ["prizeId"],
       where: {
@@ -99,7 +100,7 @@ export async function readPrizeGame(tokenId: string) {
       color: resultPrize.color,
       count: 1,
     });
-  if (serialized.experienceType === "roulette" && elements.length === 1) {
+  if (serialized.experienceType === "roulette" && !serialized.revealedAt && !serialized.disabled && !serialized.redeemedAt && !serialized.deliveredAt && elements.length === 1) {
     while (elements.length < GAME_POLICY.minimumRouletteSegments)
       elements.push({ ...elements[0], count: 0, presentationOnly: true });
   }

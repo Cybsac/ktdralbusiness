@@ -743,3 +743,15 @@
   transition: background 0.3s ease, width 0.3s ease;
   flex-shrink: 0;
 }
+
+/* A translucent surface is cheaper than a live backdrop blur during play. */
+:global(html[data-roulette-quality="low"]) .heroFrame,
+:global(html[data-roulette-quality="medium"]) .heroFrame,
+:global(html[data-roulette-quality="low"]) .guidePanel,
+:global(html[data-roulette-quality="medium"]) .guidePanel,
+:global(html[data-roulette-quality="low"]) .wheelPanel,
+:global(html[data-roulette-quality="medium"]) .wheelPanel,
+:global(html[data-roulette-quality="low"]) .mobileInsightCard,
+:global(html[data-roulette-quality="medium"]) .mobileInsightCard {
+  backdrop-filter: none;
+}

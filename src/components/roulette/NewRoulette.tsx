@@ -7,7 +7,10 @@ import styles from './roulette.module.css';
 import { useNoScroll } from './useNoScroll';
 import { RouletteElement } from './types';
 import { ThemeName } from '@/lib/themes/types';
-import { ROULETTE_SPIN_DURATION_MS, wheelTargetRotation } from './motion';
+import type { RouletteQuality } from './motion';
+import { useWheelMotion } from './useWheelMotion';
+import { GAME_POLICY } from '@/lib/prize-games/contracts';
+import { ROULETTE_CONFIG } from '@/lib/experiences/roulette-config';
 
 interface NewRouletteProps {
   elements: RouletteElement[];
@@ -25,6 +28,9 @@ interface NewRouletteProps {
   variant?: 'fullscreen' | 'inline';
   /** Modo de bajo movimiento: reduce efectos/tiempos para dispositivos con menos recursos o usuarios que lo prefieren */
   lowMotion?: boolean;
+  quality?: RouletteQuality;
+  onSpinStart?: () => void;
+  onSectorTick?: () => void;
   /** Tema opcional para personalizar colores (ej: "christmas"). */
   theme?: ThemeName;
 }
@@ -40,13 +46,16 @@ const NewRoulette = ({
   lockScroll = true,
   variant = 'fullscreen',
   lowMotion = false,
+  quality = ROULETTE_CONFIG.defaultQuality,
+  onSpinStart,
+  onSectorTick,
   theme = 'default'
 }: NewRouletteProps) => {
-  const [rotation, setRotation] = useState(0);
-  const [internalSpinning, setInternalSpinning] = useState(false);
-  const [spinCompleted, setSpinCompleted] = useState(false);
-  const spinEndRef = useRef(onSpinEnd);
-  spinEndRef.current = onSpinEnd;
+  const { moving, wheelRef, pointerRef } = useWheelMotion({
+    spinning, prizeIndex, elements, reduced: lowMotion, quality,
+    onStart: onSpinStart, onTick: onSectorTick, onEnd: onSpinEnd,
+  });
+  const pending = spinning && prizeIndex === null;
 
   // Dimensiones dinámicas de la ruleta (se basan en el contenedor responsivo CSS)
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -89,37 +98,9 @@ const NewRoulette = ({
   // La variante inline vive dentro de una página más larga; no debe fijar el body.
   useNoScroll(lockScroll && variant === 'fullscreen');
 
-  // Efecto para manejar el giro cuando cambia prizeIndex o spinning
-  useEffect(() => {
-    if (spinning && prizeIndex !== null && !spinCompleted) {
-      
-      setInternalSpinning(true);
-      const newRotation = wheelTargetRotation(rotation, prizeIndex, elements.length, lowMotion);
-      
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const frame = requestAnimationFrame(() => {
-        setRotation(newRotation);
-        timer = setTimeout(() => {
-          setInternalSpinning(false);
-          setSpinCompleted(true);
-          if (elements[prizeIndex]) spinEndRef.current(elements[prizeIndex]);
-        }, lowMotion ? ROULETTE_SPIN_DURATION_MS.lowMotion : ROULETTE_SPIN_DURATION_MS.normal);
-      });
-      return () => { cancelAnimationFrame(frame); if (timer) clearTimeout(timer); };
-    }
-  }, [spinning, prizeIndex, lowMotion]);
-
-  // Sólo reseteamos cuando cambian los elementos, no al desmontar
-  useEffect(() => {
-    if (elements.length > 0) {
-      setSpinCompleted(false);
-      // No reseteamos internalSpinning aquí
-    }
-  }, [elements]);
-
   // Manejar el click en el botón de girar
   const handleSpinClick = () => {
-    if (spinning || internalSpinning) {
+    if (spinning || moving) {
       return;
     }
     onSpin();
@@ -140,19 +121,22 @@ const NewRoulette = ({
       data-variant={variant}
     >
       <div className={styles.roulettePad}>
-        <div className={styles.wheelWrapper} ref={wrapperRef} data-low-motion={lowMotion ? '1' : undefined}>
+        <div className={styles.wheelWrapper} ref={wrapperRef} data-low-motion={lowMotion ? '1' : undefined} data-quality={quality} data-moving={moving || undefined}>
         {/* Guardia: si hay menos de 2 elementos, no renderizar la ruleta completa */}
-        {elements.length < 2 ? (
+        {elements.length < GAME_POLICY.minimumRouletteSegments ? (
           <div className="flex flex-col items-center justify-center p-8 text-center gap-4">
             <div className="text-sm text-slate-600 dark:text-slate-300">
-              La ruleta requiere al menos 2 premios disponibles para funcionar.
+              La ruleta requiere al menos {GAME_POLICY.minimumRouletteSegments} sectores para funcionar.
             </div>
           </div>
         ) : (
           <>
         {/* Puntero en la parte superior */}
   <RoulettePointer
-            spinning={spinning || internalSpinning}
+            spinning={moving}
+            lowMotion={lowMotion}
+            quality={quality}
+            pointerRef={pointerRef}
             scale={scale}
             pointerOffset={pointerOffset}
             theme={theme}
@@ -160,14 +144,12 @@ const NewRoulette = ({
         
         {/* La rueda con los segmentos que gira */}
         <div
-          className={`${styles.wheel} ${spinning || internalSpinning ? styles.spinning : ''} ${lowMotion ? styles.lowMotion : ''}`}
+          ref={wheelRef}
+          className={`${styles.wheel} ${moving ? styles.spinning : ''}`}
           style={{ 
-            '--roulette-spin-duration': `${lowMotion ? ROULETTE_SPIN_DURATION_MS.lowMotion : ROULETTE_SPIN_DURATION_MS.normal}ms`,
-            transform: `translateZ(0) rotate(${rotation}deg)`,
             // Optimizaciones para renderizado y animación fluida
             transformStyle: 'flat',
             backfaceVisibility: 'hidden',
-            transitionProperty: spinning || internalSpinning ? 'transform' : 'none',
             // Forzar que sea un círculo perfecto
             borderRadius: '50%'
           } as React.CSSProperties}
@@ -206,8 +188,9 @@ const NewRoulette = ({
         
         {/* Marco decorativo alrededor de la rueda */}
         <RouletteFrame
-          spinning={spinning || internalSpinning}
+          spinning={spinning}
           lowMotion={lowMotion}
+          quality={quality}
           scale={scale}
           wheelRadius={segmentsRadiusReal}
           theme={theme}
@@ -216,7 +199,8 @@ const NewRoulette = ({
         {/* Botón para girar en el centro - Mejorado para capturar eventos de teclado */}
         <SpinButton 
           onClick={handleSpinClick} 
-          disabled={spinning || internalSpinning}
+          disabled={spinning || moving}
+          pending={pending}
           scale={scale}
           theme={theme}
         />
@@ -247,6 +231,7 @@ function areRoulettePropsEqual(prev: NewRouletteProps, next: NewRouletteProps) {
   if (prev.topSpacing !== next.topSpacing) return false;
   if (prev.pointerOffset !== next.pointerOffset) return false;
   if (prev.lowMotion !== next.lowMotion) return false;
+  if (prev.quality !== next.quality || prev.onSpinStart !== next.onSpinStart || prev.onSectorTick !== next.onSectorTick) return false;
   if (prev.theme !== next.theme || prev.onSpin !== next.onSpin || prev.onSpinEnd !== next.onSpinEnd) return false;
   return true;
 }

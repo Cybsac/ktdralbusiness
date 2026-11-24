@@ -2,20 +2,23 @@ import React from 'react';
 import { usePointerOffset } from './usePointerOffset';
 import { ThemeName } from '@/lib/themes/types';
 import { useRouletteTheme } from '@/lib/themes/useRouletteTheme';
+import type { RouletteQuality } from './motion';
+import { ROULETTE_CONFIG } from '@/lib/experiences/roulette-config';
 
 interface RoulettePointerProps {
   spinning?: boolean;
+  lowMotion?: boolean;
+  quality?: RouletteQuality;
+  pointerRef?: React.Ref<SVGSVGElement>;
   scale?: number; // escala relativa a 500px
   /** Override directo (en px negativos). Si se provee, no se usa el hook. */
   pointerOffset?: number;
   theme?: ThemeName;
 }
 
-const RoulettePointer: React.FC<RoulettePointerProps> = ({ spinning = false, scale = 1, pointerOffset, theme: propTheme }) => {
+const RoulettePointer: React.FC<RoulettePointerProps> = ({ spinning = false, lowMotion = false, quality = ROULETTE_CONFIG.defaultQuality, pointerRef, scale = 1, pointerOffset }) => {
   // Usar el hook de tema para obtener la configuración
-  const { theme: contextTheme, config } = useRouletteTheme();
-  const theme = propTheme || contextTheme;
-  const themeConfig = config;
+  const { config: themeConfig } = useRouletteTheme();
 
   const baseWidth = 60;
   const baseHeight = 70;
@@ -26,6 +29,7 @@ const RoulettePointer: React.FC<RoulettePointerProps> = ({ spinning = false, sca
 
   return (
     <svg
+      ref={pointerRef}
       width={w}
       height={h}
       viewBox={`0 0 60 70`}
@@ -34,8 +38,9 @@ const RoulettePointer: React.FC<RoulettePointerProps> = ({ spinning = false, sca
         top: `${topOffset}px`, // controlar vía hook/override
         left: '50%',
         transform: 'translateX(-50%)',
+        transformOrigin: '50% 10%',
         zIndex: 1000, // asegurar que quede por encima de glow/overlay
-        filter: spinning
+        filter: spinning && !lowMotion && quality === 'high'
           ? 'drop-shadow(0 0 8px rgba(255,215,0,0.8))'
           : 'drop-shadow(2px 2px 5px rgba(0,0,0,0.5))'
       }}
@@ -61,7 +66,7 @@ const RoulettePointer: React.FC<RoulettePointerProps> = ({ spinning = false, sca
             fill="url(#pointerStar)"
             stroke={themeConfig?.roulette?.pointer?.starStroke || "#8C5C00"}
             strokeWidth="1.6"
-            filter={spinning ? "url(#pointerStarGlow)" : "none"}
+            filter={spinning && !lowMotion && quality === 'high' ? "url(#pointerStarGlow)" : "none"}
           />
         </>
       ) : (
@@ -86,7 +91,7 @@ const RoulettePointer: React.FC<RoulettePointerProps> = ({ spinning = false, sca
             fill="url(#pointerGold)"
             stroke="#614200"
             strokeWidth="2"
-            filter={spinning ? "url(#pointerGlow)" : "none"}
+            filter={spinning && !lowMotion && quality === 'high' ? "url(#pointerGlow)" : "none"}
           />
           <path
             d="M 30 67 L 52 22 C 48 18, 12 18, 8 22 Z"
@@ -100,7 +105,7 @@ const RoulettePointer: React.FC<RoulettePointerProps> = ({ spinning = false, sca
             strokeWidth="1"
             opacity="0.5"
           />
-          {spinning && (
+          {spinning && !lowMotion && quality === 'high' && (
             <>
               <circle
                 cx="30"
@@ -130,4 +135,4 @@ const RoulettePointer: React.FC<RoulettePointerProps> = ({ spinning = false, sca
   );
 };
 
-export default RoulettePointer;
+export default React.memo(RoulettePointer);

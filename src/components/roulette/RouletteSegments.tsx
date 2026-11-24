@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { RouletteElement } from './types';
 import { ThemeName } from '@/lib/themes/types';
 import { useRouletteTheme } from '@/lib/themes/useRouletteTheme';
@@ -343,7 +343,7 @@ const RouletteSegmentsComp = ({ elements, radius, center, scale = 1, theme: prop
 const RouletteSegments = React.memo(RouletteSegmentsComp, (prev, next) => {
   // Re-render solo si cambian los elementos o geometría clave
   if (prev.radius !== next.radius || prev.center !== next.center) return false;
-  if (prev.scale !== next.scale) return false;
+  if (prev.scale !== next.scale || prev.theme !== next.theme) return false;
   if (prev.elements.length !== next.elements.length) return false;
   for (let i = 0; i < prev.elements.length; i++) {
     const a = prev.elements[i];

@@ -40,9 +40,9 @@ export async function loadPrizeGame(tokenId: string, signal: AbortSignal): Promi
     }
   }
 }
-export async function revealGameResult(tokenId: string, fallback: string) {
+export async function revealGameResult(tokenId: string, fallback: string, signal?: AbortSignal) {
   return responseBody<PrizeGameReveal>(
-    await fetch(`/api/token/${encodeURIComponent(tokenId)}/reveal`, { method: "POST" }),
+    await fetch(`/api/token/${encodeURIComponent(tokenId)}/reveal`, { method: "POST", ...(signal ? { signal } : {}) }),
     fallback
   );
 }

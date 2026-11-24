@@ -70,8 +70,7 @@
   height: var(--wheel-size);
   /* Asegurar que se mantiene como un círculo perfecto */
   aspect-ratio: 1/1;
-  transform-style: preserve-3d;
-  perspective: 1000px;
+  isolation: isolate;
   /* Contener efectos sin desbordamiento */
   overflow: clip;
   /* Eliminar margen que podría causar asimetrías */
@@ -158,7 +157,6 @@
   z-index: 30;
   overflow: visible; /* permitir sombras internas */
   transform-origin: 50% 50%;
-  will-change: transform;
   transition: none;
   touch-action: none;
   transform: translateZ(0);
@@ -166,83 +164,21 @@
 
 /* Transición suave durante el giro */
 .wheel.spinning {
-  transition: transform var(--roulette-spin-duration) cubic-bezier(0.2, 0, 0.2, 1) !important;
-  filter: brightness(1.06); /* brillo más suave */
-  will-change: transform; /* Optimización para animaciones */
-  animation: spinGlow var(--roulette-spin-duration) ease-out; /* Añadir animación de brillo */
-  pointer-events: none; /* Desactivar interacción mientras gira */
-  /* Forzar aceleración GPU para animación fluida */
-  transform: translateZ(0) rotate(0deg);
+  transition: none;
+  will-change: transform;
+  pointer-events: none;
 }
 
-/* Modo de bajo movimiento: transiciones más cortas y sin animación de brillo */
-.wheel.spinning.lowMotion {
-  animation: none !important;
-  filter: none;
-}
-
-/* Aplicamos una transición suave cuando no está girando */
-.wheel:not(.spinning) {
-  transition: transform 0.5s ease-out;
-}
-
-/* Efecto de resplandor durante el giro - más contenido para evitar desbordamiento */
-.wheelWrapper:has(.wheel.spinning)::after {
+/* Static glow only on the high-quality profile, never on the animated wheel. */
+.wheelWrapper[data-quality="high"][data-moving="true"]:not([data-low-motion="1"])::after {
   content: "";
   position: absolute;
-  /* Reducir tamaño para evitar desbordamiento */
   inset: 10%;
-  width: 80%;
-  height: 80%;
   border-radius: 50%;
-  /* Glow más contenido para evitar scroll */
-  box-shadow: 0 0 15px 6px rgba(255,215,0,0.4), 0 0 22px 8px rgba(255,215,0,0.2);
-  animation: glowPulse 1.8s infinite alternate;
+  box-shadow: 0 0 15px 6px rgba(255,215,0,.25), 0 0 22px 8px rgba(255,215,0,.12);
   z-index: 10;
   pointer-events: none;
-  filter: brightness(1.05);
-  /* Forzar aceleración GPU y contención */
-  transform: translateZ(0);
 }
-
-/* Reducir el glow para evitar vibración/scrollbars en móviles pequeños */
-@media (max-width: 480px) {
-  .wheelWrapper:has(.wheel.spinning)::after {
-    /* Versión mínima para móviles para eliminar cualquier desbordamiento */
-    inset: 12%;
-    width: 76%;
-    height: 76%;
-    /* Sombra muy reducida para evitar cualquier posible scroll */
-    box-shadow: 0 0 8px 4px rgba(255,215,0,0.3), 0 0 15px 6px rgba(255,215,0,0.15);
-    animation: glowPulseMobile 2.2s infinite alternate;
-    /* Forzar aceleración GPU y contención */
-    transform: translateZ(0);
-  }
-  @keyframes glowPulseMobile {
-    0% { opacity: 0.2; box-shadow: 0 0 6px 2px rgba(255,215,0,0.3); }
-    50% { opacity: 0.3; box-shadow: 0 0 10px 4px rgba(255,215,0,0.4); }
-    100% { opacity: 0.25; box-shadow: 0 0 7px 3px rgba(255,215,0,0.35); }
-  }
-}
-
-/* Desactivar glow por completo en low-motion */
-.wheelWrapper[data-low-motion="1"]:has(.wheel.spinning)::after {
-  content: none;
-}
-
-@keyframes glowPulse {
-  0% { opacity: 0.25; box-shadow: 0 0 10px 4px rgba(255, 215, 0, 0.4); }
-  50% { opacity: 0.4; box-shadow: 0 0 18px 7px rgba(255, 215, 0, 0.6); }
-  100% { opacity: 0.5; box-shadow: 0 0 12px 5px rgba(255, 215, 0, 0.5); }
-}
-
-@keyframes spinGlow {
-  0% { filter: brightness(1); }
-  50% { filter: brightness(1.15); }
-  100% { filter: brightness(1.06); }
-}
-
-/* Estilos eliminados del overlay ya que ahora los manejamos en el SpinButton */
 
 /* Añadimos un reflejo en la ruleta para efecto 3D */
 .wheel::before {

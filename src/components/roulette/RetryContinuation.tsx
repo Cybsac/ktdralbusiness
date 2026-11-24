@@ -1,6 +1,6 @@
 "use client";
 
-export default function RetryContinuation({ onContinue }: { onContinue: () => void }) {
+export default function RetryContinuation({ onContinue, busy = false }: { onContinue: () => void; busy?: boolean }) {
   return (
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/95 p-4"
@@ -18,9 +18,11 @@ export default function RetryContinuation({ onContinue }: { onContinue: () => vo
         <button
           type="button"
           onClick={onContinue}
-          className="mt-6 w-full rounded-xl bg-indigo-600 px-4 py-3 font-semibold hover:bg-indigo-500"
+          disabled={busy}
+          aria-busy={busy}
+          className="mt-6 w-full rounded-xl bg-indigo-600 px-4 py-3 font-semibold hover:bg-indigo-500 disabled:opacity-60"
         >
-          Continuar
+          {busy ? 'Cargando oportunidad…' : 'Continuar'}
         </button>
       </div>
     </div>

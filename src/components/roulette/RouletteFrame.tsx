@@ -1,12 +1,15 @@
 import React from 'react';
 import { ThemeName } from '@/lib/themes/types';
 import { useRouletteTheme } from '@/lib/themes/useRouletteTheme';
+import type { RouletteQuality } from './motion';
+import { ROULETTE_CONFIG } from '@/lib/experiences/roulette-config';
 
 interface RouletteFrameProps {
   spinning?: boolean;
   scale?: number; // relativo a 500
   wheelRadius?: number; // radio interno de segmentos para ajustar gap
   lowMotion?: boolean; // reduce efectos y animaciones
+  quality?: RouletteQuality;
   theme?: ThemeName; // Usar ThemeName en lugar de string
 }
 
@@ -15,16 +18,12 @@ const RouletteFrame: React.FC<RouletteFrameProps> = ({
   scale = 1,
   wheelRadius,
   lowMotion = false,
-  theme: propTheme
+  quality = ROULETTE_CONFIG.defaultQuality,
 }) => {
   // Usar el hook de tema para obtener la configuración
-  const { theme: contextTheme, config } = useRouletteTheme();
-  const theme = propTheme || contextTheme;
-  const themeConfig = config;
+  const { config: themeConfig } = useRouletteTheme();
 
   const baseSize = 500;
-  const width = baseSize * scale;
-  const height = baseSize * scale;
   const center = baseSize / 2; // mantenemos viewBox base para simplificar escalado via width/height
 
   // Ajuste dinámico del marco basado en wheelRadius
@@ -38,14 +37,14 @@ const RouletteFrame: React.FC<RouletteFrameProps> = ({
   if (frameOuterRadius > 248) frameOuterRadius = 248; // tope absoluto
   // Ajustamos el radio de luces para seguir centradas en el anillo
   const lightRadius = Math.min(frameInnerRadius + 14, frameOuterRadius - 8);
-  const numLights = 36;
+  const numLights = ROULETTE_CONFIG.frame.lightCount;
   const lightSize = 8;
 
   const lights = Array.from({ length: numLights }, (_, i) => {
     const angle = (i / numLights) * 2 * Math.PI;
     const cx = center + lightRadius * Math.cos(angle);
     const cy = center + lightRadius * Math.sin(angle);
-    return { cx, cy, delay: i * (1.5 / numLights) }; // Añadir delay para animación secuencial
+    return { cx, cy, delay: i * (ROULETTE_CONFIG.frame.chaseSeconds / numLights) };
   });
 
   return (
@@ -99,7 +98,7 @@ const RouletteFrame: React.FC<RouletteFrameProps> = ({
         fill="url(#goldGradient)"
         stroke="#4A3000"
         strokeWidth={3.2}
-        style={{ filter: spinning && !lowMotion ? 'url(#enhancedGlow)' : 'none' }}
+        style={{ filter: spinning && !lowMotion && quality === 'high' ? 'url(#enhancedGlow)' : 'none' }}
       />
 
       <circle cx={center} cy={center} r={frameOuterRadius - 5} fill="url(#noisePattern)" opacity="0.1" />
@@ -152,7 +151,7 @@ const RouletteFrame: React.FC<RouletteFrameProps> = ({
         // Duración del ciclo completo: 1.2s
         // Delay escalonado para crear la ola.
         // Opacidad varía de encendido (1) a apagado (0.3).
-        const animationDuration = spinning ? "0.6s" : "1.2s"; 
+        const animationDuration = `${ROULETTE_CONFIG.frame.idleCycleSeconds}s`;
         
         return (
           <circle
@@ -161,12 +160,8 @@ const RouletteFrame: React.FC<RouletteFrameProps> = ({
             cy={light.cy}
             r={lightSize}
             fill={lightFill || 'url(#lightGradient)'}
-            // Eliminamos la opacidad estática en style para que la animación controle
-            style={{ }}
           >
-            {!lowMotion && (
-              <>
-                 {/* Animación de Opacidad (Encender/Apagar) - Siempre activa */}
+            {!lowMotion && !spinning && ROULETTE_CONFIG.quality[quality].lightStride > 0 && index % ROULETTE_CONFIG.quality[quality].lightStride === 0 && (
                 <animate
                   attributeName="opacity"
                   values="1;0.4;1"
@@ -174,18 +169,6 @@ const RouletteFrame: React.FC<RouletteFrameProps> = ({
                   repeatCount="indefinite"
                   begin={`${light.delay}s`}
                 />
-                
-                {/* Animación de Tamaño (Pulsar) - Solo cuando gira para más intensidad */}
-                {spinning && (
-                  <animate
-                    attributeName="r"
-                    values={`${lightSize};${lightSize * 1.5};${lightSize}`}
-                    dur={animationDuration}
-                    repeatCount="indefinite"
-                    begin={`${light.delay}s`}
-                  />
-                )}
-              </>
             )}
           </circle>
         );
@@ -200,10 +183,10 @@ const RouletteFrame: React.FC<RouletteFrameProps> = ({
         strokeWidth={2}
         opacity={0.2}
       >
-        <animate attributeName="opacity" values="0.2;0.5;0.2" dur="2s" repeatCount="indefinite" />
+        {!lowMotion && !spinning && quality === 'high' && <animate attributeName="opacity" values="0.2;0.5;0.2" dur="2s" repeatCount="indefinite" />}
       </circle>
     </svg>
   );
 };
 
-export default RouletteFrame;
+export default React.memo(RouletteFrame);
